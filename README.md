@@ -38,7 +38,8 @@ La evaluación de la materia es individual y se auditará la frecuencia y calida
 
 ### 3. Gestión de Tareas (Kanban)
 * La planificación se ejecuta de forma transparente en GitHub Projects.
-* Para prevenir cuellos de botella operativos, el equipo debe respetar un límite de **[WIP: 4]** (Work In Progress) en la columna de tareas en curso.
+* Para prevenir cuellos de botella operativos, el equipo debe respetar un límite de **[WIP: 4]** en la columna de tareas en curso.
+* **Convención de Tareas:** Todo ticket debe crearse utilizando el formato `[Módulo] Acción a realizar` (ej. `[Infra] Crear instancia EC2`) y tener siempre un responsable asignado ("Assignee").
 
 ### 4. Auditoría de Inteligencia Artificial (AI Policy)
 El uso de asistentes está permitido, pero es nuestra responsabilidad determinar que está bien y que está mal, que sirve y que no.
