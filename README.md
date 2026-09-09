@@ -11,7 +11,7 @@ Medianube es una solución integral en formato SaaS diseñada para dueños, admi
 
 ## 🛠️ Arquitectura y Stack Tecnológico
 El sistema está diseñado bajo un modelo Cloud-Native utilizando los siguientes servicios:
-* **Frontend:** AWS EC2.
+* **Frontend:** Desarrollo en **NextJS / React**, desplegado sobre infraestructura **AWS EC2**.
 * **Backend (Serverless):** AWS Lambda.
 * **Base de Datos:** DynamoDB o Amazon RDS.
 * **Storage:** AWS S3 (alojamiento de imágenes de facturas).
