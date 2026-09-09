@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagrama Interactivo de Navegación — medianube</title>
+<!-- Tabler Icons -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+<!-- Google Fonts: Work Sans -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #FBF1E7;
+    --surface: #FFFFFF;
+    --surface-input: #FFFDFB;
+    --border: #E8D9C7;
+    --border-strong: #C9986B;
+    --accent: #B5722E;
+    --accent-dark: #8A5423;
+    --text-primary: #4A3222;
+    --text-secondary: #8C7361;
+    --text-muted: #B08D6F;
+    --tint-accent: #F6E4D3;
+    --success-bg: #E3EFD9;
+    --success-text: #4B6B2E;
+    --warning-bg: #F7E3DD;
+    --warning-text: #A34A2D;
+    --neutral-bg: #F0E4D4;
+    --neutral-text: #8C7361;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: 'Work Sans', sans-serif;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text-primary);
+    padding: 32px 24px 60px;
+    min-height: 100vh;
+  }
+
+  .container {
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .brand-logo {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: var(--tint-accent);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .brand-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .brand-title h1 {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--text-primary);
+    letter-spacing: -0.3px;
+  }
+
+  .brand-title p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+  }
+
+  .controls-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .controls-bar span.badge {
+    background: var(--tint-accent);
+    color: var(--accent-dark);
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  /* Info Banner */
+  .intro-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .intro-text h2 {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  .intro-text p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  /* Canvas Diagram Layout */
+  .diagram-board {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 36px 28px 48px;
+    margin-bottom: 28px;
+    overflow-x: auto;
+  }
+
+  /* SVG Connections Overlay */
+  #connections-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .flow-grid {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    min-width: 980px;
+  }
+
+  /* Level Rows */
+  .level-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    position: relative;
+  }
+
+  .row-label {
+    position: absolute;
+    left: 0;
+    top: -18px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  /* Screen Node Card */
+  .screen-node {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    width: 210px;
+    padding: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+    position: relative;
+  }
+
+  .screen-node:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+
+  .screen-node.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+
+  .screen-node.highlighted {
+    border-color: var(--accent);
+    background: var(--surface-input);
+  }
+
+  .node-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .node-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--tint-accent);
+    color: var(--accent-dark);
+    font-weight: 500;
+  }
+
+  .node-tag.core {
+    background: var(--accent);
+    color: #FFF;
+  }
+
+  .node-route {
+    font-size: 11px;
+    font-family: monospace;
+    color: var(--text-muted);
+  }
+
+  .node-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .node-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin-bottom: 10px;
+    min-height: 30px;
+  }
+
+  .node-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    border-top: 1px solid #F5EBDF;
+    padding-top: 8px;
+  }
+
+  .action-chip {
+    font-size: 10px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--accent-dark);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .action-chip:hover {
+    background: var(--tint-accent);
+    border-color: var(--border-strong);
+  }
+
+  /* Core Tab Strip Visualizer */
+  .core-tabs-bar {
+    background: #FFF8F2;
+    border: 1px dashed var(--border-strong);
+    border-radius: 12px;
+    padding: 16px 20px 20px;
+    position: relative;
+  }
+
+  .core-tabs-bar .bar-title {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--accent-dark);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .core-nodes-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+
+  /* Interactive Inspector / Preview Panel */
+  .detail-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 24px;
+  }
+
+  @media (max-width: 900px) {
+    .detail-panel {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .panel-sidebar {
+    border-right: 1px solid #F5EBDF;
+    padding-right: 20px;
+  }
+
+  @media (max-width: 900px) {
+    .panel-sidebar {
+      border-right: none;
+      border-bottom: 1px solid #F5EBDF;
+      padding-right: 0;
+      padding-bottom: 16px;
+    }
+  }
+
+  .panel-sidebar h3 {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  .panel-sidebar .route-badge {
+    display: inline-block;
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--tint-accent);
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+  }
+
+  .panel-sidebar p.summary {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 18px;
+  }
+
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+
+  .links-list {
+    list-style: none;
+    margin-bottom: 18px;
+  }
+
+  .links-list li {
+    font-size: 12px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid #F5EBDF;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    background: var(--surface-input);
+    transition: all 0.15s ease;
+  }
+
+  .links-list li:hover {
+    border-color: var(--border-strong);
+    background: var(--tint-accent);
+  }
+
+  .links-list li .trigger {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .links-list li .target-screen {
+    color: var(--accent-dark);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  /* Live Screen Mini-Preview */
+  .preview-container {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    min-height: 320px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .preview-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .preview-topbar .dots {
+    display: flex;
+    gap: 4px;
+  }
+
+  .preview-topbar .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border-strong);
+  }
+
+  .preview-topbar .url {
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--surface);
+    padding: 3px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+  }
+
+  .preview-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Matrix of Routes Table */
+  .routes-table-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    margin-top: 28px;
+  }
+
+  .routes-table-container h3 {
+    font-size: 15px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+  }
+
+  .routes-table-container p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+  }
+
+  table.routes-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  table.routes-table th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+  }
+
+  table.routes-table td {
+    padding: 12px;
+    border-bottom: 1px solid #F5EBDF;
+    color: var(--text-primary);
+    vertical-align: middle;
+  }
+
+  table.routes-table tr:hover td {
+    background: var(--surface-input);
+  }
+
+  .badge-cell {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+
+  .badge-core {
+    background: var(--tint-accent);
+    color: var(--accent-dark);
+    font-weight: 500;
+  }
+
+  .badge-sub {
+    background: #F0E4D4;
+    color: var(--text-secondary);
+  }
+
+  .btn-sim {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+
+  .btn-sim:hover {
+    background: var(--accent);
+    color: #FFF;
+    border-color: var(--accent);
+  }
+
+  /* Footer Note */
+  .footer-note {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <header class="header">
+    <div class="brand">
+      <div class="brand-logo">
+        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuCSikh-oG-rlu2N9ZPtbGyQQOQSB_scM4_BHrO61-GCeRJ-uQLLKpNKHRR1PWZKegZcTv1iEclCsjJ3dWzNIMXR_9M40hgnmR72zJU_Y-q52hXFDl62Y1HFzYhwk-269SKhHkstWmaFTHIR83AZMJKZx26DQ9ZC_Hw02aIz2HNIMS2uJWP1TAJ8aLDUJm7Sth87YwRb1OcLmiX2g6UkxtFD_6Qcm48nhh35nTO2T3orBBA9zgYHDNxgeIPcRPCoCOpy7Q" alt="Medianube Logo" onerror="this.src=''; this.parentElement.innerHTML='<i class=\'ti ti-bread\' style=\'font-size:22px; color:#9C6B3E;\'></i>';">
+      </div>
+      <div class="brand-title">
+        <h1>medianube — Mapa & Diagrama Interactivo de Navegación</h1>
+        <p>Especificación de Flujo y Relaciones según DESIGN.md (§6)</p>
+      </div>
+    </div>
+
+    <div class="controls-bar">
+      <span>8 pantallas especificadas</span>
+      <span class="badge">Navegación Desktop ARS</span>
+      <button class="btn-sim" onclick="resetSelection()"><i class="ti ti-rotate-clockwise" style="vertical-align:-1px;"></i> Resetear foco</button>
+    </div>
+  </header>
+
+  <!-- Intro Card with Legend -->
+  <div class="intro-card">
+    <div class="intro-text">
+      <h2>Diagrama de Arquitectura de Información y Transiciones</h2>
+      <p>Hacé clic en cualquier pantalla o acción interactiva para resaltar sus conexiones salientes y entrantes, o simulá el recorrido completo del usuario.</p>
+    </div>
+    <div class="legend">
+      <div class="legend-item">
+        <span class="legend-dot" style="background:var(--accent);"></span>
+        <span>Núcleo por Tabs (Lateral Inmediata)</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot" style="background:#C9986B;"></span>
+        <span>Punto de Entrada / Onboarding</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot" style="background:#A34A2D;"></span>
+        <span>Flujo Hijo (Retorno explícito)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive Board -->
+  <div class="diagram-board" id="board">
+    <!-- SVG Vector Connections -->
+    <svg id="connections-layer"></svg>
+
+    <div class="flow-grid">
+
+      <!-- Nivel 1: Autenticación & Onboarding -->
+      <div class="level-row" style="justify-content: flex-start; gap: 40px; padding-left: 40px;">
+        <span class="row-label">1. Entrada & Activación de Cuenta</span>
+
+        <!-- Node: Login -->
+        <div class="screen-node" id="node-login" onclick="selectNode('login')">
+          <div class="node-header">
+            <span class="node-tag">Entrada</span>
+            <span class="node-route">/login</span>
+          </div>
+          <div class="node-title"><i class="ti ti-lock"></i> Login</div>
+          <div class="node-desc">Acceso con credenciales o Google. Solicitar demo deriva a onboarding.</div>
+          <div class="node-actions">
+            <span class="action-chip" onclick="event.stopPropagation(); simulateHop('login', 'dashboard', 'iniciar sesión')">
+              <i class="ti ti-arrow-narrow-right"></i> Iniciar sesión → /dashboard
+            </span>
+            <span class="action-chip" onclick="event.stopPropagation(); simulateHop('login', 'onboarding', 'solicitar demo')">
+              <i class="ti ti-arrow-narrow-right"></i> Solicitar demo → /onboarding
+            </span>
+          </div>
+        </div>
+
+        <!-- Node: Onboarding -->
+        <div class="screen-node" id="node-onboarding" onclick="selectNode('onboarding')">
+          <div class="node-header">
+            <span class="node-tag">Paso 1 de 3</span>
+            <span class="node-route">/onboarding</span>
+          </div>
+          <div class="node-title"><i class="ti ti-forms"></i> Onboarding</div>
+          <div class="node-desc">Datos del negocio, sucursales y moneda fijada en ARS.</div>
+          <div class="node-actions">
+            <span class="action-chip" onclick="event.stopPropagation(); simulateHop('onboarding', 'dashboard', 'continuar')">
+              <i class="ti ti-arrow-narrow-right"></i> Continuar → /dashboard
+            </span>
+            <span class="action-chip" onclick="event.stopPropagation(); simulateHop('onboarding', 'dashboard', 'omitir')">
+              <i class="ti ti-arrow-narrow-right"></i> Omitir por ahora → /dashboard
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nivel 2: Las 4 Pantallas Núcleo (Comparten Header Tabs) -->
+      <div class="core-tabs-bar" id="core-wrapper">
+        <div class="bar-title">
+          <span><i class="ti ti-layout-navbar" style="margin-right:4px;"></i> 2. ÁREA NÚCLEO AUTENTICADA — Barra de Navegación Compartida (Cambio Lateral Inmediato)</span>
+          <span style="font-size:10px; font-weight:400; color:var(--text-secondary);">Accesible en 1 clic entre Dashboard, Compras, Precios y Demanda</span>
+        </div>
+
+        <div class="core-nodes-row">
+          <!-- Node: Dashboard -->
+          <div class="screen-node" id="node-dashboard" onclick="selectNode('dashboard')">
+            <div class="node-header">
+              <span class="node-tag core">Tab 1</span>
+              <span class="node-route">/dashboard</span>
+            </div>
+            <div class="node-title"><i class="ti ti-dashboard"></i> Dashboard</div>
+            <div class="node-desc">KPIs de rentabilidad, compras recientes, precios sugeridos y pico de demanda.</div>
+            <div class="node-actions">
+              <span class="action-chip" onclick="event.stopPropagation(); simulateHop('dashboard', 'compras', 'ver todas')">
+                <i class="ti ti-arrow-right"></i> Compras recientes
+              </span>
+              <span class="action-chip" onclick="event.stopPropagation(); simulateHop('dashboard', 'precios', 'ver todas')">
+                <i class="ti ti-arrow-right"></i> Precios sugeridos
+              </span>
+              <span class="action-chip" onclick="event.stopPropagation(); simulateHop('dashboard', 'demanda', 'ver detalle')">
+                <i class="ti ti-arrow-right"></i> Detalle demanda
+              </span>
+              <span class="action-chip" onclick="event.stopPropagation(); simulateHop('dashboard', 'configuracion', 'engranaje')">
+                <i class="ti ti-settings"></i> Configuración
+              </span>
+            </div>
+          </div>
+
+          <!-- Node: Compras -->
+          <div class="screen-node" id="node-compras" onclick="selectNode('compras')">
+            <div class="node-header">
+              <span class="node-tag core">Tab 2</span>
+              <span class="node-route">/compras</span>
+            </div>
+            <div class="node-title"><i class="ti ti-receipt"></i> Compras</div>
+            <div class="node-desc">Historial de facturas procesadas por IA, estados (procesada/revisar) y KPIs.</div>
+            <div class="node-actions">
+              <span class="action-chip" onclick="event.stopPropagation(); simulateHop('compras', 'subir-factura', 'subir factura')">
+                <i class="ti ti-upload"></i> Subir factura (CTA)
+              </span>
+              <span class="action-chip" onclick="event.stopPropagation(); simulateHop('compras', 'configuracion', 'engranaje')">
+                <i class="ti ti-settings"></i> Configuración
+              </span>
+            </div>
+          </div>
+
+          <!-- Node: Precios -->
+          <div class="screen-node" id="node-precios" onclick="selectNode('precios')">
+            <div class="node-header">
+              <span class="node-tag core">Tab 3</span>
+              <span class="node-route">/precios</span>
+            </div>
+            <div class="node-title"><i class="ti ti-tag"></i> Precios</div>
+            <div class="node-desc">Sugerencias IA frente a la inflación, márgenes y botón "recalcular con IA".</div>
+            <div class="node-actions">
+              <span class="action-chip" onclick="event.stopPropagation(); simulateHop('precios', 'configuracion', 'engranaje')">
+                <i class="ti ti-settings"></i> Configuración
+              </span>
+              <span class="action-chip" onclick="event.stopPropagation(); simulateHop('precios', 'login', 'cerrar sesión')">
+                <i class="ti ti-logout"></i> Cerrar sesión
+              </span>
+            </div>
+          </div>
+
+          <!-- Node: Demanda -->
+          <div class="screen-node" id="node-demanda" onclick="selectNode('demanda')">
+            <div class="node-header">
+              <span class="node-tag core">Tab 4</span>
+              <span class="node-route">/demanda</span>
+            </div>
+            <div class="node-title"><i class="ti ti-chart-bar"></i> Demanda</div>
+            <div class="node-desc">Gráfico 7 días histórico + 7 proyección IA, niveles de confianza de producción.</div>
+            <div class="node-actions">
+              <span class="action-chip" onclick="event.stopPropagation(); simulateHop('demanda', 'configuracion', 'engranaje')">
+                <i class="ti ti-settings"></i> Configuración
+              </span>
+              <span class="action-chip" onclick="event.stopPropagation(); simulateHop('demanda', 'login', 'cerrar sesión')">
+                <i class="ti ti-logout"></i> Cerrar sesión
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nivel 3: Pantallas Hijas / Secundarias -->
+      <div class="level-row" style="justify-content: space-around; padding: 0 40px;">
+        <span class="row-label">3. Flujos Hijos con Retorno Dedicado</span>
+
+        <!-- Node: Subir Factura -->
+        <div class="screen-node" id="node-subir-factura" onclick="selectNode('subir-factura')">
+          <div class="node-header">
+            <span class="node-tag" style="background:#F7E3DD; color:#A34A2D;">Flujo Hijo</span>
+            <span class="node-route">/compras/subir</span>
+          </div>
+          <div class="node-title"><i class="ti ti-file-upload"></i> Subir factura</div>
+          <div class="node-desc">Pasos: 1. Subir → 2. Revisar ítems detectados por IA → 3. Confirmar.</div>
+          <div class="node-actions">
+            <span class="action-chip" onclick="event.stopPropagation(); simulateHop('subir-factura', 'compras', 'volver a compras')">
+              <i class="ti ti-arrow-left"></i> Volver a compras
+            </span>
+            <span class="action-chip" onclick="event.stopPropagation(); simulateHop('subir-factura', 'compras', 'confirmar y guardar')">
+              <i class="ti ti-check"></i> Confirmar y guardar
+            </span>
+          </div>
+        </div>
+
+        <!-- Node: Configuración -->
+        <div class="screen-node" id="node-configuracion" onclick="selectNode('configuracion')">
+          <div class="node-header">
+            <span class="node-tag" style="background:#F7E3DD; color:#A34A2D;">Área de Ajustes</span>
+            <span class="node-route">/configuracion</span>
+          </div>
+          <div class="node-title"><i class="ti ti-settings"></i> Configuración</div>
+          <div class="node-desc">Datos del negocio, moneda ($ ARS fija), márgenes IA, equipo y alertas.</div>
+          <div class="node-actions">
+            <span class="action-chip" onclick="event.stopPropagation(); simulateHop('configuracion', 'dashboard', 'volver al dashboard')">
+              <i class="ti ti-arrow-left"></i> Volver al dashboard
+            </span>
+            <span class="action-chip" onclick="event.stopPropagation(); simulateHop('configuracion', 'login', 'cerrar sesión')">
+              <i class="ti ti-logout"></i> Cerrar sesión
+            </span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Detailed Interactive Inspector Panel -->
+  <div class="detail-panel">
+    <div class="panel-sidebar">
+      <div id="inspector-header">
+        <h3 id="panel-title">Seleccioná una pantalla</h3>
+        <span class="route-badge" id="panel-route">/ruta</span>
+        <p class="summary" id="panel-summary">Hacé clic en cualquier nodo del diagrama superior para ver sus transiciones salientes, pantallas desde las cuales es alcanzable y probar la navegación interactiva.</p>
+      </div>
+
+      <div class="section-label">Destinos alcanzables (Salientes)</div>
+      <ul class="links-list" id="panel-outgoing">
+        <li style="color:var(--text-muted);">Sin pantalla seleccionada</li>
+      </ul>
+
+      <div class="section-label">Alcanzable desde (Entrantes)</div>
+      <ul class="links-list" id="panel-incoming">
+        <li style="color:var(--text-muted);">Sin pantalla seleccionada</li>
+      </ul>
+    </div>
+
+    <!-- Live Mockup Visualizer for Selected Screen -->
+    <div class="preview-container">
+      <div class="preview-topbar">
+        <div class="dots">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </div>
+        <div class="url" id="mockup-url">https://app.medianube.com/dashboard</div>
+        <span id="mockup-tag" style="font-size:11px; color:var(--accent); font-weight:500;">Vista activa</span>
+      </div>
+
+      <div class="preview-content" id="mockup-render">
+        <!-- Rendered by JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Routes Matrix Table per Section 6 -->
+  <div class="routes-table-container">
+    <h3>Tabla de Matriz de Rutas (DESIGN.md §6)</h3>
+    <p>Especificación canónica de todas las transiciones definidas en el sistema.</p>
+
+    <table class="routes-table">
+      <thead>
+        <tr>
+          <th>Pantalla</th>
+          <th>Ruta</th>
+          <th>Tipo</th>
+          <th>Alcanzable desde</th>
+          <th>Acción principal</th>
+          <th>Simular</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Login</strong></td>
+          <td><code>/login</code></td>
+          <td><span class="badge-cell badge-sub">Punto de entrada</span></td>
+          <td>Punto de inicio · "cerrar sesión" desde cualquier pantalla autenticada</td>
+          <td>Iniciar sesión</td>
+          <td><button class="btn-sim" onclick="selectNode('login')">Explorar</button></td>
+        </tr>
+        <tr>
+          <td><strong>Onboarding</strong></td>
+          <td><code>/onboarding</code></td>
+          <td><span class="badge-cell badge-sub">Activación</span></td>
+          <td>Login ("solicitar demo")</td>
+          <td>Continuar / Omitir</td>
+          <td><button class="btn-sim" onclick="selectNode('onboarding')">Explorar</button></td>
+        </tr>
+        <tr>
+          <td><strong>Dashboard</strong></td>
+          <td><code>/dashboard</code></td>
+          <td><span class="badge-cell badge-core">Núcleo (Tab 1)</span></td>
+          <td>Login, Onboarding, tab "dashboard", Configuración ("volver")</td>
+          <td>Vista general KPIs</td>
+          <td><button class="btn-sim" onclick="selectNode('dashboard')">Explorar</button></td>
+        </tr>
+        <tr>
+          <td><strong>Compras</strong></td>
+          <td><code>/compras</code></td>
+          <td><span class="badge-cell badge-core">Núcleo (Tab 2)</span></td>
+          <td>Tab "compras", Dashboard ("ver todas"), Subir factura ("volver"/"confirmar")</td>
+          <td>Subir factura</td>
+          <td><button class="btn-sim" onclick="selectNode('compras')">Explorar</button></td>
+        </tr>
+        <tr>
+          <td><strong>Subir factura</strong></td>
+          <td><code>/compras/subir</code></td>
+          <td><span class="badge-cell badge-sub">Flujo Hijo</span></td>
+          <td>Compras (botón "subir factura")</td>
+          <td>Confirmar y guardar</td>
+          <td><button class="btn-sim" onclick="selectNode('subir-factura')">Explorar</button></td>
+        </tr>
+        <tr>
+          <td><strong>Precios</strong></td>
+          <td><code>/precios</code></td>
+          <td><span class="badge-cell badge-core">Núcleo (Tab 3)</span></td>
+          <td>Tab "precios", Dashboard ("ver todas" de precios)</td>
+          <td>Recalcular con IA</td>
+          <td><button class="btn-sim" onclick="selectNode('precios')">Explorar</button></td>
+        </tr>
+        <tr>
+          <td><strong>Demanda</strong></td>
+          <td><code>/demanda</code></td>
+          <td><span class="badge-cell badge-core">Núcleo (Tab 4)</span></td>
+          <td>Tab "demanda", Dashboard ("ver detalle" de predicción)</td>
+          <td>Recalcular con IA</td>
+          <td><button class="btn-sim" onclick="selectNode('demanda')">Explorar</button></td>
+        </tr>
+        <tr>
+          <td><strong>Configuración</strong></td>
+          <td><code>/configuracion</code></td>
+          <td><span class="badge-cell badge-sub">Área de Ajustes</span></td>
+          <td>Ícono de engranaje en dashboard / compras / precios / demanda</td>
+          <td>Volver al dashboard</td>
+          <td><button class="btn-sim" onclick="selectNode('configuracion')">Explorar</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer-note">
+    medianube software de panadería · Interfaz especificada en pesos argentinos (ARS) · Tipografía Work Sans · Sin sombras de elevación
+  </div>
+</div>
+
+<script>
+// Screen data model from DESIGN.md
+const screens = {
+  'login': {
+    title: 'Login',
+    route: '/login',
+    tag: 'Punto de Entrada',
+    desc: 'Acceso seguro al panel de la panadería. Soporta inicio con email/contraseña, Google y acceso directo a solicitar demo.',
+    outgoing: [
+      { trigger: 'Iniciar sesión (botón primario)', target: 'dashboard' },
+      { trigger: 'Ingresar con Google (botón secundario)', target: 'dashboard' },
+      { trigger: 'Solicitar demo (link)', target: 'onboarding' }
+    ],
+    incoming: [
+      { from: 'Cualquier pantalla autenticada', trigger: '"cerrar sesión" en nav superior o configuración' }
+    ],
+    miniHtml: `
+      <div style="background:#FFF; border:1px solid #E8D9C7; border-radius:14px; padding:20px; width:260px; text-align:center;">
+        <div style="width:36px; height:36px; border-radius:50%; background:#F6E4D3; margin:0 auto 8px; display:flex; align-items:center; justify-content:center; border:1px solid #C9986B;">
+          <i class="ti ti-bread" style="color:#9C6B3E; font-size:18px;"></i>
+        </div>
+        <p style="font-weight:500; font-size:14px; color:#4A3222; margin-bottom:2px;">medianube</p>
+        <p style="font-size:11px; color:#8C7361; margin-bottom:12px;">Iniciar sesión</p>
+        <div style="background:#FFFDFB; border:1px solid #E8D9C7; border-radius:6px; padding:6px 8px; font-size:11px; color:#8C7361; text-align:left; margin-bottom:6px;">usuario@panaderia.com</div>
+        <div style="background:#FFFDFB; border:1px solid #E8D9C7; border-radius:6px; padding:6px 8px; font-size:11px; color:#8C7361; text-align:left; margin-bottom:10px;">••••••••</div>
+        <button onclick="selectNode('dashboard')" style="width:100%; background:#B5722E; color:#FFF; border:none; border-radius:6px; padding:8px; font-size:11px; font-weight:500; cursor:pointer;">Iniciar sesión</button>
+        <p style="font-size:10px; color:#8C7361; margin-top:10px;">¿No tenés cuenta? <span onclick="selectNode('onboarding')" style="color:#B5722E; font-weight:500; cursor:pointer;">Solicitar demo</span></p>
+      </div>
+    `
+  },
+  'onboarding': {
+    title: 'Onboarding (Paso 1 de 3)',
+    route: '/onboarding',
+    tag: 'Paso 1 de 3',
+    desc: 'Configuración inicial del negocio: nombre comercial, categoría (panadería, pastelería), sucursales y moneda fija en ARS.',
+    outgoing: [
+      { trigger: 'Continuar (botón primario)', target: 'dashboard' },
+      { trigger: 'Omitir por ahora (link)', target: 'dashboard' }
+    ],
+    incoming: [
+      { from: 'Login', trigger: 'Clic en "Solicitar demo"' }
+    ],
+    miniHtml: `
+      <div style="background:#FFF; border:1px solid #E8D9C7; border-radius:14px; padding:20px; width:280px;">
+        <div style="display:flex; gap:4px; margin-bottom:10px;">
+          <div style="flex:1; height:3px; background:#B5722E; border-radius:2px;"></div>
+          <div style="flex:1; height:3px; background:#E8D9C7; border-radius:2px;"></div>
+          <div style="flex:1; height:3px; background:#E8D9C7; border-radius:2px;"></div>
+        </div>
+        <p style="font-size:10px; color:#B08D6F; margin-bottom:4px;">paso 1 de 3</p>
+        <p style="font-size:13px; font-weight:500; color:#4A3222; margin-bottom:10px;">Contanos sobre tu panadería</p>
+        <div style="background:#FFFDFB; border:1px solid #E8D9C7; border-radius:6px; padding:6px 8px; font-size:11px; color:#4A3222; margin-bottom:8px;">Panadería Don Juan</div>
+        <div style="display:flex; gap:6px; margin-bottom:12px;">
+          <span style="font-size:10px; background:#B5722E; color:#FFF; padding:3px 8px; border-radius:12px;">panadería</span>
+          <span style="font-size:10px; border:1px solid #E8D9C7; padding:3px 8px; border-radius:12px;">pastelería</span>
+        </div>
+        <button onclick="selectNode('dashboard')" style="width:100%; background:#B5722E; color:#FFF; border:none; border-radius:6px; padding:8px; font-size:11px; font-weight:500; cursor:pointer;">Continuar → Dashboard</button>
+      </div>
+    `
+  },
+  'dashboard': {
+    title: 'Dashboard General',
+    route: '/dashboard',
+    tag: 'Núcleo / Tab 1',
+    desc: 'Vista resumen con KPIs clave (margen 34%, alertas 5, producción 2.180 u.), accesos rápidos a compras, precios sugeridos y pico de demanda.',
+    outgoing: [
+      { trigger: 'Tab "compras"', target: 'compras' },
+      { trigger: 'Tab "precios"', target: 'precios' },
+      { trigger: 'Tab "demanda"', target: 'demanda' },
+      { trigger: 'Ver todas (compras recientes)', target: 'compras' },
+      { trigger: 'Ver todas (precios sugeridos)', target: 'precios' },
+      { trigger: 'Ver detalle (predicción de demanda)', target: 'demanda' },
+      { trigger: 'Ícono engranaje', target: 'configuracion' },
+      { trigger: 'Cerrar sesión', target: 'login' }
+    ],
+    incoming: [
+      { from: 'Login', trigger: 'Iniciar sesión exitoso' },
+      { from: 'Onboarding', trigger: 'Continuar u omitir' },
+      { from: 'Compras, Precios, Demanda', trigger: 'Clic en tab "dashboard"' },
+      { from: 'Configuración', trigger: 'Clic en "volver al dashboard"' }
+    ],
+    miniHtml: `
+      <div style="background:#FFF; border:1px solid #E8D9C7; border-radius:12px; padding:16px; width:340px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid #F5EBDF; padding-bottom:8px;">
+          <span style="font-weight:500; font-size:12px; color:#4A3222;">medianube dashboard</span>
+          <span style="font-size:10px; color:#B5722E; cursor:pointer;" onclick="selectNode('configuracion')"><i class="ti ti-settings"></i> config</span>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:10px;">
+          <div style="border:1px solid #E8D9C7; border-radius:6px; padding:6px; text-align:center;">
+            <p style="font-size:9px; color:#8C7361;">margen</p>
+            <p style="font-size:14px; font-weight:500; color:#4A3222;">34%</p>
+          </div>
+          <div style="border:1px solid #E8D9C7; border-radius:6px; padding:6px; text-align:center;">
+            <p style="font-size:9px; color:#8C7361;">alertas</p>
+            <p style="font-size:14px; font-weight:500; color:#A34A2D;">5</p>
+          </div>
+          <div style="border:1px solid #E8D9C7; border-radius:6px; padding:6px; text-align:center;">
+            <p style="font-size:9px; color:#8C7361;">producción</p>
+            <p style="font-size:14px; font-weight:500; color:#4A3222;">2.180</p>
+          </div>
+        </div>
+        <div style="background:#F6E4D3; border-radius:6px; padding:8px; font-size:11px; color:#6B4226; margin-bottom:10px;">
+          ✨ Pico esperado el sábado: +35% de demanda
+        </div>
+        <div style="display:flex; justify-content:space-between; gap:6px;">
+          <button onclick="selectNode('compras')" class="btn-sim" style="flex:1;">Ir a Compras</button>
+          <button onclick="selectNode('precios')" class="btn-sim" style="flex:1;">Ir a Precios</button>
+        </div>
+      </div>
+    `
+  },
+  'compras': {
+    title: 'Historial de Compras',
+    route: '/compras',
+    tag: 'Núcleo / Tab 2',
+    desc: 'Auditoría de facturas procesadas automáticamente por IA, filtradas por fecha/proveedor/estado (procesada / revisar) y botón principal para subir factura.',
+    outgoing: [
+      { trigger: 'Subir factura (botón primario)', target: 'subir-factura' },
+      { trigger: 'Tab "dashboard"', target: 'dashboard' },
+      { trigger: 'Tab "precios"', target: 'precios' },
+      { trigger: 'Tab "demanda"', target: 'demanda' },
+      { trigger: 'Ícono engranaje', target: 'configuracion' },
+      { trigger: 'Cerrar sesión', target: 'login' }
+    ],
+    incoming: [
+      { from: 'Dashboard', trigger: 'Clic en tab o link "ver todas"' },
+      { from: 'Subir factura', trigger: 'Volver, cancelar o confirmar' },
+      { from: 'Precios, Demanda', trigger: 'Clic en tab "compras"' }
+    ],
+    miniHtml: `
+      <div style="background:#FFF; border:1px solid #E8D9C7; border-radius:12px; padding:16px; width:340px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <p style="font-size:13px; font-weight:500; color:#4A3222;">Historial de compras</p>
+          <button onclick="selectNode('subir-factura')" style="background:#B5722E; color:#FFF; border:none; border-radius:6px; padding:5px 10px; font-size:10px; font-weight:500; cursor:pointer;">+ subir factura</button>
+        </div>
+        <div style="border:1px solid #E8D9C7; border-radius:8px; padding:8px; font-size:11px;">
+          <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #F5EBDF;">
+            <span>Molino San Justo</span>
+            <span style="background:#E3EFD9; color:#4B6B2E; padding:1px 6px; border-radius:4px; font-size:9px;">procesada</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #F5EBDF;">
+            <span>Envases del Sur</span>
+            <span style="background:#F7E3DD; color:#A34A2D; padding:1px 6px; border-radius:4px; font-size:9px;">revisar</span>
+          </div>
+        </div>
+      </div>
+    `
+  },
+  'subir-factura': {
+    title: 'Subir Factura (Extracción IA)',
+    route: '/compras/subir',
+    tag: 'Flujo Hijo',
+    desc: 'Flujo de carga desktop: 1. Subir archivo → 2. Revisión de productos extraídos por IA (Harina, Manteca, Levadura) → 3. Confirmación.',
+    outgoing: [
+      { trigger: 'Volver a compras (link)', target: 'compras' },
+      { trigger: 'Cancelar (botón secundario)', target: 'compras' },
+      { trigger: 'Confirmar y guardar (botón primario)', target: 'compras' }
+    ],
+    incoming: [
+      { from: 'Compras', trigger: 'Clic en botón "subir factura"' }
+    ],
+    miniHtml: `
+      <div style="background:#FFF; border:1px solid #E8D9C7; border-radius:12px; padding:16px; width:320px;">
+        <span onclick="selectNode('compras')" style="font-size:10px; color:#B5722E; cursor:pointer; display:inline-block; margin-bottom:8px;">← volver a compras</span>
+        <p style="font-size:12px; font-weight:500; color:#4A3222; margin-bottom:8px;">Revisar factura extraída</p>
+        <div style="background:#F6E4D3; border-radius:6px; padding:6px 8px; font-size:10px; color:#6B4226; margin-bottom:10px;">
+          ✨ IA detectó 8 productos ($52.100).
+        </div>
+        <div style="font-size:11px; border:1px solid #E8D9C7; border-radius:6px; padding:6px; margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px solid #F5EBDF;">
+            <span>Harina 000 x 25kg</span><span>$32.800</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:3px 0;">
+            <span>Manteca x 5kg</span><span>$12.900</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button onclick="selectNode('compras')" style="flex:1; background:#FFF; border:1px solid #E8D9C7; border-radius:6px; padding:6px; font-size:10px; cursor:pointer;">Cancelar</button>
+          <button onclick="selectNode('compras')" style="flex:2; background:#B5722E; color:#FFF; border:none; border-radius:6px; padding:6px; font-size:10px; font-weight:500; cursor:pointer;">Confirmar y guardar</button>
+        </div>
+      </div>
+    `
+  },
+  'precios': {
+    title: 'Precios Sugeridos por IA',
+    route: '/precios',
+    tag: 'Núcleo / Tab 3',
+    desc: 'Protección de márgenes frente a la inflación: lista de productos, costo real, precio actual, sugerencia y variación (+14% medialunas, etc.).',
+    outgoing: [
+      { trigger: 'Tab "dashboard"', target: 'dashboard' },
+      { trigger: 'Tab "compras"', target: 'compras' },
+      { trigger: 'Tab "demanda"', target: 'demanda' },
+      { trigger: 'Recalcular con IA (acción interna)', target: 'precios' },
+      { trigger: 'Ícono engranaje', target: 'configuracion' },
+      { trigger: 'Cerrar sesión', target: 'login' }
+    ],
+    incoming: [
+      { from: 'Dashboard', trigger: 'Clic en tab o link "ver todas" de precios' },
+      { from: 'Compras, Demanda', trigger: 'Clic en tab "precios"' }
+    ],
+    miniHtml: `
+      <div style="background:#FFF; border:1px solid #E8D9C7; border-radius:12px; padding:16px; width:340px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <p style="font-size:13px; font-weight:500; color:#4A3222;">Precios sugeridos</p>
+          <span style="font-size:10px; background:#B5722E; color:#FFF; padding:4px 8px; border-radius:6px;">recalcular IA</span>
+        </div>
+        <div style="border:1px solid #E8D9C7; border-radius:8px; padding:8px; font-size:11px;">
+          <div style="display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid #F5EBDF;">
+            <span>Medialunas manteca</span>
+            <span>$420 → <strong>$480</strong> <span style="background:#F7E3DD; color:#A34A2D; padding:1px 4px; border-radius:4px; font-size:9px;">+14%</span></span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:5px 0;">
+            <span>Pan francés (kg)</span>
+            <span>$2.100 → <strong>$2.300</strong> <span style="background:#F7E3DD; color:#A34A2D; padding:1px 4px; border-radius:4px; font-size:9px;">+10%</span></span>
+          </div>
+        </div>
+      </div>
+    `
+  },
+  'demanda': {
+    title: 'Predicción de Demanda',
+    route: '/demanda',
+    tag: 'Núcleo / Tab 4',
+    desc: 'Gráfico comparativo de 14 barras (7 histórico + 7 proyección), detección de picos de producción y tabla de confianza por producto.',
+    outgoing: [
+      { trigger: 'Tab "dashboard"', target: 'dashboard' },
+      { trigger: 'Tab "compras"', target: 'compras' },
+      { trigger: 'Tab "precios"', target: 'precios' },
+      { trigger: 'Recalcular con IA (acción interna)', target: 'demanda' },
+      { trigger: 'Ícono engranaje', target: 'configuracion' },
+      { trigger: 'Cerrar sesión', target: 'login' }
+    ],
+    incoming: [
+      { from: 'Dashboard', trigger: 'Clic en tab o link "ver detalle"' },
+      { from: 'Compras, Precios', trigger: 'Clic en tab "demanda"' }
+    ],
+    miniHtml: `
+      <div style="background:#FFF; border:1px solid #E8D9C7; border-radius:12px; padding:16px; width:340px;">
+        <p style="font-size:13px; font-weight:500; color:#4A3222; margin-bottom:8px;">Predicción de demanda</p>
+        <div style="height:60px; display:flex; align-items:flex-end; gap:4px; background:#FFFDFB; border:1px solid #E8D9C7; border-radius:6px; padding:6px; margin-bottom:8px;">
+          <div style="flex:1; height:40%; background:#E8D9C7; border-radius:2px;"></div>
+          <div style="flex:1; height:60%; background:#E8D9C7; border-radius:2px;"></div>
+          <div style="flex:1; height:50%; background:#E8D9C7; border-radius:2px;"></div>
+          <div style="width:1px; height:100%; border-left:1px dashed #C9986B;"></div>
+          <div style="flex:1; height:75%; background:#C9986B; border-radius:2px;"></div>
+          <div style="flex:1; height:95%; background:#C9986B; border-radius:2px;"></div>
+          <div style="flex:1; height:60%; background:#C9986B; border-radius:2px;"></div>
+        </div>
+        <div style="background:#F6E4D3; border-radius:6px; padding:6px 8px; font-size:10px; color:#6B4226;">
+          💡 Pico el sábado: +35%. Reforzar harina y manteca.
+        </div>
+      </div>
+    `
+  },
+  'configuracion': {
+    title: 'Configuración',
+    route: '/configuracion',
+    tag: 'Área de Ajustes',
+    desc: 'Administración de datos del negocio, moneda ($ ARS predeterminada), márgenes objetivo por categoría para la IA, equipo y toggles de alertas.',
+    outgoing: [
+      { trigger: 'Volver al dashboard (link)', target: 'dashboard' },
+      { trigger: 'Cerrar sesión (link)', target: 'login' }
+    ],
+    incoming: [
+      { from: 'Dashboard, Compras, Precios, Demanda', trigger: 'Clic en ícono de engranaje (⚙)' }
+    ],
+    miniHtml: `
+      <div style="background:#FFF; border:1px solid #E8D9C7; border-radius:12px; padding:16px; width:340px;">
+        <span onclick="selectNode('dashboard')" style="font-size:10px; color:#B5722E; cursor:pointer; display:inline-block; margin-bottom:8px;">← volver al dashboard</span>
+        <p style="font-size:13px; font-weight:500; color:#4A3222; margin-bottom:10px;">Configuración</p>
+        <div style="border:1px solid #E8D9C7; border-radius:6px; padding:8px; font-size:11px; margin-bottom:8px;">
+          <p style="font-size:10px; color:#8C7361;">Moneda fija</p>
+          <p style="font-weight:500; color:#4A3222;">$ ARS — Peso Argentino (única)</p>
+        </div>
+        <div style="border:1px solid #E8D9C7; border-radius:6px; padding:8px; font-size:11px;">
+          <p style="font-size:10px; color:#8C7361; margin-bottom:4px;">Márgenes IA: Panadería 35% · Pastelería 40%</p>
+        </div>
+      </div>
+    `
+  }
+};
+
+let currentNodeId = 'dashboard';
+
+function selectNode(id) {
+  currentNodeId = id;
+  
+  // Highlight node classes
+  document.querySelectorAll('.screen-node').forEach(el => {
+    el.classList.remove('active', 'highlighted');
+  });
+  
+  const targetNode = document.getElementById(`node-${id}`);
+  if (targetNode) {
+    targetNode.classList.add('active');
+  }
+
+  // Update Inspector
+  const data = screens[id];
+  document.getElementById('panel-title').innerText = data.title;
+  document.getElementById('panel-route').innerText = data.route;
+  document.getElementById('panel-summary').innerText = data.desc;
+  document.getElementById('mockup-url').innerText = `https://app.medianube.com${data.route}`;
+  document.getElementById('mockup-render').innerHTML = data.miniHtml;
+
+  // Outgoing list
+  const outList = document.getElementById('panel-outgoing');
+  outList.innerHTML = '';
+  data.outgoing.forEach(out => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span class="trigger">${out.trigger}</span>
+      <span class="target-screen">→ ${screens[out.target]?.title || out.target}</span>
+    `;
+    li.onclick = () => selectNode(out.target);
+    outList.appendChild(li);
+    
+    // Highlight connected outgoing node slightly
+    const connEl = document.getElementById(`node-${out.target}`);
+    if (connEl && out.target !== id) connEl.classList.add('highlighted');
+  });
+
+  // Incoming list
+  const inList = document.getElementById('panel-incoming');
+  inList.innerHTML = '';
+  data.incoming.forEach(inc => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span class="trigger">${inc.from}</span>
+      <span class="target-screen">${inc.trigger}</span>
+    `;
+    inList.appendChild(li);
+  });
+
+  drawConnections(id);
+}
+
+function simulateHop(fromId, toId, actionName) {
+  selectNode(toId);
+}
+
+function resetSelection() {
+  selectNode('dashboard');
+}
+
+// Draw dynamic SVG Bezier curves between connected nodes
+function drawConnections(focusedId) {
+  const svg = document.getElementById('connections-layer');
+  const board = document.getElementById('board');
+  const boardRect = board.getBoundingClientRect();
+
+  svg.setAttribute('width', board.scrollWidth);
+  svg.setAttribute('height', board.scrollHeight);
+  svg.innerHTML = '';
+
+  const activeNode = document.getElementById(`node-${focusedId}`);
+  if (!activeNode) return;
+
+  const data = screens[focusedId];
+  if (!data) return;
+
+  const srcRect = activeNode.getBoundingClientRect();
+  const srcX = (srcRect.left - boardRect.left) + srcRect.width / 2;
+  const srcY = (srcRect.top - boardRect.top) + srcRect.height / 2;
+
+  data.outgoing.forEach(out => {
+    if (out.target === focusedId) return;
+    const destNode = document.getElementById(`node-${out.target}`);
+    if (!destNode) return;
+
+    const destRect = destNode.getBoundingClientRect();
+    const destX = (destRect.left - boardRect.left) + destRect.width / 2;
+    const destY = (destRect.top - boardRect.top) + destRect.height / 2;
+
+    // Bezier control points
+    const dx = destX - srcX;
+    const dy = destY - srcY;
+    const cx1 = srcX + dx * 0.2;
+    const cy1 = srcY + dy * 0.5 + 20;
+    const cx2 = destX - dx * 0.2;
+    const cy2 = destY - dy * 0.5 - 20;
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', `M ${srcX} ${srcY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${destX} ${destY}`);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#B5722E');
+    path.setAttribute('stroke-width', '2.5');
+    path.setAttribute('stroke-dasharray', '6 4');
+    path.setAttribute('opacity', '0.75');
+
+    // Arrow marker / end circle
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', destX);
+    circle.setAttribute('cy', destY);
+    circle.setAttribute('r', '5');
+    circle.setAttribute('fill', '#B5722E');
+
+    svg.appendChild(path);
+    svg.appendChild(circle);
+  });
+}
+
+// Initial mount & resize listener
+window.addEventListener('load', () => {
+  selectNode('dashboard');
+});
+window.addEventListener('resize', () => {
+  drawConnections(currentNodeId);
+});
+</script>
+
+</body>
+</html>
