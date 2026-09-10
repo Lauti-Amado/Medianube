@@ -1,26 +1,195 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ========================================
+   medianube — Design System Tokens
+   Based on DESIGN.md §3
+   ======================================== */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* --- Colors (§3.1) --- */
+  --color-bg: #FBF1E7;
+  --color-surface: #FFFFFF;
+  --color-surface-input: #FFFDFB;
+  --color-border: #E8D9C7;
+  --color-border-strong: #C9986B;
+  --color-border-divider: #F0E4D4;
+  --color-border-subtle: #F5EBDF;
+  --color-accent: #B5722E;
+  --color-accent-dark: #8A5423;
+  --color-accent-tint: #F6E4D3;
+  --color-text-primary: #4A3222;
+  --color-text-secondary: #8C7361;
+  --color-text-muted: #B08D6F;
+  --color-text-callout: #6B4226;
+  --color-icon-brand: #9C6B3E;
+  --color-success-bg: #E3EFD9;
+  --color-success-text: #4B6B2E;
+  --color-warning-bg: #F7E3DD;
+  --color-warning-text: #A34A2D;
+  --color-neutral-bg: #F0E4D4;
+  --color-neutral-text: #8C7361;
+  --color-on-primary: #FFFFFF;
+
+  /* --- Typography (§3.2) — Work Sans --- */
+  --font-sans: var(--font-work-sans);
+
+  /* --- Spacing (§3.3) — 4px grid --- */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-7: 28px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+
+  /* --- Border Radius (§3.3) --- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 9999px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ========================================
+   Base Styles
+   ======================================== */
+
+html, body {
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans), sans-serif;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* No box-shadow anywhere (§3.1) */
+* {
+  box-shadow: none !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+/* ========================================
+   Typography Scale (§3.2)
+   ======================================== */
+
+.text-headline-screen {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.text-headline-card {
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.text-body-default {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+}
+
+.text-body-emphasis {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+}
+
+.text-label-default {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+}
+
+.text-label-medium {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+}
+
+.text-caption {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 400;
+}
+
+.text-caption-medium {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}
+
+.text-kpi-display {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.text-brand-mark {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* ========================================
+   Material Symbols Outlined
+   ======================================== */
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+/* ========================================
+   Focus States (§7 Accessibility)
+   ======================================== */
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ========================================
+   Input base styles
+   ======================================== */
+
+input, select, textarea {
+  font-family: inherit;
+}
+
+input::placeholder {
+  color: var(--color-text-muted);
 }
