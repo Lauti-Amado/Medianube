@@ -6,4 +6,4 @@ Aceptamos las normas de convivencia, política de IA y evaluación individual ex
 - [x] Cáceres, Juan
 - [ ] Figueira, Julián
 - [ ] Piquet, Leonel
-- [ ] Tundis, Yamil
+- [x] Tundis, Yamil
