@@ -52,13 +52,33 @@
   --radius-xl: 12px;
   --radius-2xl: 16px;
   --radius-full: 9999px;
+
+  /* --- Phase 3: Chart tokens --- */
+  --color-bar-historic: #E8D9C7;
+  --color-bar-predicted: #C9986B;
+
+  /* --- Sidebar dark espresso system --- */
+  --color-sidebar-bg: #2C1A0E;
+  --color-sidebar-border: rgba(255,255,255,0.08);
+  --color-sidebar-divider: rgba(255,255,255,0.13);
+  --color-sidebar-text: #EDE0CF;
+  --color-sidebar-text-muted: #9C7A5C;
+  --color-sidebar-text-label: #C9986B;
+  --color-sidebar-active-bg: #4A2E14;
+  --color-sidebar-active-text: #F6D9B4;
+  --color-sidebar-active-border: #C9986B;
+  --color-sidebar-hover-bg: #3A2210;
+  --color-sidebar-icon: #C9986B;
+  --color-sidebar-upload-bg: #B5722E;
+  --color-sidebar-upload-hover: #C9823A;
 }
 
 /* ========================================
    Base Styles
    ======================================== */
 
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
 }
@@ -186,7 +206,9 @@ body {
    Input base styles
    ======================================== */
 
-input, select, textarea {
+input,
+select,
+textarea {
   font-family: inherit;
 }
 
