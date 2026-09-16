@@ -4,6 +4,6 @@ Aceptamos las normas de convivencia, política de IA y evaluación individual ex
 **Firmas del equipo:**
 - [x] Amado, Lautaro
 - [x] Cáceres, Juan
-- [ ] Figueira, Julián
+- [x] Figueira, Julián
 - [ ] Piquet, Leonel
 - [x] Tundis, Yamil
