@@ -32,10 +32,12 @@
 
 - Código base en Node.js para una función AWS Lambda de prueba que retorna un estado HTTP 200:
 
-    ``{
-    "statusCode": 200,
-    "body": JSON.stringify("¡Hola! La Lambda de prueba funciona   correctamente.")
-    }``
+```json
+{
+  "statusCode": 200,
+  "body": "¡Hola! La Lambda de prueba funciona correctamente."
+}
+```
 
 - Pasos para configurar un evento de prueba hello-world en Lambda para activar la generación de logs.
 
@@ -46,3 +48,14 @@
 - **Resolución de errores de CloudWatch:** Se diagnosticó la ausencia del Log Group (ResourceNotFoundException), identificando que el evento de prueba de Lambda no se había ejecutado por falta de un Test Event predefinido y/o permisos IAM (AWSLambdaBasicExecutionRole).
 
 - **Seguridad:** Se garantizó la activación de la opción Block All Public Access en el bucket S3 para prevenir la exposición pública de facturas confidenciales.
+
+
+## 21/09/2026 - Frontend Cloud (despliegue en AWS EC2)
+
+**Problema abordado:** Dejar el frontend Next.js de Medianube corriendo en una instancia EC2 (Ubuntu), accesible por HTTP, y documentar el redespliegue. Había que crear la instancia, instalar Node 22, Git, Nginx y PM2, buildear y no exponer la máquina a internet de más.
+
+**Prompt / Herramienta utilizada:** Cursor (chat en modo Ask y luego Agent). Se pidió el plan de tareas al estilo del issue de Infra, el paso a paso de deploy manual, comandos de instalación/build/PM2/Nginx, y un `REDESPLEGAR.md` en esta carpeta.
+
+**Código / Arquitectura generada:** Arquitectura simple Internet → Nginx (:80) → Next.js (:3000) con PM2. Propuesta de swap de 2 GB cuando `next build` terminaba en `Killed`. Config de Nginx como reverse proxy y secuencia `git pull` → `npm ci` → `npm run build` → `pm2 restart medianube`. No se usó Docker ni GitHub Actions en este despliegue.
+
+**Validación y Corrección Humana:** Se comprobó en la EC2 real: el build falló por OOM y el swap lo resolvió; `nginx -t` sin sudo daba falso error de permisos (había que usar `sudo`). Se rechazó abrir 80/22 a `0.0.0.0/0`: quedaron solo desde la IP del operador. No se subieron `.pem` ni access keys. La IA insistió al inicio en IAM humano / Identity Center; en esta cuenta no aplica (IAM solo programático), y el trabajo de consola se hizo con root.
