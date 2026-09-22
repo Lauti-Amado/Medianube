@@ -70,3 +70,27 @@
 **Código / Arquitectura generada:** La IA generó un documento ADR (Architecture Decision Record) argumentando que EC2 permite mayor soberanía de red (VPC), gestión unificada de políticas de seguridad y centralización de la infraestructura, evitando el vendor lock-in específico de las plataformas PaaS de terceros.
 
 **Validación y Corrección Humana:** Se validó la argumentación de la IA y el equipo ratificó la decisión. Aunque la cátedra fomenta el uso de servicios gestionados (PaaS) para minimizar la carga operativa y maximizar el Time-to-Market, el equipo asume el *trade-off* operativo inicial de configurar y mantener manualmente Nginx y PM2 en EC2. Esta decisión se toma con el objetivo de garantizar que toda la arquitectura (frontend y backend) resida bajo el mismo proveedor (AWS) y red virtual. La justificación extendida se documentó formalmente en el archivo `docs/FRONTEND-DEPLOYMENT.md`.
+
+
+## 22/09/2026 - Selección de Servicio de Autenticación (Cognito vs Auth0)
+
+**Problema abordado:** El one-pager inicial dejaba la autenticación como una decisión 
+abierta ("Auth0 o AWS Cognito"), sin resolver. Era necesario definir un único 
+servicio gestionado de identidad, ya que de esta elección dependían tanto la configuración del backend (validación de tokens en Lambda) como el desarrollo de la UI de login en el frontend.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic).
+*Prompt:* "Actuá como Cloud Architect. Tenemos definido el stack de Medianube en AWS 
+(EC2 para frontend, Lambda para backend serverless, S3 para storage, DynamoDB para persistencia). Necesitamos elegir un servicio gestionado de autenticación entre AWS Cognito y Auth0. Evaluá ambas opciones considerando coherencia con el resto de la arquitectura y facilidad de integración."
+
+**Código / Arquitectura generada:** La IA recomendó **AWS Cognito** por sobre Auth0, 
+fundamentando la elección en dos ejes: (1) coherencia de proveedor, dado que el resto 
+del stack (EC2, Lambda, S3, DynamoDB) ya es 100% AWS, lo que permite integrar 
+Cognito de forma nativa con el authorizer de API Gateway y con políticas IAM sin código 
+adicional; (2) costos, señalando la capa gratuita de Cognito (~50.000 usuarios activos 
+mensuales) como más generosa que la de Auth0 para un MVP académico. La IA también señaló los escenarios donde Auth0 sería preferible (estrategia multi-cloud, necesidad de login social avanzado out-of-the-box, o experiencia previa del equipo con esa herramienta), ninguno de los cuales aplica al contexto de MediaNube.
+
+**Validación y Corrección Humana:** El equipo evaluó la recomendación contra los 
+requisitos reales del proyecto y coincidió en que ni la estrategia multi-cloud ni el login 
+social son necesidades de MediaNube en esta etapa del MVP. Se validó además que la 
+integración propuesta (Cognito + API Gateway authorizer) es consistente con la decisión 
+ya tomada de mantener EC2 y Lambda bajo el mismo proveedor. Se descartó Auth0 definitivamente y se definió AWS Cognito como el servicio de autenticación del proyecto, con dos puntos de integración: el frontend (login, obtención de token JWT) y el backend (validación de token en cada request).
