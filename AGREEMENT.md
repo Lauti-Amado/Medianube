@@ -5,5 +5,5 @@ Aceptamos las normas de convivencia, política de IA y evaluación individual ex
 - [x] Amado, Lautaro
 - [x] Cáceres, Juan
 - [x] Figueira, Julián
-- [ ] Piquet, Leonel
+- [x] Piquet, Leonel
 - [x] Tundis, Yamil
