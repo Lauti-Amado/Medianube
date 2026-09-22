@@ -59,3 +59,14 @@
 **Código / Arquitectura generada:** Arquitectura simple Internet → Nginx (:80) → Next.js (:3000) con PM2. Propuesta de swap de 2 GB cuando `next build` terminaba en `Killed`. Config de Nginx como reverse proxy y secuencia `git pull` → `npm ci` → `npm run build` → `pm2 restart medianube`. No se usó Docker ni GitHub Actions en este despliegue.
 
 **Validación y Corrección Humana:** Se comprobó en la EC2 real: el build falló por OOM y el swap lo resolvió; `nginx -t` sin sudo daba falso error de permisos (había que usar `sudo`). Se rechazó abrir 80/22 a `0.0.0.0/0`: quedaron solo desde la IP del operador. No se subieron `.pem` ni access keys. La IA insistió al inicio en IAM humano / Identity Center; en esta cuenta no aplica (IAM solo programático), y el trabajo de consola se hizo con root.
+
+## 22/09/2026 - Justificación Arquitectónica: Despliegue de Frontend (EC2 vs PaaS)
+
+**Problema abordado:** Justificar la elección de infraestructura IaaS (AWS EC2) frente a las alternativas PaaS (Vercel / AWS Amplify) sugeridas por la cátedra para el despliegue del frontend en Next.js, mitigando el riesgo de penalización en la evaluación de la arquitectura.
+
+**Prompt / Herramienta utilizada:** Gemini.
+*Prompt:* "Actúa como Cloud Architect. Justifica técnicamente por qué un equipo elegiría AWS EC2 para desplegar un frontend en Next.js en lugar de usar Vercel, considerando que el objetivo es mantener todo el ecosistema (Lambda, S3, DynamoDB) centralizado en AWS y tener control total sobre el entorno."
+
+**Código / Arquitectura generada:** La IA generó un documento ADR (Architecture Decision Record) argumentando que EC2 permite mayor soberanía de red (VPC), gestión unificada de políticas de seguridad y centralización de la infraestructura, evitando el vendor lock-in específico de las plataformas PaaS de terceros.
+
+**Validación y Corrección Humana:** Se validó la argumentación de la IA y el equipo ratificó la decisión. Aunque la cátedra fomenta el uso de servicios gestionados (PaaS) para minimizar la carga operativa y maximizar el Time-to-Market, el equipo asume el *trade-off* operativo inicial de configurar y mantener manualmente Nginx y PM2 en EC2. Esta decisión se toma con el objetivo de garantizar que toda la arquitectura (frontend y backend) resida bajo el mismo proveedor (AWS) y red virtual. La justificación extendida se documentó formalmente en el archivo `docs/FRONTEND-DEPLOYMENT.md`.
