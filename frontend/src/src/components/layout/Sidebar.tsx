@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 
-export type ActiveTab = "dashboard" | "compras" | "precios" | "demanda";
+export type ActiveTab = "dashboard" | "compras" | "precios" | "demanda" | "configuracion";
 
 const NAV_ITEMS: {
   tab: ActiveTab;
