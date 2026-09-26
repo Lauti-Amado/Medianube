@@ -94,3 +94,31 @@ requisitos reales del proyecto y coincidió en que ni la estrategia multi-cloud 
 social son necesidades de MediaNube en esta etapa del MVP. Se validó además que la 
 integración propuesta (Cognito + API Gateway authorizer) es consistente con la decisión 
 ya tomada de mantener EC2 y Lambda bajo el mismo proveedor. Se descartó Auth0 definitivamente y se definió AWS Cognito como el servicio de autenticación del proyecto, con dos puntos de integración: el frontend (login, obtención de token JWT) y el backend (validación de token en cada request).
+
+
+## 26/09/2026 - Integración Frontend Next.js con AWS Cognito
+
+**Problema abordado:** Conectar el frontend en Next.js (rama `integracion/infraestructura`) con el User Pool de Cognito ya provisionado, implementando el flujo completo de autenticación: registro de usuario, confirmación por email, inicio de sesión, protección de rutas y cierre de sesión. La pantalla de login existente solo hacía un `router.push("/dashboard")` sin validar credenciales reales.
+
+**Prompt / Herramienta utilizada:** Antigravity IDE (Google Deepmind).
+*Prompt:* "Queremos conectar el frontend con el servicio AWS Cognito para autenticar. Estas son las credenciales: User Pool ID: `us-east-2_kFlJZW7ar`, App Cliente ID: `7d6ucjtp7k0g3rt6dk42kmhajt`, Región: `us-east-2`. Haz un plan de implementación para conectar ambos servicios y dejarlo funcional."
+
+**Código / Arquitectura generada:**
+
+La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
+
+- **SDK elegido:** `amazon-cognito-identity-js` (instalado vía npm) en lugar de AWS Amplify completo, justificando menor bundle size (~50 KB vs ~400 KB) para el caso de uso específico.
+- **`lib/cognito.ts`:** Singleton con la instancia de `CognitoUserPool` (User Pool ID + Client ID).
+- **`lib/auth-context.tsx`:** React Context (`AuthProvider`) que expone `signIn`, `signUp`, `confirmSignUp` y `signOut`. Al montar, verifica si existe una sesión activa en `localStorage` (manejo nativo del SDK). Además, sincroniza el `idToken` JWT en una cookie (`cognitoIdToken`) para que el middleware de Next.js pueda leerla server-side.
+- **`app/providers.tsx`:** Thin wrapper con `"use client"` para envolver el layout server component con el `AuthProvider`.
+- **`middleware.ts`:** Middleware de Next.js que intercepta rutas protegidas (`/dashboard`, `/compras`, `/precios`, `/demanda`, `/configuracion`) y redirige a `/login` si no existe el token en cookies. Rutas públicas (`/login`, `/onboarding`) redirigen a `/dashboard` si ya hay sesión activa.
+- **`app/login/page.tsx`:** Formulario conectado a `signIn()` con manejo de errores por código Cognito (`NotAuthorizedException`, `UserNotConfirmedException`, `UserNotFoundException`), estado de loading con spinner y soporte de parámetro `?redirect=` inyectado por el middleware.
+- **`app/onboarding/page.tsx`:** Flujo extendido a 4 pasos: datos del negocio → credenciales + `signUp()` → confirmación de código OTP (6 dígitos) vía `confirmSignUp()` → resumen + auto-login con `signIn()` y redirección al dashboard.
+- **`Sidebar.tsx`:** Botón de "Cerrar sesión" convertido de `<Link>` a `<button>` que invoca `signOut()` del contexto y luego `router.push("/login")`.
+
+**Validación y Corrección Humana:**
+
+- **Atributos custom en Cognito:** La IA generó el `signUp()` incluyendo atributos `custom:businessName` y `custom:businessType`. Al probarlo, Cognito devolvió el error: *"Attributes did not conform to the schema: Type for attribute {custom:businessName} could not be determined"*. El User Pool no tenía esos atributos custom definidos en su schema. Se corrigió eliminando dichos atributos del payload de registro; el nombre y tipo de negocio se almacenarán en la base de datos de la app cuando el backend esté disponible.
+- **Protección dual de rutas:** Se validó que la protección por middleware (server-side, sobre cookie) y por `AuthContext` (client-side, sobre estado React) son complementarias y necesarias: el middleware evita el flash de contenido protegido, mientras el contexto gestiona el estado reactivo en navegación SPA.
+- **Separación `providers.tsx`:** El layout raíz (`layout.tsx`) es un Server Component en Next.js 15 y no puede importar directamente el `AuthProvider` (que usa hooks). La IA resolvió esto correctamente con el wrapper `"use client"`, sin necesitar convertir todo el layout a client component.
+- **Build verificado:** El proyecto compiló sin errores de TypeScript (`next build` exit code 0, 13 rutas generadas estáticamente, middleware 34.1 kB).
