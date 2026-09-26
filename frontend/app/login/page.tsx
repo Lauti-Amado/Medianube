@@ -2,19 +2,56 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, Suspense } from "react";
 import Icon from "../../src/src/components/ui/Icon";
+import { useAuth } from "../../lib/auth-context";
 
-export default function LoginPage() {
+// ── Inner component (needs useSearchParams inside Suspense) ────────────────
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { signIn } = useAuth();
+
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    router.push("/dashboard");
+    setError("");
+
+    if (!email.trim() || !password) {
+      setError("completá todos los campos");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await signIn(email, password);
+      const redirect = searchParams.get("redirect") || "/dashboard";
+      router.push(redirect);
+    } catch (err: unknown) {
+      const cognitoError = err as { code?: string; message?: string };
+      switch (cognitoError.code) {
+        case "UserNotConfirmedException":
+          setError("tu cuenta aún no fue confirmada. revisá tu email.");
+          break;
+        case "NotAuthorizedException":
+          setError("email o contraseña incorrectos.");
+          break;
+        case "UserNotFoundException":
+          setError("no encontramos una cuenta con ese email.");
+          break;
+        default:
+          setError(cognitoError.message || "ocurrió un error inesperado.");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -113,6 +150,28 @@ export default function LoginPage() {
           </p>
         </div>
 
+        {/* Error message */}
+        {error && (
+          <div
+            id="login-error"
+            style={{
+              backgroundColor: "rgba(239, 68, 68, 0.08)",
+              border: "1px solid rgba(239, 68, 68, 0.25)",
+              borderRadius: "var(--radius-md)",
+              padding: "10px 14px",
+              marginBottom: "16px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <Icon name="error" size={16} />
+            <span style={{ fontSize: "13px", color: "var(--color-warning-text)" }}>
+              {error}
+            </span>
+          </div>
+        )}
+
         {/* Form */}
         <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {/* Email */}
@@ -131,6 +190,7 @@ export default function LoginPage() {
               placeholder="horno@panaderia.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              disabled={isSubmitting}
               style={{
                 width: "100%",
                 boxSizing: "border-box",
@@ -142,6 +202,7 @@ export default function LoginPage() {
                 color: "var(--color-text-primary)",
                 outline: "none",
                 transition: "border-color 0.15s",
+                opacity: isSubmitting ? 0.6 : 1,
               }}
               onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
               onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
@@ -165,6 +226,7 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                disabled={isSubmitting}
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
@@ -176,6 +238,7 @@ export default function LoginPage() {
                   color: "var(--color-text-primary)",
                   outline: "none",
                   transition: "border-color 0.15s",
+                  opacity: isSubmitting ? 0.6 : 1,
                 }}
                 onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
                 onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
@@ -225,6 +288,7 @@ export default function LoginPage() {
           <button
             id="login-submit"
             type="submit"
+            disabled={isSubmitting}
             style={{
               width: "100%",
               backgroundColor: "var(--color-accent)",
@@ -234,23 +298,43 @@ export default function LoginPage() {
               padding: "12px",
               fontSize: "14px",
               fontWeight: 500,
-              cursor: "pointer",
+              cursor: isSubmitting ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               gap: "6px",
               marginTop: "4px",
               transition: "background-color 0.15s",
+              opacity: isSubmitting ? 0.7 : 1,
             }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.backgroundColor = "var(--color-accent-dark)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.backgroundColor = "var(--color-accent)")
-            }
+            onMouseEnter={(e) => {
+              if (!isSubmitting) e.currentTarget.style.backgroundColor = "var(--color-accent-dark)";
+            }}
+            onMouseLeave={(e) => {
+              if (!isSubmitting) e.currentTarget.style.backgroundColor = "var(--color-accent)";
+            }}
           >
-            iniciar sesión
-            <Icon name="arrow_forward" size={14} />
+            {isSubmitting ? (
+              <>
+                ingresando…
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: "14px",
+                    height: "14px",
+                    border: "2px solid rgba(255,255,255,0.3)",
+                    borderTopColor: "#fff",
+                    borderRadius: "50%",
+                    animation: "spin 0.6s linear infinite",
+                  }}
+                />
+              </>
+            ) : (
+              <>
+                iniciar sesión
+                <Icon name="arrow_forward" size={14} />
+              </>
+            )}
           </button>
         </form>
 
@@ -363,6 +447,19 @@ export default function LoginPage() {
           </Link>
         </p>
       </div>
+
+      {/* Spinner keyframe */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </main>
+  );
+}
+
+// ── Page export (Suspense boundary for useSearchParams) ────────────────────
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

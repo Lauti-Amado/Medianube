@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuth } from "../../../../lib/auth-context";
 
 export type ActiveTab = "dashboard" | "compras" | "precios" | "demanda" | "configuracion";
 
@@ -27,6 +29,14 @@ const iconStyle: React.CSSProperties = {
 };
 
 export default function Sidebar({ activeTab }: { activeTab: ActiveTab }) {
+  const router = useRouter();
+  const { signOut } = useAuth();
+
+  function handleLogout() {
+    signOut();
+    router.push("/login");
+  }
+
   return (
     <aside
       style={{
@@ -223,9 +233,10 @@ export default function Sidebar({ activeTab }: { activeTab: ActiveTab }) {
           <span style={{ ...iconStyle, color: "var(--color-sidebar-text)" }}>settings</span>
           Configuración
         </Link>
-        <Link
-          href="/login"
+        <button
+          type="button"
           id="sidebar-logout"
+          onClick={handleLogout}
           style={{
             display: "flex",
             alignItems: "center",
@@ -236,6 +247,11 @@ export default function Sidebar({ activeTab }: { activeTab: ActiveTab }) {
             fontSize: "14px",
             textDecoration: "none",
             transition: "background-color 0.15s",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            width: "100%",
+            textAlign: "left",
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = "var(--color-sidebar-hover-bg)";
@@ -246,8 +262,9 @@ export default function Sidebar({ activeTab }: { activeTab: ActiveTab }) {
         >
           <span style={{ ...iconStyle, color: "var(--color-sidebar-text)" }}>logout</span>
           Cerrar sesión
-        </Link>
+        </button>
       </div>
     </aside>
   );
 }
+

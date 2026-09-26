@@ -5,6 +5,7 @@ import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import Icon from "../../src/src/components/ui/Icon";
+import { useAuth } from "../../lib/auth-context";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -65,9 +66,11 @@ const errorStyle: React.CSSProperties = {
 // ── Sub-components ────────────────────────────────────────────────────────
 
 function ProgressBar({ step }: { step: number }) {
+  // 4 steps now: business data, credentials, confirmation code, summary
+  const totalSteps = 4;
   return (
-    <div style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", marginBottom: "20px" }}>
-      {[1, 2, 3].map((s) => (
+    <div style={{ width: "100%", display: "grid", gridTemplateColumns: `repeat(${totalSteps}, 1fr)`, gap: "6px", marginBottom: "20px" }}>
+      {Array.from({ length: totalSteps }, (_, i) => i + 1).map((s) => (
         <div
           key={s}
           style={{
@@ -149,15 +152,20 @@ function PrimaryButton({
   label,
   icon,
   onClick,
+  disabled,
+  loading,
 }: {
   label: string;
   icon: string;
   onClick?: () => void;
+  disabled?: boolean;
+  loading?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled || loading}
       style={{
         width: "100%",
         backgroundColor: "var(--color-accent)",
@@ -167,18 +175,42 @@ function PrimaryButton({
         padding: "11px 14px",
         fontSize: "13px",
         fontWeight: 500,
-        cursor: "pointer",
+        cursor: disabled || loading ? "not-allowed" : "pointer",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         gap: "8px",
         transition: "background-color 0.15s",
+        opacity: disabled || loading ? 0.7 : 1,
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--color-accent-dark)")}
-      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--color-accent)")}
+      onMouseEnter={(e) => {
+        if (!disabled && !loading) e.currentTarget.style.backgroundColor = "var(--color-accent-dark)";
+      }}
+      onMouseLeave={(e) => {
+        if (!disabled && !loading) e.currentTarget.style.backgroundColor = "var(--color-accent)";
+      }}
     >
-      {label}
-      <Icon name={icon} size={16} />
+      {loading ? (
+        <>
+          procesando…
+          <span
+            style={{
+              display: "inline-block",
+              width: "14px",
+              height: "14px",
+              border: "2px solid rgba(255,255,255,0.3)",
+              borderTopColor: "#fff",
+              borderRadius: "50%",
+              animation: "spin 0.6s linear infinite",
+            }}
+          />
+        </>
+      ) : (
+        <>
+          {label}
+          <Icon name={icon} size={16} />
+        </>
+      )}
     </button>
   );
 }
@@ -331,11 +363,15 @@ function Step2({
   errors,
   onUpdate,
   onNext,
+  loading,
+  authError,
 }: {
   data: FormData;
   errors: FieldErrors;
   onUpdate: (patch: Partial<FormData>) => void;
   onNext: () => void;
+  loading: boolean;
+  authError: string;
 }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -349,6 +385,26 @@ function Step2({
       />
 
       <div style={{ display: "flex", flexDirection: "column", gap: "18px", width: "100%" }}>
+        {/* Auth error from Cognito */}
+        {authError && (
+          <div
+            style={{
+              backgroundColor: "rgba(239, 68, 68, 0.08)",
+              border: "1px solid rgba(239, 68, 68, 0.25)",
+              borderRadius: "var(--radius-md)",
+              padding: "10px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <Icon name="error" size={16} />
+            <span style={{ fontSize: "13px", color: "var(--color-warning-text)" }}>
+              {authError}
+            </span>
+          </div>
+        )}
+
         <div>
           <label htmlFor="ob-email" style={labelStyle}>
             email
@@ -360,9 +416,11 @@ function Step2({
             placeholder="horno@panaderia.com"
             value={data.email}
             onChange={(e) => onUpdate({ email: e.target.value })}
+            disabled={loading}
             style={{
               ...inputStyle,
               borderColor: errors.email ? "var(--color-warning-text)" : "var(--color-border)",
+              opacity: loading ? 0.6 : 1,
             }}
             onFocus={(e) => { if (!errors.email) e.target.style.borderColor = "var(--color-accent)"; }}
             onBlur={(e) => { if (!errors.email) e.target.style.borderColor = "var(--color-border)"; }}
@@ -382,10 +440,12 @@ function Step2({
               placeholder="mínimo 8 caracteres"
               value={data.password}
               onChange={(e) => onUpdate({ password: e.target.value })}
+              disabled={loading}
               style={{
                 ...inputStyle,
                 paddingRight: "40px",
                 borderColor: errors.password ? "var(--color-warning-text)" : "var(--color-border)",
+                opacity: loading ? 0.6 : 1,
               }}
               onFocus={(e) => { if (!errors.password) e.target.style.borderColor = "var(--color-accent)"; }}
               onBlur={(e) => { if (!errors.password) e.target.style.borderColor = "var(--color-border)"; }}
@@ -415,10 +475,12 @@ function Step2({
               placeholder="repetí tu contraseña"
               value={data.confirmPassword}
               onChange={(e) => onUpdate({ confirmPassword: e.target.value })}
+              disabled={loading}
               style={{
                 ...inputStyle,
                 paddingRight: "40px",
                 borderColor: errors.confirmPassword ? "var(--color-warning-text)" : "var(--color-border)",
+                opacity: loading ? 0.6 : 1,
               }}
               onFocus={(e) => { if (!errors.confirmPassword) e.target.style.borderColor = "var(--color-accent)"; }}
               onBlur={(e) => { if (!errors.confirmPassword) e.target.style.borderColor = "var(--color-border)"; }}
@@ -437,16 +499,122 @@ function Step2({
         </div>
 
         <div style={{ paddingTop: "4px" }}>
-          <PrimaryButton label="continuar" icon="arrow_forward" onClick={onNext} />
+          <PrimaryButton label="crear cuenta" icon="arrow_forward" onClick={onNext} loading={loading} />
         </div>
       </div>
     </>
   );
 }
 
-// ── Step 3: Confirmation ──────────────────────────────────────────────────
+// ── Step 3: Confirmation Code ─────────────────────────────────────────────
 
-function Step3({ data, onFinish }: { data: FormData; onFinish: () => void }) {
+function StepConfirmation({
+  email,
+  onConfirm,
+  loading,
+  authError,
+}: {
+  email: string;
+  onConfirm: (code: string) => void;
+  loading: boolean;
+  authError: string;
+}) {
+  const [code, setCode] = useState("");
+
+  return (
+    <>
+      <div
+        style={{
+          width: "56px",
+          height: "56px",
+          borderRadius: "9999px",
+          backgroundColor: "var(--color-accent-tint)",
+          border: "2px solid var(--color-border-strong)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: "16px",
+          alignSelf: "center",
+        }}
+      >
+        <span style={{ color: "var(--color-accent)", display: "flex" }}>
+          <Icon name="mark_email_read" size={24} />
+        </span>
+      </div>
+
+      <StepHeading
+        title="verificá tu email"
+        subtitle={`enviamos un código de 6 dígitos a ${email}`}
+      />
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "18px", width: "100%" }}>
+        {authError && (
+          <div
+            style={{
+              backgroundColor: "rgba(239, 68, 68, 0.08)",
+              border: "1px solid rgba(239, 68, 68, 0.25)",
+              borderRadius: "var(--radius-md)",
+              padding: "10px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <Icon name="error" size={16} />
+            <span style={{ fontSize: "13px", color: "var(--color-warning-text)" }}>
+              {authError}
+            </span>
+          </div>
+        )}
+
+        <div>
+          <label htmlFor="ob-confirmation-code" style={labelStyle}>
+            código de verificación
+          </label>
+          <input
+            id="ob-confirmation-code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="123456"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            disabled={loading}
+            style={{
+              ...inputStyle,
+              textAlign: "center",
+              fontSize: "20px",
+              fontWeight: 600,
+              letterSpacing: "0.3em",
+              opacity: loading ? 0.6 : 1,
+            }}
+            onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
+            onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+          />
+        </div>
+
+        <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0, textAlign: "center" }}>
+          ¿no recibiste el código? revisá tu carpeta de spam
+        </p>
+
+        <div style={{ paddingTop: "4px" }}>
+          <PrimaryButton
+            label="verificar"
+            icon="check"
+            onClick={() => onConfirm(code)}
+            disabled={code.length < 6}
+            loading={loading}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Step 4: Summary ───────────────────────────────────────────────────────
+
+function StepSummary({ data, onFinish, loading }: { data: FormData; onFinish: () => void; loading: boolean }) {
   const summaryRows = [
     { label: "negocio", value: data.businessName },
     { label: "tipo", value: BUSINESS_TYPE_LABELS[data.businessType] },
@@ -516,7 +684,7 @@ function Step3({ data, onFinish }: { data: FormData; onFinish: () => void }) {
       </div>
 
       <div style={{ width: "100%" }}>
-        <PrimaryButton label="ir al panel" icon="arrow_forward" onClick={onFinish} />
+        <PrimaryButton label="ir al panel" icon="arrow_forward" onClick={onFinish} loading={loading} />
       </div>
     </>
   );
@@ -526,6 +694,7 @@ function Step3({ data, onFinish }: { data: FormData; onFinish: () => void }) {
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { signUp, confirmSignUp, signIn } = useAuth();
 
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<FormData>({
@@ -537,6 +706,8 @@ export default function OnboardingPage() {
     confirmPassword: "",
   });
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [authError, setAuthError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   function updateData(patch: Partial<FormData>) {
     setFormData((prev) => ({ ...prev, ...patch }));
@@ -545,6 +716,7 @@ export default function OnboardingPage() {
       delete clearedErrors[key];
     });
     setErrors(clearedErrors);
+    setAuthError("");
   }
 
   function validateStep1(): boolean {
@@ -578,13 +750,78 @@ export default function OnboardingPage() {
     return Object.keys(newErrors).length === 0;
   }
 
-  function handleNext() {
-    if (step === 1 && validateStep1()) setStep(2);
-    else if (step === 2 && validateStep2()) setStep(3);
+  async function handleNext() {
+    if (step === 1 && validateStep1()) {
+      setStep(2);
+    } else if (step === 2 && validateStep2()) {
+      // Register with Cognito
+      setIsSubmitting(true);
+      setAuthError("");
+      try {
+        // Note: custom attributes (businessName, businessType) are not sent
+        // to Cognito because they're not defined in the User Pool schema.
+        // They will be stored in the app's own database once the backend is available.
+        const result = await signUp(formData.email, formData.password);
+        if (result.userConfirmed) {
+          // No confirmation needed — skip to summary
+          setStep(4);
+        } else {
+          // Needs email confirmation
+          setStep(3);
+        }
+      } catch (err: unknown) {
+        const cognitoError = err as { code?: string; message?: string };
+        switch (cognitoError.code) {
+          case "UsernameExistsException":
+            setAuthError("ya existe una cuenta con este email.");
+            break;
+          case "InvalidPasswordException":
+            setAuthError("la contraseña no cumple los requisitos de seguridad (mayúscula, minúscula, número y símbolo).");
+            break;
+          default:
+            setAuthError(cognitoError.message || "ocurrió un error al crear la cuenta.");
+        }
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
   }
 
-  function handleFinish() {
-    router.push("/dashboard");
+  async function handleConfirmCode(code: string) {
+    setIsSubmitting(true);
+    setAuthError("");
+    try {
+      await confirmSignUp(formData.email, code);
+      setStep(4);
+    } catch (err: unknown) {
+      const cognitoError = err as { code?: string; message?: string };
+      switch (cognitoError.code) {
+        case "CodeMismatchException":
+          setAuthError("el código ingresado es incorrecto.");
+          break;
+        case "ExpiredCodeException":
+          setAuthError("el código expiró. solicitá uno nuevo.");
+          break;
+        default:
+          setAuthError(cognitoError.message || "ocurrió un error al verificar el código.");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleFinish() {
+    setIsSubmitting(true);
+    try {
+      // Auto-login after registration
+      await signIn(formData.email, formData.password);
+      router.push("/dashboard");
+    } catch {
+      // If auto-login fails, redirect to login page
+      router.push("/login");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -614,10 +851,25 @@ export default function OnboardingPage() {
           <Step1 data={formData} errors={errors} onUpdate={updateData} onNext={handleNext} />
         )}
         {step === 2 && (
-          <Step2 data={formData} errors={errors} onUpdate={updateData} onNext={handleNext} />
+          <Step2
+            data={formData}
+            errors={errors}
+            onUpdate={updateData}
+            onNext={handleNext}
+            loading={isSubmitting}
+            authError={authError}
+          />
         )}
         {step === 3 && (
-          <Step3 data={formData} onFinish={handleFinish} />
+          <StepConfirmation
+            email={formData.email}
+            onConfirm={handleConfirmCode}
+            loading={isSubmitting}
+            authError={authError}
+          />
+        )}
+        {step === 4 && (
+          <StepSummary data={formData} onFinish={handleFinish} loading={isSubmitting} />
         )}
 
         {step < 3 && (
@@ -644,6 +896,9 @@ export default function OnboardingPage() {
           </p>
         )}
       </div>
+
+      {/* Spinner keyframe */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </main>
   );
 }
