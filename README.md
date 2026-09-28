@@ -45,3 +45,7 @@ La evaluación de la materia es individual y se auditará la frecuencia y calida
 El uso de asistentes está permitido, pero es nuestra responsabilidad determinar que está bien y que está mal, que sirve y que no.
 * Todo fragmento de código, arquitectura o prompt generado con IA se va a registrar en el archivo `AI-DECISIONS.md` ubicado en la raíz del repositorio.
 * Cada entrada debe justificar: el problema abordado, la herramienta empleada, la salida generada y la corrección manual aplicada.
+
+### 5. Entregas y Releases
+El código correspondiente a cada Checkpoint evaluativo se congela mediante Tags de Git y ramas específicas para facilitar la auditoría de la cátedra:
+* **Checkpoint 1 (28/09):** Tag `v0.1-checkpoint-1` (Rama: `entrega/checkpoint-1`).
