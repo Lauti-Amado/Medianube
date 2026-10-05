@@ -121,4 +121,22 @@ La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
 - **Atributos custom en Cognito:** La IA generó el `signUp()` incluyendo atributos `custom:businessName` y `custom:businessType`. Al probarlo, Cognito devolvió el error: *"Attributes did not conform to the schema: Type for attribute {custom:businessName} could not be determined"*. El User Pool no tenía esos atributos custom definidos en su schema. Se corrigió eliminando dichos atributos del payload de registro; el nombre y tipo de negocio se almacenarán en la base de datos de la app cuando el backend esté disponible.
 - **Protección dual de rutas:** Se validó que la protección por middleware (server-side, sobre cookie) y por `AuthContext` (client-side, sobre estado React) son complementarias y necesarias: el middleware evita el flash de contenido protegido, mientras el contexto gestiona el estado reactivo en navegación SPA.
 - **Separación `providers.tsx`:** El layout raíz (`layout.tsx`) es un Server Component en Next.js 15 y no puede importar directamente el `AuthProvider` (que usa hooks). La IA resolvió esto correctamente con el wrapper `"use client"`, sin necesitar convertir todo el layout a client component.
-- **Build verificado:** El proyecto compiló sin errores de TypeScript (`next build` exit code 0, 13 rutas generadas estáticamente, middleware 34.1 kB).
+- **Build verificado:** El proyecto compiló sin errores de TypeScript (`next build` exit code 0, 13 rutas generadas estáticamente, middleware 34.1 kB).
+
+## 04/10/2026 - Unificación de Partition Keys en DynamoDB
+**Problema abordado:** Inconsistencia en el diseño NoSQL. Una tabla usaba `usuarioID` y otra `userId`, generando deuda técnica para futuros cruces de datos con IA (RAG).
+**Prompt / Herramienta utilizada:** Análisis manual de arquitectura sugerido por Gemini.
+**Código / Arquitectura generada:** Regeneración manual de la tabla `Medianube-Configuracion` en AWS DynamoDB.
+**Validación y Corrección Humana:** Se eliminó la tabla con la clave incorrecta y se volvió a aprovisionar utilizando el estándar `usuarioID` (String) para mantener una convención estricta.
+
+## 04/10/2026 - Estrategia FinOps en Function URL Pública (Onboarding)
+**Problema abordado:** Exponer la Lambda `guardarConfiguracionOnboarding` al frontend local (AuthType: NONE) sin arriesgar el presupuesto ante un Denial of Wallet.
+**Prompt / Herramienta utilizada:** Análisis de límites defensivos (Guardrails) con Gemini.
+**Código / Arquitectura generada:** Function URL pública con límite estricto de Concurrencia Reservada = 2.
+**Validación y Corrección Humana:** Actúa como "Circuit Breaker" financiero, permitiendo el desarrollo sin fricción pero garantizando matemáticamente que la función no escalará masivamente ante picos anómalos.
+
+## 04/10/2026 - Bypass de Service Control Policies (SCP) con API Gateway
+**Problema abordado:** AWS Academy (Learner Labs) bloqueaba sistemáticamente la Function URL pública (HTTP 403) debido a SCPs organizacionales, pese a tener la política IAM en "Principal": "*".
+**Prompt / Herramienta utilizada:** Cloud Debugging con Gemini.
+**Código / Arquitectura generada:** Implementación del patrón Amazon API Gateway (HTTP API) como proxy inverso frente a Lambda.
+**Validación y Corrección Humana:** Rediseño alineado a topologías de producción. Se delegó el manejo de CORS y el enrutamiento público a API Gateway, superando el bloqueo de seguridad del entorno.
