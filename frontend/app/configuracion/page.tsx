@@ -134,6 +134,37 @@ export default function ConfiguracionPage() {
     demanda: false,
   });
 
+  const [isLoading, setIsLoading] = useState(false);
+  const [mensaje, setMensaje] = useState("");
+
+  const guardarDatosAWS = async () => {
+    setIsLoading(true);
+    setMensaje("");
+
+    try {
+      const response = await fetch("https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/configuracion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          usuarioID: "user_test_123", // Convención unificada
+          nombreNegocio: businessName,
+          sucursales: branches,
+          margenes: margins,
+          notificaciones: notifs,
+        }),
+      });
+
+      if (!response.ok) throw new Error("Error en AWS");
+      
+      setMensaje("¡Configuración guardada exitosamente en DynamoDB!");
+    } catch (error) {
+      console.error(error);
+      setMensaje("Hubo un problema al guardar.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const inputStyle: React.CSSProperties = {
     fontSize: 13,
     color: "var(--color-text-primary)",
@@ -357,21 +388,30 @@ export default function ConfiguracionPage() {
         </SectionCard>
 
         {/* ── Guardar ──────────────────────────────────────────────────── */}
-        <div style={{ display: "flex", justifyContent: "flex-end", paddingBottom: 32 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 16, paddingBottom: 32 }}>
+          {/* Mensaje de respuesta de AWS */}
+          {mensaje && (
+            <span style={{ fontSize: 13, fontWeight: 500, color: mensaje.includes("problema") ? "var(--color-warning-text)" : "var(--color-accent)" }}>
+              {mensaje}
+            </span>
+          )}
+          
           <button
             id="btn-guardar-config"
+            onClick={guardarDatosAWS}
+            disabled={isLoading}
             style={{
-              backgroundColor: "var(--color-accent)",
+              backgroundColor: isLoading ? "var(--color-border-strong)" : "var(--color-accent)",
               color: "#fff",
               fontSize: 13,
               fontWeight: 500,
               padding: "9px 20px",
               borderRadius: 8,
               border: "none",
-              cursor: "pointer",
+              cursor: isLoading ? "not-allowed" : "pointer",
             }}
           >
-            Guardar cambios
+            {isLoading ? "Guardando en la nube..." : "Guardar cambios"}
           </button>
         </div>
 
