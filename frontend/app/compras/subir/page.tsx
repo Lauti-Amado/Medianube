@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import AppLayout from "../../../src/src/components/layout/AppLayout";
+import FileDropzone from "../../../src/src/components/invoices/FileDropzone";
 import IaBanner from "../../../src/src/components/invoices/IaBanner";
 import InvoiceTable, { InvoiceItem } from "../../../src/src/components/invoices/InvoiceTable";
 
@@ -28,13 +29,19 @@ const iconStyle: React.CSSProperties = {
   userSelect: "none",
 };
 
+function formatSize(bytes: number) {
+  return bytes < 1024 * 1024
+    ? `${Math.round(bytes / 1024)} KB`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────
 
 export default function SubirFacturaPage() {
   const router = useRouter();
   const [items, setItems] = useState<InvoiceItem[]>(INITIAL_ITEMS);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [fileRemoved, setFileRemoved] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
 
   const total = items.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
   const totalFormatted = "$" + total.toLocaleString("es-AR");
@@ -68,7 +75,10 @@ export default function SubirFacturaPage() {
           Subir factura
         </h1>
 
+        {!file && <FileDropzone onFileSelected={setFile} />}
+
         {/* ── Two-column: File card + Supplier detected ─────────────── */}
+        {file && (<>
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px", marginBottom: "12px" }}>
 
           {/* File card */}
@@ -83,33 +93,14 @@ export default function SubirFacturaPage() {
           >
             <span style={{ ...iconStyle, fontSize: "22px", color: "var(--color-accent)", flexShrink: 0 }}>description</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              {!fileRemoved ? (
-                <>
-                  <p style={{ fontSize: "13px", fontWeight: 500, color: "var(--color-text-primary)", margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    factura_distribuidora-sur_04-09.pdf
-                  </p>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>312 KB</p>
-                    <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>·</span>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "11px", color: "var(--color-success-text)" }}>
-                      <span style={{ ...iconStyle, fontSize: "12px" }}>check_circle</span>
-                      Procesado en 1.4s
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <p style={{ fontSize: "13px", color: "var(--color-warning-text)", margin: 0 }}>
-                  Archivo quitado.{" "}
-                  <button type="button" onClick={() => setFileRemoved(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-accent)", fontSize: "13px", padding: 0, fontWeight: 500 }}>
-                    Deshacer
-                  </button>
-                </p>
-              )}
+              <p style={{ fontSize: "13px", fontWeight: 500, color: "var(--color-text-primary)", margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {file.name}
+              </p>
+              <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>{formatSize(file.size)}</p>
             </div>
-            {!fileRemoved && (
-              <button
+            <button
                 type="button"
-                onClick={() => setFileRemoved(true)}
+                onClick={() => setFile(null)}
                 style={{ background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "12px", color: "var(--color-text-muted)", padding: "4px", flexShrink: 0, transition: "color 0.15s" }}
                 onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-warning-text)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-muted)"; }}
@@ -117,7 +108,6 @@ export default function SubirFacturaPage() {
                 <span style={{ ...iconStyle, fontSize: "13px" }}>close</span>
                 Quitar
               </button>
-            )}
           </div>
 
           {/* Supplier detected card */}
@@ -157,6 +147,7 @@ export default function SubirFacturaPage() {
           onEdit={setEditingId}
           onItemChange={handleItemChange}
         />
+        </>)}
 
         {/* ── Actions ─────────────────────────────────────────────────── */}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
@@ -178,6 +169,7 @@ export default function SubirFacturaPage() {
           <button
             id="invoice-confirm"
             type="button"
+            disabled={!file}
             onClick={() => router.push("/compras")}
             style={{
               padding: "9px 20px", fontSize: "13px", fontWeight: 500,
