@@ -12,6 +12,7 @@ Medianube es una solución integral en formato SaaS diseñada para dueños, admi
 ## 🛠️ Arquitectura y Stack Tecnológico
 El sistema está diseñado bajo un modelo Cloud-Native utilizando los siguientes servicios:
 * **Frontend:** Desarrollo en **NextJS / React**, desplegado sobre infraestructura **AWS EC2**.
+* **Capa de Red y Enrutamiento:** **Amazon API Gateway** (HTTP API implementada como proxy para gestionar CORS y evadir restricciones de red/SCP de Learner Labs).
 * **Backend (Serverless):** AWS Lambda.
 * **Base de Datos:** DynamoDB o Amazon RDS.
 * **Storage:** AWS S3 (alojamiento de imágenes de facturas).
@@ -26,9 +27,9 @@ Para garantizar la calidad técnica y cumplir con los criterios de evaluación d
 
 ### 1. Control de Versiones (Conventional Commits)
 La evaluación de la materia es individual y se auditará la frecuencia y calidad en el historial de Git. Es obligatorio el uso del estándar *Conventional Commits*:
-* `feat:` Para nuevas funcionalidades (ej. `feat: agregar formulario de login`).
+* `feat:` Para nuevas funcionalidades (ej. `feat: agrega formulario de login`).
 * `fix:` Para corrección de errores (ej. `fix: error de conexion con dynamoDB`).
-* `docs:` Para actualizaciones de documentación (ej. `docs: actualizar diagrama cloud`).
+* `docs:` Para actualizaciones de documentación (ej. `docs: actualiza diagrama cloud`).
 * *Nota estricta:* Se prohíben los "code drops" (subidas masivas de código a último momento).
 
 ### 2. Integración y Revisiones de Código
@@ -49,3 +50,6 @@ El uso de asistentes está permitido, pero es nuestra responsabilidad determinar
 ### 5. Entregas y Releases
 El código correspondiente a cada Checkpoint evaluativo se congela mediante Tags de Git y ramas específicas para facilitar la auditoría de la cátedra:
 * **Checkpoint 1 (28/09):** Tag `v0.1-checkpoint-1` (Rama: `entrega/checkpoint-1`).
+
+### 6. Convenciones de Arquitectura y Base de Datos
+* **DynamoDB (Partition Keys):** Para garantizar la consistencia en todo el ecosistema Serverless y evitar deuda técnica al cruzar datos con los modelos de IA (RAG), el estándar para todas las tablas es utilizar `usuarioID` (String) como clave primaria. Quedan prohibidas variantes locales como `userId` o `id_usuario`.
