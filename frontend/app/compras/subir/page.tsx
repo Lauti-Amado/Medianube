@@ -7,6 +7,7 @@ import AppLayout from "../../../src/src/components/layout/AppLayout";
 import FileDropzone from "../../../src/src/components/invoices/FileDropzone";
 import IaBanner from "../../../src/src/components/invoices/IaBanner";
 import InvoiceTable, { InvoiceItem } from "../../../src/src/components/invoices/InvoiceTable";
+import { uploadInvoice } from "../../../lib/upload";
 
 // ── Mock data ─────────────────────────────────────────────────────────────
 
@@ -42,6 +43,21 @@ export default function SubirFacturaPage() {
   const [items, setItems] = useState<InvoiceItem[]>(INITIAL_ITEMS);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function handleConfirm() {
+    if (!file) return;
+    setUploadError(null);
+    setProgress(0);
+    try {
+      await uploadInvoice(file, { onProgress: setProgress });
+      router.push("/compras");
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Falló la subida.");
+      setProgress(null);
+    }
+  }
 
   const total = items.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
   const totalFormatted = "$" + total.toLocaleString("es-AR");
@@ -150,7 +166,10 @@ export default function SubirFacturaPage() {
         </>)}
 
         {/* ── Actions ─────────────────────────────────────────────────── */}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "10px" }}>
+          {uploadError && (
+            <p style={{ fontSize: "12px", color: "#C0392B", margin: 0 }}>{uploadError}</p>
+          )}
           <button
             id="invoice-cancel"
             type="button"
@@ -169,8 +188,8 @@ export default function SubirFacturaPage() {
           <button
             id="invoice-confirm"
             type="button"
-            disabled={!file}
-            onClick={() => router.push("/compras")}
+            disabled={!file || progress !== null}
+            onClick={handleConfirm}
             style={{
               padding: "9px 20px", fontSize: "13px", fontWeight: 500,
               backgroundColor: "var(--color-accent)", border: "none",
@@ -182,7 +201,7 @@ export default function SubirFacturaPage() {
             onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent)"; }}
           >
             <span style={{ ...iconStyle, fontSize: "15px" }}>check_circle</span>
-            Confirmar y guardar
+            {progress !== null ? `Subiendo… ${progress}%` : "Confirmar y guardar"}
           </button>
         </div>
 
