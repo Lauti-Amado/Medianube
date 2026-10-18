@@ -1,0 +1,48 @@
+name: CI/CD Pipeline - Validaciones Automáticas
+
+on:
+    push:
+        branches:  
+            - main 
+            - master
+            - develop 
+    pull_request:
+        branches:  
+        - main 
+        - master 
+        - develop 
+
+jobs:
+  validate-and-build:
+    name: Build & Lint Checks
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Obtener el código fuente del repositorio
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Configurar el entorno de Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # 3. Instalar dependencias de forma limpia y rápida
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. Verificar calidad de código (Linter)
+      - name: Run Linter
+        run: npm run lint
+
+      # 5. Ejecutar Pruebas Unitarias (descomentar si están implementadas)
+      # - name: Run Unit Tests
+      #   run: npm test
+
+      # 6. Compilar la aplicación (Build de Next.js)
+      - name: Build Next.js application
+        run: npm run build
+        env:
+          # Variables de entorno dummy requeridas durante el build
+          NEXT_PUBLIC_AWS_REGION: us-east-1
