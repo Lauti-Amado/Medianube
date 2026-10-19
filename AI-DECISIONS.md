@@ -140,3 +140,27 @@ La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
 **Prompt / Herramienta utilizada:** Cloud Debugging con Gemini.
 **Código / Arquitectura generada:** Implementación del patrón Amazon API Gateway (HTTP API) como proxy inverso frente a Lambda.
 **Validación y Corrección Humana:** Rediseño alineado a topologías de producción. Se delegó el manejo de CORS y el enrutamiento público a API Gateway, superando el bloqueo de seguridad del entorno.
+
+## 18/10/2026 - Aprovisionamiento de tablas DynamoDB (IaC) y Lambda de Clima
+
+**Problema abordado:** Faltaba aprovisionar la capa de datos para facturas, productos, ventas y predicciones, y una función que traiga el pronóstico del clima (una variable del modelo de predicción de demanda, según el one-pager). Hasta ahora toda la infraestructura se creaba a mano en la consola, sin trazabilidad en el repositorio.
+
+**Prompt / Herramienta utilizada:** Antigravity IDE (Google Deepmind).
+*Prompt:* "Actúa como un ingeniero de software experto en desarrollo full stack, necesito aprovisionar las tablas en DynamoDB/RDS y armar la función lambda que consume la API del clima. Haz un plan de ejecución para dicha tarea."
+
+**Código / Arquitectura generada:**
+
+- **ADR `docs/DATABASE-DECISION.md`:** DynamoDB On-Demand sobre RDS. Con RDS la Lambda tendría que vivir en una VPC y necesitaría un NAT Gateway (~USD 32/mes) para llegar a la API del clima.
+- **`backend/infra/template.yaml` (CloudFormation):** 5 tablas con clave compuesta `usuarioID` + SK (`Facturas`, `Productos`, `Ventas`, `Predicciones`, `Clima`), TTL en Clima/Predicciones, `DeletionPolicy: Retain` en las tablas de negocio. Lambda `obtenerClima` (Node 20, arm64, concurrencia reservada 2), ruta `GET /clima` agregada a la HTTP API existente, authorizer JWT de Cognito opcional y regla de EventBridge diaria a las 05:00 ART.
+- **Lambda `obtenerClima`:** consume **Open-Meteo** (gratis, sin API key → no hay secretos que gestionar). Usa estrategia cache-first (6 h) en `Medianube-Clima`; si la API falla, devuelve la última cache marcada como `desactualizado`. La lógica está desacoplada del AWS SDK por inyección de dependencias y tiene 28 tests unitarios con `node:test`.
+
+**Validación y Corrección Humana:**
+
+- **Clave de `Medianube-Clima`:** la IA planteó que el clima depende de la ubicación y no del usuario. El equipo decidió mantener la clave compuesta `usuarioID` + `fecha` para respetar la convención del README, aceptando que se dupliquen datos de usuarios de la misma ciudad.
+- **Herramientas disponibles:** el equipo no tiene AWS CLI ni SAM CLI instalados. Se descartó SAM y se usó CloudFormation puro, desplegable desde AWS CloudShell con `aws cloudformation package/deploy`.
+- **Restricciones de AWS Academy:** como no se pueden crear roles IAM, el template recibe un `RolLambdaArn` opcional (`LabRole`). Se eligió una regla clásica de EventBridge en lugar de EventBridge Scheduler porque esta última requiere un rol propio.
+- **Autenticación:** el equipo no tenía confirmado si existía un authorizer JWT en API Gateway. Se dejó un parámetro `ModoAutenticacion` (`dev` acepta `?usuarioID=`, `jwt` valida el token de Cognito). La Lambda siempre prioriza el claim `sub` por sobre el query string, para evitar suplantación cuando se active `jwt`.
+- **Fechas:** se verificó por test que el "hoy" se calcule en la zona horaria de Argentina (a las 23:30 ART ya es el día siguiente en UTC).
+- **Prueba real:** se validó la normalización contra la API real de Open-Meteo para La Plata (7 días con códigos WMO traducidos al español).
+- **Riesgo detectado:** si `guardarConfiguracionOnboarding` usa `PutItem`, va a borrar el atributo `ubicacion`. Hay que migrarla a `UpdateItem`.
+- **Runtime deprecado:** la IA propuso primero `nodejs20.x`. Al validar el template con `cfn-lint` apareció el aviso W2531 (runtime deprecado desde el 30/04/2026) y se pasó a `nodejs22.x`, alineado con la versión local del equipo.
