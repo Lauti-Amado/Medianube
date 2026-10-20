@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Medianube - Capa de datos (DynamoDB) y Lambda obtenerClima (Open-Meteo).
+  Desplegar con backend/scripts/deploy.sh (aws cloudformation package + deploy).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Parámetros
+# ─────────────────────────────────────────────────────────────────────────────
+Parameters:
+  Entorno:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Sufijo para los recursos de cómputo (las tablas mantienen el nombre del estándar del equipo).
+
+  ApiId:
+    Type: String
+    Default: 1i2vqeifsi
+    Description: ID de la HTTP API existente de API Gateway (creada manualmente) donde se agrega GET /clima.
+
+  TablaConfiguracionNombre:
+    Type: String
+    Default: Medianube-Configuracion
+    Description: Tabla existente (no la gestiona este stack) con la configuración y ubicación del negocio.
+
+  ModoAutenticacion:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, jwt]
+    Description: >
+      jwt = la ruta /clima exige un token de Cognito (authorizer JWT de API Gateway).
+      dev = sin authorizer; la Lambda acepta ?usuarioID= (SOLO para desarrollo).
+
+  CognitoUserPoolId:
+    Type: String
+    Default: us-east-2_kFlJZW7ar
+  CognitoAppClientId:
+    Type: String
+    Default: 7d6ucjtp7k0g3rt6dk42kmhajt
+
+  RolLambdaArn:
+    Type: String
+    Default: ""
+    Description: >
+      ARN de un rol existente (ej. arn:aws:iam::<cuenta>:role/LabRole en AWS Academy, donde no se pueden crear roles).
+      Si se deja vacío, el stack crea un rol con mínimo privilegio.
+
+  ConcurrenciaReservada:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    Description: Circuit breaker FinOps (mismo criterio que guardarConfiguracionOnboarding).
+
+  UbicacionDefectoLat:
+    Type: String
+    Default: "-34.9214"
+  UbicacionDefectoLon:
+    Type: String
+    Default: "-57.9545"
+  UbicacionDefectoCiudad:
+    Type: String
+    Default: La Plata
+
+Conditions:
+  UsarJwt: !Equals [!Ref ModoAutenticacion, jwt]
+  CrearRol: !Equals [!Ref RolLambdaArn, ""]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Recursos
+# ─────────────────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── Tablas DynamoDB (On-Demand, PK estándar usuarioID) ─────────────────────
+  # Las tablas de negocio se retienen si se borra el stack, para no perder datos.
+
+  TablaFacturas:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: Medianube-Facturas
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: usuarioID, AttributeType: S }
+        - { AttributeName: facturaID, AttributeType: S }   # <ISO-fecha>#<uuid>
+      KeySchema:
+        - { AttributeName: usuarioID, KeyType: HASH }
+        - { AttributeName: facturaID, KeyType: RANGE }
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - { Key: Proyecto, Value: Medianube }
+
+  TablaProductos:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: Medianube-Productos
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: usuarioID, AttributeType: S }
+        - { AttributeName: productoID, AttributeType: S }
+      KeySchema:
+        - { AttributeName: usuarioID, KeyType: HASH }
+        - { AttributeName: productoID, KeyType: RANGE }
+      Tags:
+        - { Key: Proyecto, Value: Medianube }
+
+  TablaVentas:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: Medianube-Ventas
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: usuarioID, AttributeType: S }
+        - { AttributeName: fechaProducto, AttributeType: S }   # <YYYY-MM-DD>#<productoID>
+      KeySchema:
+        - { AttributeName: usuarioID, KeyType: HASH }
+        - { AttributeName: fechaProducto, KeyType: RANGE }
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - { Key: Proyecto, Value: Medianube }
+
+  TablaPredicciones:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: Medianube-Predicciones
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: usuarioID, AttributeType: S }
+        - { AttributeName: fechaProducto, AttributeType: S }   # <YYYY-MM-DD>#<productoID>
+      KeySchema:
+        - { AttributeName: usuarioID, KeyType: HASH }
+        - { AttributeName: fechaProducto, KeyType: RANGE }
+      TimeToLiveSpecification:
+        AttributeName: expiraEn
+        Enabled: true
+      Tags:
+        - { Key: Proyecto, Value: Medianube }
+
+  # Cache de pronósticos: dato derivado y regenerable → se puede borrar con el stack.
+  TablaClima:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Delete
+    Properties:
+      TableName: Medianube-Clima
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: usuarioID, AttributeType: S }
+        - { AttributeName: fecha, AttributeType: S }   # YYYY-MM-DD
+      KeySchema:
+        - { AttributeName: usuarioID, KeyType: HASH }
+        - { AttributeName: fecha, KeyType: RANGE }
+      TimeToLiveSpecification:
+        AttributeName: expiraEn
+        Enabled: true
+      Tags:
+        - { Key: Proyecto, Value: Medianube }
+
+  # ── IAM (solo si no se provee un rol existente, ej. LabRole) ───────────────
+
+  RolObtenerClima:
+    Type: AWS::IAM::Role
+    Condition: CrearRol
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AccesoTablasClima
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:Query, dynamodb:BatchWriteItem]
+                Resource: !GetAtt TablaClima.Arn
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:Scan]
+                Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TablaConfiguracionNombre}
+
+  # ── Lambda obtenerClima ────────────────────────────────────────────────────
+
+  LogsObtenerClima:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/obtenerClima-${Entorno}
+      RetentionInDays: 14
+
+  FuncionObtenerClima:
+    Type: AWS::Lambda::Function
+    DependsOn: LogsObtenerClima
+    Properties:
+      FunctionName: !Sub obtenerClima-${Entorno}
+      Description: Pronóstico de 7 días (Open-Meteo) con cache en DynamoDB para la predicción de demanda.
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Code: ../functions/obtenerClima   # `aws cloudformation package` lo sube a S3
+      MemorySize: 128
+      Timeout: 10
+      ReservedConcurrentExecutions: !Ref ConcurrenciaReservada
+      Role: !If [CrearRol, !GetAtt RolObtenerClima.Arn, !Ref RolLambdaArn]
+      Environment:
+        Variables:
+          TABLA_CLIMA: !Ref TablaClima
+          TABLA_CONFIGURACION: !Ref TablaConfiguracionNombre
+          CACHE_HORAS: "6"
+          DIAS_PRONOSTICO: "7"
+          TTL_DIAS: "14"
+          TIMEOUT_API_MS: "5000"
+          ZONA_HORARIA: America/Argentina/Buenos_Aires
+          UBICACION_DEFECTO_LAT: !Ref UbicacionDefectoLat
+          UBICACION_DEFECTO_LON: !Ref UbicacionDefectoLon
+          UBICACION_DEFECTO_CIUDAD: !Ref UbicacionDefectoCiudad
+          PERMITIR_USUARIO_QUERY: !If [UsarJwt, "false", "true"]
+      Tags:
+        - { Key: Proyecto, Value: Medianube }
+
+  # ── API Gateway: ruta GET /clima sobre la HTTP API existente ───────────────
+
+  AutorizadorCognito:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Condition: UsarJwt
+    Properties:
+      ApiId: !Ref ApiId
+      Name: !Sub cognito-jwt-${Entorno}
+      AuthorizerType: JWT
+      IdentitySource: ["$request.header.Authorization"]
+      JwtConfiguration:
+        Issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPoolId}
+        Audience: [!Ref CognitoAppClientId]
+
+  IntegracionClima:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiId
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt FuncionObtenerClima.Arn
+      PayloadFormatVersion: "2.0"
+      TimeoutInMillis: 12000
+
+  RutaClima:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiId
+      RouteKey: GET /clima
+      Target: !Sub integrations/${IntegracionClima}
+      AuthorizationType: !If [UsarJwt, JWT, NONE]
+      AuthorizerId: !If [UsarJwt, !Ref AutorizadorCognito, !Ref AWS::NoValue]
+
+  PermisoApiGateway:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FuncionObtenerClima
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*/GET/clima
+
+  # ── EventBridge: refresco diario 05:00 ART (08:00 UTC) ─────────────────────
+  # Se usa una regla clásica en lugar de EventBridge Scheduler porque no requiere un rol IAM propio.
+
+  ReglaRefrescoDiario:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub medianube-refresco-clima-${Entorno}
+      Description: Precalienta la cache de clima antes de la apertura de los negocios.
+      ScheduleExpression: cron(0 8 * * ? *)
+      State: ENABLED
+      Targets:
+        - Id: obtenerClima
+          Arn: !GetAtt FuncionObtenerClima.Arn
+
+  PermisoEventBridge:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FuncionObtenerClima
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ReglaRefrescoDiario.Arn
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Salidas
+# ─────────────────────────────────────────────────────────────────────────────
+Outputs:
+  UrlClima:
+    Description: Endpoint público de clima (asume stage $default con auto-deploy).
+    Value: !Sub https://${ApiId}.execute-api.${AWS::Region}.amazonaws.com/clima
+  FuncionClima:
+    Value: !Ref FuncionObtenerClima
+  TablasCreadas:
+    Value: !Join [", ", [!Ref TablaFacturas, !Ref TablaProductos, !Ref TablaVentas, !Ref TablaPredicciones, !Ref TablaClima]]
+  ModoAutenticacion:
+    Value: !Ref ModoAutenticacion

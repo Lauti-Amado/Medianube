@@ -13,8 +13,9 @@ Medianube es una solución integral en formato SaaS diseñada para dueños, admi
 El sistema está diseñado bajo un modelo Cloud-Native utilizando los siguientes servicios:
 * **Frontend:** Desarrollo en **NextJS / React**, desplegado sobre infraestructura **AWS EC2**.
 * **Capa de Red y Enrutamiento:** **Amazon API Gateway** (HTTP API implementada como proxy para gestionar CORS y evadir restricciones de red/SCP de Learner Labs).
-* **Backend (Serverless):** AWS Lambda.
-* **Base de Datos:** DynamoDB o Amazon RDS.
+* **Backend (Serverless):** AWS Lambda, definida como código en [`backend/`](backend/README.md) (CloudFormation).
+* **Base de Datos:** Amazon DynamoDB On-Demand (ver [ADR](docs/DATABASE-DECISION.md)).
+* **Datos externos:** Open-Meteo (pronóstico del clima para la predicción de demanda).
 * **Storage:** AWS S3 (alojamiento de imágenes de facturas).
 * **Autenticación:** Clerk, Auth0 o AWS Cognito.
 * **IA (El diferenciador):** Amazon Textract u OpenAI Vision para el OCR de tickets, y modelos LLM (OpenAI/Claude) para el análisis de variables y predicción de demanda.

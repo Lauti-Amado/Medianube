@@ -1,0 +1,13 @@
+{
+  "name": "medianube-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend serverless de Medianube (AWS Lambda + DynamoDB)",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

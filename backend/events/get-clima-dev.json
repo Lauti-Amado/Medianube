@@ -1,0 +1,15 @@
+{
+  "version": "2.0",
+  "routeKey": "GET /clima",
+  "rawPath": "/clima",
+  "rawQueryString": "usuarioID=user_test_123",
+  "queryStringParameters": {
+    "usuarioID": "user_test_123"
+  },
+  "requestContext": {
+    "http": {
+      "method": "GET",
+      "path": "/clima"
+    }
+  }
+}

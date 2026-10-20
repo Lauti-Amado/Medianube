@@ -1,0 +1,10 @@
+{
+  "version": "0",
+  "id": "prueba-refresco",
+  "detail-type": "Scheduled Event",
+  "source": "aws.events",
+  "time": "2026-10-19T08:00:00Z",
+  "region": "us-east-2",
+  "resources": [],
+  "detail": {}
+}
