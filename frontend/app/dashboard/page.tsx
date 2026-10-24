@@ -1,3 +1,4 @@
+// frontend/app/dashboard/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -147,9 +148,31 @@ export default function DashboardPage() {
   const [greeting, setGreeting] = useState("");
   const [dateStr, setDateStr] = useState("");
 
+  // Estado para la predicción de demanda
+  const [demandaDashboard, setDemandaDashboard] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
   useEffect(() => {
     setGreeting(getGreeting());
     setDateStr(formatDate());
+
+    // Mock temporal para no bloquear el desarrollo frontend
+    async function fetchDemandaDashboard() {
+        try {
+            await new Promise(resolve => setTimeout(resolve, 800));
+            setDemandaDashboard({
+                produccionPrevista: "2.180 u.",
+                deltaProduccion: "−180 vs. estimación previa",
+                tendencia: "down"
+            });
+        } catch(error){
+            console.error(error);
+        } finally {
+            setIsLoading(false);
+        }
+    }
+    fetchDemandaDashboard();
+
   }, []);
 
   return (
@@ -229,11 +252,11 @@ export default function DashboardPage() {
             isAlert
             trend={{ direction: "up", delta: "+2 vs. semana anterior", positive: false }}
           />
-          <KpiCard
+           <KpiCard
             id="kpi-production"
             label="producción prevista"
-            value="2.180 u."
-            trend={{ direction: "down", delta: "−180 vs. estimación previa", positive: false }}
+            value={isLoading ? "..." : demandaDashboard?.produccionPrevista || "-"}
+            trend={{ direction: isLoading ? "stable" : demandaDashboard?.tendencia || "stable", delta: isLoading ? "Cargando predicción..." : demandaDashboard?.deltaProduccion || "-", positive: false }}
           />
           <KpiCard
             id="kpi-invoices"
