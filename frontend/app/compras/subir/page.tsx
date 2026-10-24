@@ -59,7 +59,7 @@ export default function SubirFacturaPage() {
     setProgress(0);
     try {
       await uploadInvoice(file, { onProgress: setProgress });
-      router.push("/compras");
+      router.push(`/compras?subida=ok&archivo=${encodeURIComponent(file.name)}`);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Falló la subida.");
       setProgress(null);

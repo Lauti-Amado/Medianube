@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
 
 type InvoiceStatus = "procesada" | "revisar" | "procesando";
@@ -47,6 +47,17 @@ const KPIS = [
 export default function ComprasPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "todos">("todos");
+  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+
+  // Cartel de éxito al volver de /compras/subir (?subida=ok&archivo=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("subida") !== "ok") return;
+    setUploadedFile(params.get("archivo") ?? "");
+    window.history.replaceState(null, "", "/compras"); // así no reaparece al recargar
+    const timer = setTimeout(() => setUploadedFile(null), 4000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const filtered = INVOICES.filter((inv) => {
     const matchesSearch = search === "" || inv.provider.toLowerCase().includes(search.toLowerCase()) || inv.itemsDetail.toLowerCase().includes(search.toLowerCase());
@@ -57,6 +68,18 @@ export default function ComprasPage() {
   return (
     <AppLayout activeTab="compras">
       <div style={{ maxWidth: 1080, margin: "0 auto" }}>
+
+        {uploadedFile !== null && (
+          <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)", fontSize: 13, padding: "10px 14px", borderRadius: 8, marginBottom: 16 }}>
+            <span style={{ ...icon, fontSize: 16 }}>check_circle</span>
+            <span style={{ flex: 1 }}>
+              Factura subida correctamente{uploadedFile && <> · <strong style={{ fontWeight: 500 }}>{uploadedFile}</strong></>}
+            </span>
+            <button type="button" aria-label="cerrar" onClick={() => setUploadedFile(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0, display: "flex" }}>
+              <span style={{ ...icon, fontSize: 16 }}>close</span>
+            </button>
+          </div>
+        )}
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
           <div>
