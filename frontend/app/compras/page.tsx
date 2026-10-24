@@ -39,27 +39,71 @@ export default function ComprasPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "todos">("todos");
   
-  // Nuevos estados para la integración con el backend
+  // Estados para la integración con el backend
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isClient, setIsClient] = useState(false);
 
-  // Efecto para cargar los datos al montar la página
+  // Efecto para evitar hydration mismatch y cargar datos
   useEffect(() => {
+    setIsClient(true);
     async function fetchHistorial() {
       try {
-        const urlEndpoint = "https://ol5yziizym2bo36xozucbz44c40yumen.lambda-url.us-east-2.on.aws/";
+        const urlEndpoint = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/compras";
         
         const response = await fetch(urlEndpoint, {
           method: "GET",
           headers: { "Content-Type": "application/json" }
         });
 
-        if (!response.ok) throw new Error("Error al obtener las compras de DynamoDB");
+        if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
 
         const data = await response.json();
-        setInvoices(data);
+        
+        // --- DEPURACIÓN Y VALIDACIÓN ---
+        console.log("Respuesta cruda de la API:", data);
+
+        let parsedData: any[] = [];
+        
+        if (data && data.gastos && Array.isArray(data.gastos)) {
+           parsedData = data.gastos;
+        } else if (Array.isArray(data)) {
+          parsedData = data;
+        }
+
+        // Mapeo defensivo usando los campos exactos de Persona 1
+        const mappedInvoices: Invoice[] = parsedData.map((item: any, index: number) => {
+            
+            let itemsCount = 0;
+            let detailText = "Sin detalle";
+
+            // Si el backend manda un array de objetos con el detalle de la factura
+            if (item.items && Array.isArray(item.items)) {
+                itemsCount = item.items.length;
+                // Armamos un string con las descripciones, separadas por coma
+                detailText = item.items.map((i: any) => i.descripcion).filter(Boolean).join(", ");
+            } else {
+                itemsCount = item.cantidadItems || 1;
+                detailText = item.categoria || item.descripcion || "Insumos varios";
+            }
+
+            return {
+                id: item.gastoID || `temp-id-${index}`,
+                provider: item.proveedor || "Proveedor Desconocido",
+                date: item.fecha || "Fecha desconocida",
+                items: itemsCount, // Ahora es un número seguro
+                itemsDetail: detailText, // Ahora es un texto seguro
+                total: Number(item.monto) || 0, // Nos aseguramos de que sea un número para que no falle el fmt()
+                status: (item.estado || "procesada") as InvoiceStatus,
+                alert: item.alerta || undefined
+            };
+        });
+
+        setInvoices(mappedInvoices);
+
       } catch (error) {
         console.error("Error en la integración:", error);
+        setInvoices([]);
       } finally {
         setIsLoading(false);
       }
@@ -68,8 +112,18 @@ export default function ComprasPage() {
     fetchHistorial();
   }, []);
 
+  // Evitamos renderizar lógica compleja en el servidor antes del montaje del cliente
+  if (!isClient) {
+     return <AppLayout activeTab="compras"><div style={{ padding: "40px", textAlign: "center" }}>Cargando interfaz...</div></AppLayout>;
+  }
+
+  // Filtrado seguro (ahora invoices siempre es un array)
   const filtered = invoices.filter((inv) => {
-    const matchesSearch = search === "" || inv.provider.toLowerCase().includes(search.toLowerCase()) || inv.itemsDetail.toLowerCase().includes(search.toLowerCase());
+    const providerName = inv.provider ? inv.provider.toLowerCase() : "";
+    const details = inv.itemsDetail ? inv.itemsDetail.toLowerCase() : "";
+    const searchTerm = search.toLowerCase();
+    
+    const matchesSearch = search === "" || providerName.includes(searchTerm) || details.includes(searchTerm);
     const matchesStatus = statusFilter === "todos" || inv.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
