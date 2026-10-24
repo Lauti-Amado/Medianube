@@ -88,7 +88,7 @@ No usar sombras (`box-shadow`) en ningún componente: la jerarquía se construye
 | **Badge de estado** | Pill con padding 2–3px × 8px, radio 6px, combinación de `*-bg` / `*-text` según el estado (éxito / alerta / neutro). Siempre incluye texto, nunca es solo un punto de color. |
 | **Banner de IA** | Tarjeta con fondo `tint-accent`, radio 10px, ícono de sparkles o bulb en `accent-dark`, texto en `#6B4226`. Se usa para resúmenes generados por IA (extracción de factura) y recomendaciones accionables (pico de demanda). |
 | **Botón primario** | Fondo `accent` sólido, texto blanco 500, radio 8px, sin borde. Uno solo por pantalla. |
-| **Botón secundario** | Fondo `surface`, borde 1px `border`, texto `text-primary`. Para acciones alternativas ("cancelar", "ingresar con Google"). |
+| **Botón secundario** | Fondo `surface`, borde 1px `border`, texto `text-primary`. Para acciones alternativas ("cancelar", "volver"). |
 | **Input de texto** | Fondo `surface-input`, borde 1px `border`, radio 8px, padding 10px 12px, texto 13px. Label arriba en `text-secondary` 12px. |
 | **Chip / selector segmentado** | Usado en onboarding para elegir tipo de negocio. Seleccionado: fondo `accent`, texto blanco. No seleccionado: fondo `surface`, borde `border`, texto `text-primary`. Radio completo (pill, 20px). |
 | **Toggle** | Pill de 34×20px. Activo: fondo `accent` con círculo blanco a la derecha. Inactivo: fondo `border` con círculo blanco a la izquierda. |
@@ -104,7 +104,7 @@ No usar sombras (`box-shadow`) en ningún componente: la jerarquía se construye
 
 **Objetivo:** acceso simple y confiable al panel, reforzando la marca desde el primer contacto.
 
-**Layout:** pantalla completa con fondo `bg`, tarjeta centrada (280px, `surface`, radio 16px) con: isotipo + wordmark centrados → título "iniciar sesión" → subtítulo "accedé al panel de tu panadería" → input de email → input de contraseña → link "¿olvidaste tu contraseña?" alineado a la derecha → botón primario "iniciar sesión" → divisor "o" → botón secundario "ingresar con Google" → texto de pie "¿no tenés cuenta? *solicitar demo*" (el link lleva a onboarding).
+**Layout:** pantalla completa con fondo `bg`, tarjeta centrada (280px, `surface`, radio 16px) con: isotipo + wordmark centrados → título "iniciar sesión" → subtítulo "accedé al panel de tu panadería" → input de email → input de contraseña → link "¿olvidaste tu contraseña?" alineado a la derecha → botón primario "iniciar sesión" → texto de pie "¿no tenés cuenta? *solicitar demo*" (el link lleva a onboarding).
 
 **Estados:** sin variantes de error definidas en el wireframe — a definir en implementación (email/contraseña inválidos, cuenta no encontrada).
 
