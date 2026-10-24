@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
 
 type InvoiceStatus = "procesada" | "revisar" | "procesando";
@@ -16,15 +16,6 @@ interface Invoice {
   status: InvoiceStatus;
   alert?: string;
 }
-
-const INVOICES: Invoice[] = [
-  { id: "inv-1", provider: "Molino San Justo", date: "3 sep 2024", items: 6, itemsDetail: "Harina 000 (x50kg), Salvado fino, Semolín...", total: 412800, status: "procesada" },
-  { id: "inv-2", provider: "Lácteos del Valle", date: "2 sep 2024", items: 9, itemsDetail: "Manteca extra x5kg, Leche entera 1L...", total: 186400, status: "procesada" },
-  { id: "inv-3", provider: "Envases y Descartables SRL", date: "1 sep 2024", items: 14, itemsDetail: "Caja corrugada para medialunas", total: 94150, status: "revisar", alert: "+14.2% precio unitario cajas" },
-  { id: "inv-4", provider: "Levadura y Aditivos SA", date: "30 ago 2024", items: 4, itemsDetail: "Levadura fresca prensada x500g, Extracto de malta...", total: 58900, status: "procesada" },
-  { id: "inv-5", provider: "Cadena de Frío Express", date: "29 ago 2024", items: 7, itemsDetail: "Detectando ítems...", total: 132350, status: "procesando" },
-  { id: "inv-6", provider: "Distribuidora Norte", date: "27 ago 2024", items: 5, itemsDetail: "Azúcar refinada x50kg, Sal gruesa...", total: 77200, status: "procesada" },
-];
 
 const fmt = (n: number) => "$" + n.toLocaleString("es-AR", { maximumFractionDigits: 0 });
 
@@ -47,8 +38,37 @@ const KPIS = [
 export default function ComprasPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "todos">("todos");
+  
+  // Nuevos estados para la integración con el backend
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const filtered = INVOICES.filter((inv) => {
+  // Efecto para cargar los datos al montar la página
+  useEffect(() => {
+    async function fetchHistorial() {
+      try {
+        const urlEndpoint = "https://ol5yziizym2bo36xozucbz44c40yumen.lambda-url.us-east-2.on.aws/";
+        
+        const response = await fetch(urlEndpoint, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" }
+        });
+
+        if (!response.ok) throw new Error("Error al obtener las compras de DynamoDB");
+
+        const data = await response.json();
+        setInvoices(data);
+      } catch (error) {
+        console.error("Error en la integración:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchHistorial();
+  }, []);
+
+  const filtered = invoices.filter((inv) => {
     const matchesSearch = search === "" || inv.provider.toLowerCase().includes(search.toLowerCase()) || inv.itemsDetail.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "todos" || inv.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -103,7 +123,7 @@ export default function ComprasPage() {
               <span style={{ ...icon }}>download</span>
               Exportar CSV
             </button>
-            <span style={{ fontSize: 12, color: "var(--color-text-muted)", marginLeft: "auto" }}>Mostrando {filtered.length} de {INVOICES.length} facturas</span>
+            <span style={{ fontSize: 12, color: "var(--color-text-muted)", marginLeft: "auto" }}>Mostrando {filtered.length} facturas</span>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2.5fr 1fr 120px 90px", columnGap: 16, padding: "10px 16px", borderBottom: "1px solid var(--color-border)" }}>
@@ -112,7 +132,11 @@ export default function ComprasPage() {
             ))}
           </div>
 
-          {filtered.length === 0 ? (
+          {isLoading ? (
+             <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
+               Cargando datos desde la nube...
+             </div>
+          ) : filtered.length === 0 ? (
             <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>No hay facturas que coincidan.</div>
           ) : (
             filtered.map((inv, idx) => (
