@@ -164,3 +164,13 @@ La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
 - **Prueba real:** se validó la normalización contra la API real de Open-Meteo para La Plata (7 días con códigos WMO traducidos al español).
 - **Riesgo detectado:** si `guardarConfiguracionOnboarding` usa `PutItem`, va a borrar el atributo `ubicacion`. Hay que migrarla a `UpdateItem`.
 - **Runtime deprecado:** la IA propuso primero `nodejs20.x`. Al validar el template con `cfn-lint` apareció el aviso W2531 (runtime deprecado desde el 30/04/2026) y se pasó a `nodejs22.x`, alineado con la versión local del equipo.
+
+## 24/10/2026 - Corrección de la configuración de ESLint del frontend
+
+**Problema abordado:** `npm run lint` fallaba con "Cannot find module eslint-config-next/core-web-vitals" porque `eslint.config.mjs` estaba escrito para eslint-config-next 16 y el proyecto usa la versión 15.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic). Prompt: error completo de lint y package.json, pidiendo la corrección sin actualizar dependencias.
+
+**Código / Arquitectura generada:** eslint.config.mjs con FlatCompat extendiendo next/core-web-vitals y next/typescript.
+
+**Validación y Corrección Humana:** Se confirmó con `npm ls` que el proyecto usa eslint-config-next 15.5.25 y que la config estaba escrita para la versión 16. Tras el fix, el lint corre y devuelve 0 errores y 2 warnings. Se corrigió el warning de variable sin usar en StepIndicator y se dejó el warning de fuentes en layout.tsx, porque en App Router la carga de Material Symbols por <link> funciona correctamente y cambiarla excede el alcance del ticket.
