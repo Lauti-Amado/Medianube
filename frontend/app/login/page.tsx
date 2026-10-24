@@ -266,21 +266,17 @@ function LoginForm() {
               </button>
             </div>
             <div style={{ textAlign: "center", marginTop: "10px" }}>
-              <button
-                type="button"
+              <Link
                 id="login-forgot-password"
+                href="/recuperar-password"
                 className="text-caption"
                 style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
                   color: "var(--color-text-muted)",
                   textDecoration: "underline",
                 }}
               >
                 ¿olvidaste tu contraseña?
-              </button>
+              </Link>
             </div>
           </div>
 
