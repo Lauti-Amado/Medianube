@@ -204,6 +204,7 @@ No usar sombras (`box-shadow`) en ningún componente: la jerarquía se construye
 | Precios | `/precios` | Tab "precios", Dashboard ("ver todas" de precios sugeridos) |
 | Demanda | `/demanda` | Tab "demanda", Dashboard ("ver detalle" de predicción) |
 | Configuración | `/configuracion` | Ícono de engranaje en dashboard / compras / precios / demanda |
+| Recuperar contraseña | `/recuperar-password` | Login ("¿olvidaste tu contraseña?") |
 
 ### Flujo principal
 
