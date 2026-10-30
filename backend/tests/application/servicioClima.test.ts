@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import {
-  crearServicioClima,
-  ErrorServicioExterno,
-  ErrorValidacion,
-  fechaLocal,
-  parsearUbicacion,
-  sumarDias,
-} from "../functions/obtenerClima/clima.mjs";
+import { crearServicioClima } from "../../src/application/clima/servicioClima";
+import { sumarDias } from "../../src/domain/clima/reglas";
+import { ErrorServicioExterno, ErrorValidacion } from "../../src/domain/clima/tipos";
+import type { DiaClimaGuardado, DiaPronostico, Ubicacion } from "../../src/domain/clima/tipos";
+import type { ClimaRepositorioPort, ConfiguracionClima } from "../../src/ports/clima";
 
 const ZONA = "America/Argentina/Buenos_Aires";
 // 18/10/2026 23:30 en Argentina = 19/10/2026 02:30 UTC → el "hoy" local debe ser el 18.
@@ -17,7 +14,7 @@ const DIAS = 3;
 
 const logSilencioso = { info() {}, warn() {}, error() {} };
 
-function diasPronostico(desde = "2026-10-18") {
+function diasPronostico(desde = "2026-10-18"): DiaPronostico[] {
   return Array.from({ length: DIAS }, (_, i) => ({
     fecha: sumarDias(desde, i),
     tempMax: 20 + i,
@@ -29,8 +26,20 @@ function diasPronostico(desde = "2026-10-18") {
   }));
 }
 
-function crearRepoFalso({ configuraciones = {}, cache = [] } = {}) {
-  const repo = {
+function enCache(usuarioID: string, actualizadoEn: string, dias = diasPronostico()): DiaClimaGuardado[] {
+  return dias.map((d) => ({ usuarioID, ...d, actualizadoEn, expiraEn: 0 }));
+}
+
+interface RepoFalso extends ClimaRepositorioPort {
+  guardados: DiaClimaGuardado[];
+  consultas: Array<{ usuarioID: string; desde: string; hasta: string }>;
+}
+
+function crearRepoFalso({
+  configuraciones = {},
+  cache = [],
+}: { configuraciones?: Record<string, ConfiguracionClima>; cache?: DiaClimaGuardado[] } = {}): RepoFalso {
+  const repo: RepoFalso = {
     guardados: [],
     consultas: [],
     async obtenerConfiguracion(usuarioID) {
@@ -50,13 +59,23 @@ function crearRepoFalso({ configuraciones = {}, cache = [] } = {}) {
   return repo;
 }
 
-function crearServicio({ repo, pronostico = async () => diasPronostico(), ubicacionPorDefecto = null }) {
+function crearServicio({
+  repo,
+  pronostico = async () => diasPronostico(),
+  ubicacionPorDefecto = null,
+}: {
+  repo: RepoFalso;
+  pronostico?: (ubicacion: Ubicacion) => Promise<DiaPronostico[]>;
+  ubicacionPorDefecto?: Ubicacion | null;
+}) {
   let llamadasApi = 0;
   const servicio = crearServicioClima({
     repositorio: repo,
-    obtenerPronostico: async (ubicacion) => {
-      llamadasApi++;
-      return pronostico(ubicacion);
+    pronostico: {
+      async obtenerPronostico(ubicacion) {
+        llamadasApi++;
+        return pronostico(ubicacion);
+      },
     },
     config: { cacheHoras: 6, diasPronostico: DIAS, ttlDias: 14, zonaHoraria: ZONA, ubicacionPorDefecto },
     ahora: () => AHORA,
@@ -65,32 +84,13 @@ function crearServicio({ repo, pronostico = async () => diasPronostico(), ubicac
   return { servicio, llamadasApi: () => llamadasApi };
 }
 
-const CONFIG_LA_PLATA = { u1: { usuarioID: "u1", ubicacion: { ciudad: "La Plata", lat: "-34.92", lon: "-57.95" } } };
-
-describe("utilidades de fecha y ubicación", () => {
-  it("calcula la fecha local en Argentina aunque en UTC ya sea el día siguiente", () => {
-    assert.equal(fechaLocal(AHORA, ZONA), "2026-10-18");
-  });
-
-  it("suma días cruzando fin de mes", () => {
-    assert.equal(sumarDias("2026-10-30", 3), "2026-11-02");
-  });
-
-  it("parsea coordenadas guardadas como string y rechaza valores inválidos", () => {
-    assert.deepEqual(parsearUbicacion({ lat: "-34.92", lon: "-57.95", ciudad: "La Plata" }), {
-      lat: -34.92,
-      lon: -57.95,
-      ciudad: "La Plata",
-    });
-    assert.equal(parsearUbicacion({ lat: "abc", lon: 1 }), null);
-    assert.equal(parsearUbicacion({ lat: 100, lon: 1 }), null);
-    assert.equal(parsearUbicacion({ lat: "", lon: "" }), null);
-    assert.equal(parsearUbicacion(undefined), null);
-  });
-});
+const CONFIG_LA_PLATA = {
+  u1: { usuarioID: "u1", ubicacion: { ciudad: "La Plata", lat: "-34.92", lon: "-57.95" } },
+};
+const horasAntes = (h: number) => new Date(AHORA.getTime() - h * 60 * 60 * 1000).toISOString();
 
 describe("obtenerClimaUsuario", () => {
-  it("sin cache: consulta Open-Meteo, persiste con TTL y devuelve la vista pública", async () => {
+  it("sin cache: consulta el pronóstico, persiste con TTL y devuelve la vista pública", async () => {
     const repo = crearRepoFalso({ configuraciones: CONFIG_LA_PLATA });
     const { servicio, llamadasApi } = crearServicio({ repo });
 
@@ -101,19 +101,17 @@ describe("obtenerClimaUsuario", () => {
     assert.equal(res.dias.length, DIAS);
     assert.deepEqual(repo.consultas[0], { usuarioID: "u1", desde: "2026-10-18", hasta: "2026-10-20" });
 
-    const guardado = repo.guardados[0];
+    const guardado = repo.guardados[0]!;
     assert.equal(guardado.usuarioID, "u1");
     assert.equal(guardado.actualizadoEn, AHORA.toISOString());
     assert.equal(guardado.expiraEn, Math.floor(AHORA.getTime() / 1000) + 14 * 86_400);
     // La respuesta no expone atributos internos.
-    assert.equal(res.dias[0].usuarioID, undefined);
-    assert.equal(res.dias[0].expiraEn, undefined);
+    assert.equal("usuarioID" in res.dias[0]!, false);
+    assert.equal("expiraEn" in res.dias[0]!, false);
   });
 
   it("con cache vigente y completa: no llama a la API", async () => {
-    const actualizadoEn = new Date(AHORA.getTime() - 60 * 60 * 1000).toISOString(); // hace 1 h
-    const cache = diasPronostico().map((d) => ({ usuarioID: "u1", ...d, actualizadoEn }));
-    const repo = crearRepoFalso({ configuraciones: CONFIG_LA_PLATA, cache });
+    const repo = crearRepoFalso({ configuraciones: CONFIG_LA_PLATA, cache: enCache("u1", horasAntes(1)) });
     const { servicio, llamadasApi } = crearServicio({ repo });
 
     const res = await servicio.obtenerClimaUsuario("u1");
@@ -124,9 +122,7 @@ describe("obtenerClimaUsuario", () => {
   });
 
   it("con cache vencida: refresca desde la API", async () => {
-    const actualizadoEn = new Date(AHORA.getTime() - 7 * 60 * 60 * 1000).toISOString(); // hace 7 h
-    const cache = diasPronostico().map((d) => ({ usuarioID: "u1", ...d, actualizadoEn }));
-    const repo = crearRepoFalso({ configuraciones: CONFIG_LA_PLATA, cache });
+    const repo = crearRepoFalso({ configuraciones: CONFIG_LA_PLATA, cache: enCache("u1", horasAntes(7)) });
     const { servicio, llamadasApi } = crearServicio({ repo });
 
     const res = await servicio.obtenerClimaUsuario("u1");
@@ -136,8 +132,7 @@ describe("obtenerClimaUsuario", () => {
   });
 
   it("con cache incompleta: refresca desde la API", async () => {
-    const actualizadoEn = AHORA.toISOString();
-    const cache = diasPronostico().slice(0, 1).map((d) => ({ usuarioID: "u1", ...d, actualizadoEn }));
+    const cache = enCache("u1", AHORA.toISOString(), diasPronostico().slice(0, 1));
     const repo = crearRepoFalso({ configuraciones: CONFIG_LA_PLATA, cache });
     const { servicio, llamadasApi } = crearServicio({ repo });
 
@@ -146,9 +141,7 @@ describe("obtenerClimaUsuario", () => {
   });
 
   it("si la API falla y hay cache: devuelve cache marcada como desactualizada", async () => {
-    const actualizadoEn = new Date(AHORA.getTime() - 24 * 60 * 60 * 1000).toISOString();
-    const cache = diasPronostico().map((d) => ({ usuarioID: "u1", ...d, actualizadoEn }));
-    const repo = crearRepoFalso({ configuraciones: CONFIG_LA_PLATA, cache });
+    const repo = crearRepoFalso({ configuraciones: CONFIG_LA_PLATA, cache: enCache("u1", horasAntes(24)) });
     const { servicio } = crearServicio({
       repo,
       pronostico: async () => {
@@ -192,8 +185,8 @@ describe("obtenerClimaUsuario", () => {
 
   it("sin ubicación configurada: usa la ubicación por defecto y lo informa", async () => {
     const repo = crearRepoFalso();
-    const porDefecto = { lat: -34.92, lon: -57.95, ciudad: "La Plata" };
-    let ubicacionUsada;
+    const porDefecto: Ubicacion = { lat: -34.92, lon: -57.95, ciudad: "La Plata" };
+    let ubicacionUsada: Ubicacion | undefined;
     const { servicio } = crearServicio({
       repo,
       ubicacionPorDefecto: porDefecto,
@@ -211,15 +204,13 @@ describe("obtenerClimaUsuario", () => {
 
 describe("refrescarTodos", () => {
   it("fuerza el refresco, omite usuarios sin ubicación y registra fallos", async () => {
-    const actualizadoEn = AHORA.toISOString();
-    const cache = diasPronostico().map((d) => ({ usuarioID: "u1", ...d, actualizadoEn })); // vigente
     const repo = crearRepoFalso({
       configuraciones: {
         ...CONFIG_LA_PLATA,
         sinUbicacion: { usuarioID: "sinUbicacion" },
         conFallo: { usuarioID: "conFallo", ubicacion: { lat: 1, lon: 1 } },
       },
-      cache,
+      cache: enCache("u1", AHORA.toISOString()), // vigente
     });
     const { servicio, llamadasApi } = crearServicio({
       repo,
@@ -237,6 +228,6 @@ describe("refrescarTodos", () => {
       { total: 3, actualizados: 1, omitidos: 1 }
     );
     assert.equal(res.fallidos.length, 1);
-    assert.equal(res.fallidos[0].usuarioID, "conFallo");
+    assert.equal(res.fallidos[0]!.usuarioID, "conFallo");
   });
 });

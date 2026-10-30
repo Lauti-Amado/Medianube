@@ -2,7 +2,7 @@
 // a descripciones en español legibles para el usuario y para el modelo de IA.
 // Referencia: https://open-meteo.com/en/docs (sección "WMO Weather interpretation codes").
 
-const DESCRIPCIONES_WMO = Object.freeze({
+const DESCRIPCIONES_WMO: Readonly<Record<number, string>> = Object.freeze({
   0: "Despejado",
   1: "Mayormente despejado",
   2: "Parcialmente nublado",
@@ -34,6 +34,7 @@ const DESCRIPCIONES_WMO = Object.freeze({
 });
 
 /** Devuelve la descripción en español de un código WMO, o "Desconocido". */
-export function describirCodigoClima(codigo) {
+export function describirCodigoClima(codigo: number | null | undefined): string {
+  if (codigo == null) return "Desconocido";
   return DESCRIPCIONES_WMO[codigo] ?? "Desconocido";
 }

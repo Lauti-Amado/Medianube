@@ -1,19 +1,22 @@
-// Punto de entrada de la Lambda `obtenerClima`.
+// Composition root de la Lambda `obtenerClima`: único lugar donde se leen variables de entorno
+// y se conectan adaptadores con casos de uso.
 // Disparadores: API Gateway (GET /clima) y EventBridge (refresco diario 05:00 ART).
 
-import { crearServicioClima } from "./clima.mjs";
-import { crearHandler } from "./http.mjs";
-import { obtenerPronostico } from "./openMeteo.mjs";
-import { crearRepositorio } from "./repositorio.mjs";
+import { crearHandlerClima } from "../adapters/in/lambdaClima";
+import { crearClimaRepositorioDynamo } from "../adapters/out/climaRepositorioDynamo";
+import { crearPronosticoOpenMeteo } from "../adapters/out/openMeteo";
+import { crearServicioClima } from "../application/clima/servicioClima";
+import type { Ubicacion } from "../domain/clima/tipos";
 
 const env = process.env;
 
-function requerida(nombre) {
-  if (!env[nombre]) throw new Error(`Falta la variable de entorno ${nombre}.`);
-  return env[nombre];
+function requerida(nombre: string): string {
+  const valor = env[nombre];
+  if (!valor) throw new Error(`Falta la variable de entorno ${nombre}.`);
+  return valor;
 }
 
-function leerUbicacionPorDefecto() {
+function leerUbicacionPorDefecto(): Ubicacion | null {
   const lat = Number(env.UBICACION_DEFECTO_LAT);
   const lon = Number(env.UBICACION_DEFECTO_LON);
   if (!env.UBICACION_DEFECTO_LAT || !env.UBICACION_DEFECTO_LON || !Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -28,11 +31,11 @@ const timeoutMs = Number(env.TIMEOUT_API_MS || 5000);
 
 // Se inicializa fuera del handler para reutilizar el cliente de DynamoDB entre invocaciones (warm start).
 const servicio = crearServicioClima({
-  repositorio: crearRepositorio({
+  repositorio: crearClimaRepositorioDynamo({
     tablaClima: requerida("TABLA_CLIMA"),
     tablaConfiguracion: requerida("TABLA_CONFIGURACION"),
   }),
-  obtenerPronostico: (ubicacion) => obtenerPronostico(ubicacion, { dias: diasPronostico, zonaHoraria, timeoutMs }),
+  pronostico: crearPronosticoOpenMeteo({ dias: diasPronostico, zonaHoraria, timeoutMs }),
   config: {
     cacheHoras: Number(env.CACHE_HORAS || 6),
     diasPronostico,
@@ -42,7 +45,7 @@ const servicio = crearServicioClima({
   },
 });
 
-export const handler = crearHandler({
+export const handler = crearHandlerClima({
   servicio,
   permitirUsuarioQuery: env.PERMITIR_USUARIO_QUERY === "true",
 });

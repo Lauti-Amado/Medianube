@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { construirUrl, normalizarPronostico, obtenerPronostico } from "../functions/obtenerClima/openMeteo.mjs";
-import { describirCodigoClima } from "../functions/obtenerClima/weatherCodes.mjs";
+import { construirUrl, crearPronosticoOpenMeteo, normalizarPronostico } from "../../src/adapters/out/openMeteo";
 
 const RESPUESTA_OPEN_METEO = {
   daily: {
@@ -15,7 +14,9 @@ const RESPUESTA_OPEN_METEO = {
   },
 };
 
-describe("openMeteo", () => {
+const UBICACION = { lat: 0, lon: 0, ciudad: null };
+
+describe("adaptador Open-Meteo", () => {
   it("construye la URL con coordenadas, variables diarias y zona horaria", () => {
     const url = new URL(construirUrl({ lat: -34.92, lon: -57.95 }));
     assert.equal(url.origin + url.pathname, "https://api.open-meteo.com/v1/forecast");
@@ -23,7 +24,7 @@ describe("openMeteo", () => {
     assert.equal(url.searchParams.get("longitude"), "-57.95");
     assert.equal(url.searchParams.get("forecast_days"), "7");
     assert.equal(url.searchParams.get("timezone"), "America/Argentina/Buenos_Aires");
-    assert.match(url.searchParams.get("daily"), /weather_code/);
+    assert.match(url.searchParams.get("daily") ?? "", /weather_code/);
   });
 
   it("normaliza la respuesta columnar a una lista de días", () => {
@@ -45,18 +46,15 @@ describe("openMeteo", () => {
   });
 
   it("propaga errores HTTP de la API", async () => {
-    const fetchFn = async () => ({ ok: false, status: 429 });
-    await assert.rejects(obtenerPronostico({ lat: 0, lon: 0 }, { fetchFn }), /HTTP 429/);
+    const fetchFn = (async () => ({ ok: false, status: 429 })) as unknown as typeof fetch;
+    const puerto = crearPronosticoOpenMeteo({ fetchFn });
+    await assert.rejects(puerto.obtenerPronostico(UBICACION), /HTTP 429/);
   });
 
   it("devuelve el pronóstico normalizado ante HTTP 200", async () => {
-    const fetchFn = async () => ({ ok: true, json: async () => RESPUESTA_OPEN_METEO });
-    const dias = await obtenerPronostico({ lat: 0, lon: 0 }, { fetchFn });
-    assert.equal(dias[0].descripcion, "Mayormente despejado");
-  });
-
-  it("describe códigos WMO desconocidos sin romper", () => {
-    assert.equal(describirCodigoClima(999), "Desconocido");
-    assert.equal(describirCodigoClima(null), "Desconocido");
+    const fetchFn = (async () => ({ ok: true, json: async () => RESPUESTA_OPEN_METEO })) as unknown as typeof fetch;
+    const puerto = crearPronosticoOpenMeteo({ fetchFn });
+    const dias = await puerto.obtenerPronostico(UBICACION);
+    assert.equal(dias[0]!.descripcion, "Mayormente despejado");
   });
 });
