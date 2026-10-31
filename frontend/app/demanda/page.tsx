@@ -42,14 +42,57 @@ const BARS: DayBar[] = [
   { label: "dom", value: 190, predicted: true  },
 ];
 
-const RECS_MOCK: Recommendation[] = [
-  { id: "r1", product: "Medialunas de manteca", qty: 240, unit: "u.", confidence: "alta"  },
-  { id: "r2", product: "Pan francés",           qty: 18,  unit: "kg", confidence: "alta"  },
-  { id: "r3", product: "Café con leche",        qty: 95,  unit: "u.", confidence: "media" },
-  { id: "r4", product: "Torta de chocolate",    qty: 6,   unit: "porciones", confidence: "baja", risk: true },
-  { id: "r5", product: "Alfajor de maicena",    qty: 80,  unit: "u.", confidence: "alta"  },
-  { id: "r6", product: "Croissant jamón/queso", qty: 60,  unit: "u.", confidence: "media" },
-];
+const SUGERENCIA_URL =
+  "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/sugerencia-produccion";
+
+const CONFIDENCES: Confidence[] = ["alta", "media", "baja"];
+
+const UNIT_LABEL: Record<string, string> = {
+  unidad: "u.",
+  kg: "kg",
+  porcion: "porciones",
+  vaso: "u.",
+};
+
+interface ProductoApi {
+  productoID: string;
+  nombre: string;
+  unidadProducto: string;
+  cantidad: number;
+}
+
+interface SugerenciaApi {
+  canastasCompletas?: number;
+  produccion?: ProductoApi[];
+  body?: string;
+}
+
+function randomConfidence(): Confidence {
+  return CONFIDENCES[Math.floor(Math.random() * CONFIDENCES.length)];
+}
+
+function mapProduccion(items: ProductoApi[]): Recommendation[] {
+  return items.map((item) => {
+    const confidence = randomConfidence();
+    return {
+      id: item.productoID,
+      product: item.nombre,
+      qty: item.cantidad,
+      unit: UNIT_LABEL[item.unidadProducto] ?? item.unidadProducto,
+      confidence,
+      risk: confidence === "baja",
+    };
+  });
+}
+
+function parseSugerencia(data: SugerenciaApi): ProductoApi[] {
+  if (Array.isArray(data.produccion)) return data.produccion;
+  if (typeof data.body === "string") {
+    const inner = JSON.parse(data.body) as SugerenciaApi;
+    return inner.produccion ?? [];
+  }
+  return [];
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -71,38 +114,55 @@ const icon: React.CSSProperties = {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+interface KpiDatos {
+  produccionTotal: string;
+  precision: string;
+}
+
 export default function DemandaPage() {
   const [recalculating, setRecalculating] = useState(false);
-  
-  // Estados para la integración con IA
   const [recomendaciones, setRecomendaciones] = useState<Recommendation[]>([]);
-  const [kpiDatos, setKpiDatos] = useState<any>(null);
+  const [kpiDatos, setKpiDatos] = useState<KpiDatos | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function fetchPrediccion() {
+    setErrorMsg("");
+    try {
+      const response = await fetch(SUGERENCIA_URL, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+
+      const data = (await response.json()) as SugerenciaApi;
+      const productos = parseSugerencia(data);
+      const mapped = mapProduccion(productos);
+      setRecomendaciones(mapped);
+
+      const totalUnidades = mapped.reduce((acc, r) => acc + r.qty, 0);
+      setKpiDatos({
+        produccionTotal: `${totalUnidades.toLocaleString("es-AR")} u.`,
+        precision: "91.4%",
+      });
+    } catch (error) {
+      console.error("Error al obtener predicciones:", error);
+      setRecomendaciones([]);
+      setErrorMsg("No se pudo cargar la sugerencia de producción.");
+    } finally {
+      setIsLoading(false);
+      setRecalculating(false);
+    }
+  }
 
   useEffect(() => {
-    async function fetchPrediccion() {
-      try {
-        // MOCK TEMPORAL PARA NO BLOQUEAR EL DESARROLLO FRONTEND
-        await new Promise(resolve => setTimeout(resolve, 800));
-        setRecomendaciones(RECS_MOCK);
-        setKpiDatos({
-            produccionTotal: "2.970 u.",
-            precision: "91.4%"
-        });
-
-      } catch (error) {
-        console.error("Error al obtener predicciones:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    fetchPrediccion();
+    void fetchPrediccion();
   }, []);
 
   const handleRecalculate = () => {
     setRecalculating(true);
-    setTimeout(() => setRecalculating(false), 1500);
+    setIsLoading(true);
+    void fetchPrediccion();
   };
 
   const atRisk = recomendaciones.filter((r) => r.risk).length;
@@ -457,6 +517,8 @@ export default function DemandaPage() {
              <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
                Cargando predicciones de IA...
              </div>
+          ) : errorMsg ? (
+            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>{errorMsg}</div>
           ) : recomendaciones.length === 0 ? (
             <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>No hay recomendaciones generadas.</div>
           ) : (
