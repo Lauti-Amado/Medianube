@@ -1,19 +1,7 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  type ReactNode,
-} from "react";
-import {
-  CognitoUser,
-  AuthenticationDetails,
-  CognitoUserAttribute,
-  CognitoUserSession,
-} from "amazon-cognito-identity-js";
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode,} from "react";
+import { CognitoUser, AuthenticationDetails, CognitoUserAttribute, CognitoUserSession,} from "amazon-cognito-identity-js";
 import userPool from "./cognito";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -34,6 +22,12 @@ interface AuthContextType {
     attributes?: Record<string, string>
   ) => Promise<{ userConfirmed: boolean }>;
   confirmSignUp: (email: string, code: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<void>;
+  confirmForgotPassword: (
+    email: string,
+    code: string,
+    newPassword: string
+  ) => Promise<void>;
   signOut: () => void;
 }
 
@@ -166,6 +160,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
+   // ── Forgot Password ──────────────────────────────────────────────────────
+
+  const forgotPassword = useCallback(
+    (email: string): Promise<void> =>
+      new Promise((resolve, reject) => {
+        const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
+        cognitoUser.forgotPassword({
+          onSuccess() {
+            resolve();
+          },
+          onFailure(err) {
+            reject(err);
+          },
+        });
+      }),
+    []
+  );
+
+  const confirmForgotPassword = useCallback(
+    (email: string, code: string, newPassword: string): Promise<void> =>
+      new Promise((resolve, reject) => {
+        const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
+        cognitoUser.confirmPassword(code, newPassword, {
+          onSuccess() {
+            resolve();
+          },
+          onFailure(err) {
+            reject(err);
+          },
+        });
+      }),
+    []
+  );
+
   // ── Sign Out ─────────────────────────────────────────────────────────────
 
   const signOut = useCallback(() => {
@@ -186,6 +214,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signUp,
         confirmSignUp,
+        forgotPassword,
+        confirmForgotPassword,
         signOut,
       }}
     >

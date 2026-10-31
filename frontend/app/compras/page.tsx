@@ -39,12 +39,15 @@ export default function ComprasPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "todos">("todos");
   
-  // Estados para la integración con el backend
+  // 1. Estados para la integración con el backend (de la rama feat)
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isClient, setIsClient] = useState(false);
 
-  // Efecto para evitar hydration mismatch y cargar datos
+  // 2. Estado para el cartel de éxito (de la rama main)
+  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+
+  // Efecto A: Cargar los datos desde el backend
   useEffect(() => {
     setIsClient(true);
     async function fetchHistorial() {
@@ -71,16 +74,14 @@ export default function ComprasPage() {
           parsedData = data;
         }
 
-        // Mapeo defensivo usando los campos exactos de Persona 1
+        // Mapeo defensivo
         const mappedInvoices: Invoice[] = parsedData.map((item: any, index: number) => {
             
             let itemsCount = 0;
             let detailText = "Sin detalle";
 
-            // Si el backend manda un array de objetos con el detalle de la factura
             if (item.items && Array.isArray(item.items)) {
                 itemsCount = item.items.length;
-                // Armamos un string con las descripciones, separadas por coma
                 detailText = item.items.map((i: any) => i.descripcion).filter(Boolean).join(", ");
             } else {
                 itemsCount = item.cantidadItems || 1;
@@ -91,9 +92,9 @@ export default function ComprasPage() {
                 id: item.gastoID || `temp-id-${index}`,
                 provider: item.proveedor || "Proveedor Desconocido",
                 date: item.fecha || "Fecha desconocida",
-                items: itemsCount, // Ahora es un número seguro
-                itemsDetail: detailText, // Ahora es un texto seguro
-                total: Number(item.monto) || 0, // Nos aseguramos de que sea un número para que no falle el fmt()
+                items: itemsCount,
+                itemsDetail: detailText,
+                total: Number(item.monto) || 0,
                 status: (item.estado || "procesada") as InvoiceStatus,
                 alert: item.alerta || undefined
             };
@@ -112,12 +113,22 @@ export default function ComprasPage() {
     fetchHistorial();
   }, []);
 
+  // Efecto B: Manejar el cartel de éxito si venimos de subir una factura
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("subida") !== "ok") return;
+    setUploadedFile(params.get("archivo") ?? "");
+    window.history.replaceState(null, "", "/compras"); // así no reaparece al recargar
+    const timer = setTimeout(() => setUploadedFile(null), 4000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Evitamos renderizar lógica compleja en el servidor antes del montaje del cliente
   if (!isClient) {
      return <AppLayout activeTab="compras"><div style={{ padding: "40px", textAlign: "center" }}>Cargando interfaz...</div></AppLayout>;
   }
 
-  // Filtrado seguro (ahora invoices siempre es un array)
+  // Filtrado combinando la lógica segura (feat) apuntando al estado real (invoices)
   const filtered = invoices.filter((inv) => {
     const providerName = inv.provider ? inv.provider.toLowerCase() : "";
     const details = inv.itemsDetail ? inv.itemsDetail.toLowerCase() : "";
@@ -131,6 +142,19 @@ export default function ComprasPage() {
   return (
     <AppLayout activeTab="compras">
       <div style={{ maxWidth: 1080, margin: "0 auto" }}>
+
+        {/* Cartel de éxito si uploadedFile no es nulo */}
+        {uploadedFile !== null && (
+          <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)", fontSize: 13, padding: "10px 14px", borderRadius: 8, marginBottom: 16 }}>
+            <span style={{ ...icon, fontSize: 16 }}>check_circle</span>
+            <span style={{ flex: 1 }}>
+              Factura subida correctamente{uploadedFile && <> · <strong style={{ fontWeight: 500 }}>{uploadedFile}</strong></>}
+            </span>
+            <button type="button" aria-label="cerrar" onClick={() => setUploadedFile(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0, display: "flex" }}>
+              <span style={{ ...icon, fontSize: 16 }}>close</span>
+            </button>
+          </div>
+        )}
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
           <div>
