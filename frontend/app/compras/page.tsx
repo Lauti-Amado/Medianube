@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
+import FiltrosHistorial, { FILTROS_VACIOS, type FiltrosGastos } from "./FiltrosHistorial";
 
 type InvoiceStatus = "procesada" | "revisar" | "procesando";
 
@@ -15,6 +16,21 @@ interface Invoice {
   total: number;
   status: InvoiceStatus;
   alert?: string;
+}
+
+// Forma de cada gasto que devuelve el endpoint /compras (campos opcionales por mapeo defensivo)
+interface GastoApi {
+  gastoID?: string;
+  proveedor?: string;
+  fecha?: string;
+  monto?: number | string;
+  categoria?: string;
+  usuarioID?: string;
+  descripcion?: string;
+  cantidadItems?: number;
+  items?: { descripcion?: string }[];
+  estado?: string;
+  alerta?: string;
 }
 
 const fmt = (n: number) => "$" + n.toLocaleString("es-AR", { maximumFractionDigits: 0 });
@@ -36,7 +52,6 @@ const KPIS = [
 ];
 
 export default function ComprasPage() {
-  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "todos">("todos");
   
   // 1. Estados para la integración con el backend (de la rama feat)
@@ -47,27 +62,45 @@ export default function ComprasPage() {
   // 2. Estado para el cartel de éxito (de la rama main)
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
 
-  // Efecto A: Cargar los datos desde el backend
-  useEffect(() => {
-    setIsClient(true);
-    async function fetchHistorial() {
+  // 3. Estados de los filtros de búsqueda contra el backend
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [hayFiltrosAplicados, setHayFiltrosAplicados] = useState(false);
+  const ultimaBusqueda = useRef(0);
+
+  // Trae los gastos del backend, agregando solo los filtros completos
+  const fetchHistorial = useCallback(async (filtros: FiltrosGastos = FILTROS_VACIOS) => {
+      const busquedaId = ++ultimaBusqueda.current;
+      setIsLoading(true);
+      setFetchError(null);
+
+      const params = new URLSearchParams();
+      if (filtros.proveedor) params.set("proveedor", filtros.proveedor);
+      if (filtros.desde) params.set("desde", filtros.desde);
+      if (filtros.hasta) params.set("hasta", filtros.hasta);
+      const query = params.toString();
+
       try {
         const urlEndpoint = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/compras";
-        
-        const response = await fetch(urlEndpoint, {
+
+        const response = await fetch(query ? `${urlEndpoint}?${query}` : urlEndpoint, {
           method: "GET",
           headers: { "Content-Type": "application/json" }
         });
 
-        if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+        if (!response.ok) {
+          // El backend responde { error } en los 400 (ej: fecha con mal formato)
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error || `Error HTTP: ${response.status}`);
+        }
 
         const data = await response.json();
-        
+        if (busquedaId !== ultimaBusqueda.current) return; // llegó una búsqueda más nueva
+
         // --- DEPURACIÓN Y VALIDACIÓN ---
         console.log("Respuesta cruda de la API:", data);
 
-        let parsedData: any[] = [];
-        
+        let parsedData: GastoApi[] = [];
+
         if (data && data.gastos && Array.isArray(data.gastos)) {
            parsedData = data.gastos;
         } else if (Array.isArray(data)) {
@@ -75,14 +108,14 @@ export default function ComprasPage() {
         }
 
         // Mapeo defensivo
-        const mappedInvoices: Invoice[] = parsedData.map((item: any, index: number) => {
-            
+        const mappedInvoices: Invoice[] = parsedData.map((item: GastoApi, index: number) => {
+
             let itemsCount = 0;
             let detailText = "Sin detalle";
 
             if (item.items && Array.isArray(item.items)) {
                 itemsCount = item.items.length;
-                detailText = item.items.map((i: any) => i.descripcion).filter(Boolean).join(", ");
+                detailText = item.items.map((i) => i.descripcion).filter(Boolean).join(", ");
             } else {
                 itemsCount = item.cantidadItems || 1;
                 detailText = item.categoria || item.descripcion || "Insumos varios";
@@ -101,17 +134,23 @@ export default function ComprasPage() {
         });
 
         setInvoices(mappedInvoices);
+        setHayFiltrosAplicados(query !== "");
 
       } catch (error) {
+        if (busquedaId !== ultimaBusqueda.current) return;
         console.error("Error en la integración:", error);
         setInvoices([]);
+        setFetchError(error instanceof Error ? error.message : "Error desconocido");
       } finally {
-        setIsLoading(false);
+        if (busquedaId === ultimaBusqueda.current) setIsLoading(false);
       }
-    }
-
-    fetchHistorial();
   }, []);
+
+  // Efecto A: Cargar los datos desde el backend
+  useEffect(() => {
+    setIsClient(true);
+    fetchHistorial();
+  }, [fetchHistorial]);
 
   // Efecto B: Manejar el cartel de éxito si venimos de subir una factura
   useEffect(() => {
@@ -129,15 +168,8 @@ export default function ComprasPage() {
   }
 
   // Filtrado combinando la lógica segura (feat) apuntando al estado real (invoices)
-  const filtered = invoices.filter((inv) => {
-    const providerName = inv.provider ? inv.provider.toLowerCase() : "";
-    const details = inv.itemsDetail ? inv.itemsDetail.toLowerCase() : "";
-    const searchTerm = search.toLowerCase();
-    
-    const matchesSearch = search === "" || providerName.includes(searchTerm) || details.includes(searchTerm);
-    const matchesStatus = statusFilter === "todos" || inv.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  // La búsqueda por proveedor y fechas la hace el backend (FiltrosHistorial); acá solo se filtra por estado
+  const filtered = invoices.filter((inv) => statusFilter === "todos" || inv.status === statusFilter);
 
   return (
     <AppLayout activeTab="compras">
@@ -183,13 +215,10 @@ export default function ComprasPage() {
           ))}
         </div>
 
+        <FiltrosHistorial isLoading={isLoading} onBuscar={fetchHistorial} />
+
         <div style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
-            <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
-              <span style={{ ...icon, position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-text-muted)" }}>search</span>
-              <input id="search-facturas" type="text" placeholder="Buscar por proveedor o ingrediente" value={search} onChange={(e) => setSearch(e.target.value)}
-                style={{ width: "100%", paddingLeft: 32, paddingRight: 12, paddingTop: 8, paddingBottom: 8, fontSize: 13, border: "1px solid var(--color-border)", borderRadius: 8, backgroundColor: "var(--color-surface-input)", color: "var(--color-text-primary)", outline: "none", boxSizing: "border-box" }} />
-            </div>
             <select id="filter-estado" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as InvoiceStatus | "todos")}
               style={{ fontSize: 13, border: "1px solid var(--color-border)", borderRadius: 8, backgroundColor: "var(--color-surface-input)", color: "var(--color-text-primary)", padding: "8px 10px", outline: "none", cursor: "pointer" }}>
               <option value="todos">Todos los estados</option>
@@ -214,8 +243,14 @@ export default function ComprasPage() {
              <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
                Cargando datos desde la nube...
              </div>
+          ) : fetchError ? (
+            <div role="alert" style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-warning-text)" }}>
+              No se pudieron cargar las compras: {fetchError}
+            </div>
           ) : filtered.length === 0 ? (
-            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>No hay facturas que coincidan.</div>
+            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
+              {hayFiltrosAplicados && invoices.length === 0 ? "No se encontraron compras con esos filtros" : "No hay facturas que coincidan."}
+            </div>
           ) : (
             filtered.map((inv, idx) => (
               <div key={inv.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2.5fr 1fr 120px 90px", columnGap: 16, padding: "12px 16px", alignItems: "center", borderBottom: idx < filtered.length - 1 ? "1px solid #F5EBDF" : "none", backgroundColor: inv.status === "revisar" ? "rgba(247,227,221,0.25)" : "transparent" }}>
