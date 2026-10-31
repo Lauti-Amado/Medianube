@@ -76,7 +76,7 @@ export default function DemandaPage() {
   
   // Estados para la integración con IA
   const [recomendaciones, setRecomendaciones] = useState<Recommendation[]>([]);
-  const [kpiDatos, setKpiDatos] = useState<any>(null);
+  const [kpiDatos, setKpiDatos] = useState<{ produccionTotal: string; precision: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
