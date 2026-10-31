@@ -7,6 +7,7 @@ import { build } from "esbuild";
 
 const LAMBDAS = {
   obtenerClima: "src/composition/obtenerClima.ts",
+  sugerirPrecios: "src/composition/sugerirPrecios.ts",
 };
 
 rmSync("dist", { recursive: true, force: true });
