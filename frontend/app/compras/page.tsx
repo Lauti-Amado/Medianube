@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
 
 type InvoiceStatus = "procesada" | "revisar" | "procesando";
@@ -16,15 +16,6 @@ interface Invoice {
   status: InvoiceStatus;
   alert?: string;
 }
-
-const INVOICES: Invoice[] = [
-  { id: "inv-1", provider: "Molino San Justo", date: "3 sep 2024", items: 6, itemsDetail: "Harina 000 (x50kg), Salvado fino, Semolín...", total: 412800, status: "procesada" },
-  { id: "inv-2", provider: "Lácteos del Valle", date: "2 sep 2024", items: 9, itemsDetail: "Manteca extra x5kg, Leche entera 1L...", total: 186400, status: "procesada" },
-  { id: "inv-3", provider: "Envases y Descartables SRL", date: "1 sep 2024", items: 14, itemsDetail: "Caja corrugada para medialunas", total: 94150, status: "revisar", alert: "+14.2% precio unitario cajas" },
-  { id: "inv-4", provider: "Levadura y Aditivos SA", date: "30 ago 2024", items: 4, itemsDetail: "Levadura fresca prensada x500g, Extracto de malta...", total: 58900, status: "procesada" },
-  { id: "inv-5", provider: "Cadena de Frío Express", date: "29 ago 2024", items: 7, itemsDetail: "Detectando ítems...", total: 132350, status: "procesando" },
-  { id: "inv-6", provider: "Distribuidora Norte", date: "27 ago 2024", items: 5, itemsDetail: "Azúcar refinada x50kg, Sal gruesa...", total: 77200, status: "procesada" },
-];
 
 const fmt = (n: number) => "$" + n.toLocaleString("es-AR", { maximumFractionDigits: 0 });
 
@@ -47,9 +38,82 @@ const KPIS = [
 export default function ComprasPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "todos">("todos");
+  
+  // 1. Estados para la integración con el backend (de la rama feat)
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isClient, setIsClient] = useState(false);
+
+  // 2. Estado para el cartel de éxito (de la rama main)
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
 
-  // Cartel de éxito al volver de /compras/subir (?subida=ok&archivo=...)
+  // Efecto A: Cargar los datos desde el backend
+  useEffect(() => {
+    setIsClient(true);
+    async function fetchHistorial() {
+      try {
+        const urlEndpoint = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/compras";
+        
+        const response = await fetch(urlEndpoint, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" }
+        });
+
+        if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+
+        const data = await response.json();
+        
+        // --- DEPURACIÓN Y VALIDACIÓN ---
+        console.log("Respuesta cruda de la API:", data);
+
+        let parsedData: any[] = [];
+        
+        if (data && data.gastos && Array.isArray(data.gastos)) {
+           parsedData = data.gastos;
+        } else if (Array.isArray(data)) {
+          parsedData = data;
+        }
+
+        // Mapeo defensivo
+        const mappedInvoices: Invoice[] = parsedData.map((item: any, index: number) => {
+            
+            let itemsCount = 0;
+            let detailText = "Sin detalle";
+
+            if (item.items && Array.isArray(item.items)) {
+                itemsCount = item.items.length;
+                detailText = item.items.map((i: any) => i.descripcion).filter(Boolean).join(", ");
+            } else {
+                itemsCount = item.cantidadItems || 1;
+                detailText = item.categoria || item.descripcion || "Insumos varios";
+            }
+
+            return {
+                id: item.gastoID || `temp-id-${index}`,
+                provider: item.proveedor || "Proveedor Desconocido",
+                date: item.fecha || "Fecha desconocida",
+                items: itemsCount,
+                itemsDetail: detailText,
+                total: Number(item.monto) || 0,
+                status: (item.estado || "procesada") as InvoiceStatus,
+                alert: item.alerta || undefined
+            };
+        });
+
+        setInvoices(mappedInvoices);
+
+      } catch (error) {
+        console.error("Error en la integración:", error);
+        setInvoices([]);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchHistorial();
+  }, []);
+
+  // Efecto B: Manejar el cartel de éxito si venimos de subir una factura
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("subida") !== "ok") return;
@@ -59,8 +123,18 @@ export default function ComprasPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  const filtered = INVOICES.filter((inv) => {
-    const matchesSearch = search === "" || inv.provider.toLowerCase().includes(search.toLowerCase()) || inv.itemsDetail.toLowerCase().includes(search.toLowerCase());
+  // Evitamos renderizar lógica compleja en el servidor antes del montaje del cliente
+  if (!isClient) {
+     return <AppLayout activeTab="compras"><div style={{ padding: "40px", textAlign: "center" }}>Cargando interfaz...</div></AppLayout>;
+  }
+
+  // Filtrado combinando la lógica segura (feat) apuntando al estado real (invoices)
+  const filtered = invoices.filter((inv) => {
+    const providerName = inv.provider ? inv.provider.toLowerCase() : "";
+    const details = inv.itemsDetail ? inv.itemsDetail.toLowerCase() : "";
+    const searchTerm = search.toLowerCase();
+    
+    const matchesSearch = search === "" || providerName.includes(searchTerm) || details.includes(searchTerm);
     const matchesStatus = statusFilter === "todos" || inv.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -69,6 +143,7 @@ export default function ComprasPage() {
     <AppLayout activeTab="compras">
       <div style={{ maxWidth: 1080, margin: "0 auto" }}>
 
+        {/* Cartel de éxito si uploadedFile no es nulo */}
         {uploadedFile !== null && (
           <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)", fontSize: 13, padding: "10px 14px", borderRadius: 8, marginBottom: 16 }}>
             <span style={{ ...icon, fontSize: 16 }}>check_circle</span>
@@ -126,7 +201,7 @@ export default function ComprasPage() {
               <span style={{ ...icon }}>download</span>
               Exportar CSV
             </button>
-            <span style={{ fontSize: 12, color: "var(--color-text-muted)", marginLeft: "auto" }}>Mostrando {filtered.length} de {INVOICES.length} facturas</span>
+            <span style={{ fontSize: 12, color: "var(--color-text-muted)", marginLeft: "auto" }}>Mostrando {filtered.length} facturas</span>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2.5fr 1fr 120px 90px", columnGap: 16, padding: "10px 16px", borderBottom: "1px solid var(--color-border)" }}>
@@ -135,7 +210,11 @@ export default function ComprasPage() {
             ))}
           </div>
 
-          {filtered.length === 0 ? (
+          {isLoading ? (
+             <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
+               Cargando datos desde la nube...
+             </div>
+          ) : filtered.length === 0 ? (
             <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>No hay facturas que coincidan.</div>
           ) : (
             filtered.map((inv, idx) => (
