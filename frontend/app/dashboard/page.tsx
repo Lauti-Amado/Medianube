@@ -111,7 +111,7 @@ export default function DashboardPage() {
   const [dateStr, setDateStr] = useState("");
 
   // Estados de IA
-  const [demandaDashboard, setDemandaDashboard] = useState<any>(null);
+  const [demandaDashboard, setDemandaDashboard] = useState<{ produccionPrevista: string; deltaProduccion: string; tendencia: "up" | "down" | "stable" } | null>(null);
   const [pricesIA, setPricesIA] = useState<PriceSuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
