@@ -23,7 +23,6 @@ export default function StepIndicator({ currentStep }: Props) {
       {STEPS.map(({ num, label }, i) => {
         const isActive = num === currentStep;
         const isPast = num < currentStep;
-        const isFuture = num > currentStep;
 
         return (
           <div key={num} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
