@@ -1,0 +1,17 @@
+{
+  "version": "2.0",
+  "routeKey": "POST /precios/sugerir",
+  "rawPath": "/precios/sugerir",
+  "rawQueryString": "usuarioID=user_test_123",
+  "queryStringParameters": {
+    "usuarioID": "user_test_123"
+  },
+  "requestContext": {
+    "http": {
+      "method": "POST",
+      "path": "/precios/sugerir"
+    }
+  },
+  "isBase64Encoded": false,
+  "body": "{\"ticket\":{\"proveedor\":\"Molino Cañuelas\",\"items\":[{\"descripcion\":\"Harina 000 x 25 kg Cañuelas\",\"cantidad\":4,\"precioUnitario\":8200},{\"descripcion\":\"Manteca x 5 kg La Serenísima\",\"cantidad\":2,\"precioUnitario\":6450},{\"descripcion\":\"Levadura fresca x 500 g\",\"cantidad\":6,\"precioUnitario\":1070},{\"descripcion\":\"Detergente x 5 l\",\"cantidad\":1,\"precioUnitario\":4800}]}}"
+}

@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Medianube - Capa de datos (DynamoDB) y Lambda obtenerClima (Open-Meteo).
+  Medianube - Capa de datos (DynamoDB), Lambda obtenerClima (Open-Meteo) y Lambda sugerirPrecios (Claude).
   Desplegar con backend/scripts/deploy.sh (aws cloudformation package + deploy).
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -60,6 +60,19 @@ Parameters:
   UbicacionDefectoCiudad:
     Type: String
     Default: La Plata
+
+  ClaudeApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: >
+      API key de Anthropic para el motor de precios. Vacía = la Lambda responde solo con reglas
+      (origen "reglas"). Se pasa desde deploy.sh con la variable CLAUDE_API_KEY.
+
+  ModeloLlm:
+    Type: String
+    Default: claude-opus-5-5
+    Description: Modelo de Claude del motor de precios (ej. claude-haiku-5-5 para bajar costos).
 
 Conditions:
   UsarJwt: !Equals [!Ref ModoAutenticacion, jwt]
@@ -189,6 +202,33 @@ Resources:
                 Action: [dynamodb:GetItem, dynamodb:Scan]
                 Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TablaConfiguracionNombre}
 
+  RolSugerirPrecios:
+    Type: AWS::IAM::Role
+    Condition: CrearRol
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AccesoTablasPrecios
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt TablaFacturas.Arn
+              - Effect: Allow
+                Action: [dynamodb:Query, dynamodb:UpdateItem]
+                Resource: !GetAtt TablaProductos.Arn
+              - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TablaConfiguracionNombre}
+
   # ── Lambda obtenerClima ────────────────────────────────────────────────────
 
   LogsObtenerClima:
@@ -267,6 +307,72 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*/GET/clima
 
+  # ── Lambda sugerirPrecios (motor de precios con Claude) ────────────────────
+
+  LogsSugerirPrecios:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/sugerirPrecios-${Entorno}
+      RetentionInDays: 14
+
+  FuncionSugerirPrecios:
+    Type: AWS::Lambda::Function
+    DependsOn: LogsSugerirPrecios
+    Properties:
+      FunctionName: !Sub sugerirPrecios-${Entorno}
+      Description: Compara un ticket con el historial de compras y sugiere precios de venta (Claude + reglas).
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Code: ../dist/sugerirPrecios   # bundle generado por `npm run build` (incluye @anthropic-ai/sdk)
+      MemorySize: 256
+      # API Gateway corta a los 30 s: el LLM tiene 22 s y, si no llega, se responde con reglas.
+      Timeout: 29
+      ReservedConcurrentExecutions: !Ref ConcurrenciaReservada
+      Role: !If [CrearRol, !GetAtt RolSugerirPrecios.Arn, !Ref RolLambdaArn]
+      Environment:
+        Variables:
+          TABLA_FACTURAS: !Ref TablaFacturas
+          TABLA_PRODUCTOS: !Ref TablaProductos
+          TABLA_CONFIGURACION: !Ref TablaConfiguracionNombre
+          ANTHROPIC_API_KEY: !Ref ClaudeApiKey
+          MODELO_LLM: !Ref ModeloLlm
+          ESFUERZO_LLM: low
+          TIMEOUT_LLM_MS: "22000"
+          MARGEN_OBJETIVO_DEFECTO: "0.6"
+          MARGEN_MINIMO: "0.3"
+          TOPE_SUBA_PCT: "0.25"
+          VENTANA_HISTORIAL_DIAS: "90"
+          PERMITIR_USUARIO_QUERY: !If [UsarJwt, "false", "true"]
+      Tags:
+        - { Key: Proyecto, Value: Medianube }
+
+  IntegracionPrecios:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiId
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt FuncionSugerirPrecios.Arn
+      PayloadFormatVersion: "2.0"
+      TimeoutInMillis: 30000
+
+  RutaPrecios:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiId
+      RouteKey: POST /precios/sugerir
+      Target: !Sub integrations/${IntegracionPrecios}
+      AuthorizationType: !If [UsarJwt, JWT, NONE]
+      AuthorizerId: !If [UsarJwt, !Ref AutorizadorCognito, !Ref AWS::NoValue]
+
+  PermisoApiGatewayPrecios:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FuncionSugerirPrecios
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*/POST/precios/sugerir
+
   # ── EventBridge: refresco diario 05:00 ART (08:00 UTC) ─────────────────────
   # Se usa una regla clásica en lugar de EventBridge Scheduler porque no requiere un rol IAM propio.
 
@@ -298,6 +404,11 @@ Outputs:
     Value: !Sub https://${ApiId}.execute-api.${AWS::Region}.amazonaws.com/clima
   FuncionClima:
     Value: !Ref FuncionObtenerClima
+  UrlPrecios:
+    Description: Endpoint del motor de precios (POST con { ticket }).
+    Value: !Sub https://${ApiId}.execute-api.${AWS::Region}.amazonaws.com/precios/sugerir
+  FuncionPrecios:
+    Value: !Ref FuncionSugerirPrecios
   TablasCreadas:
     Value: !Join [", ", [!Ref TablaFacturas, !Ref TablaProductos, !Ref TablaVentas, !Ref TablaPredicciones, !Ref TablaClima]]
   ModoAutenticacion:
