@@ -122,7 +122,7 @@ interface KpiDatos {
 export default function DemandaPage() {
   const [recalculating, setRecalculating] = useState(false);
   const [recomendaciones, setRecomendaciones] = useState<Recommendation[]>([]);
-  const [kpiDatos, setKpiDatos] = useState<KpiDatos | null>(null);
+  const [kpiDatos, setKpiDatos] = useState<{ produccionTotal: string; precision: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
 
