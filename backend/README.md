@@ -1,33 +1,53 @@
 # Backend Medianube (Serverless)
 
 Infraestructura como código (CloudFormation) para la capa de datos y la Lambda de clima.
+El código sigue una **arquitectura hexagonal** (puertos y adaptadores) en **TypeScript**.
 
 ```
 backend/
-├── functions/obtenerClima/   # Lambda Node.js 22 (sin dependencias, el AWS SDK v3 viene en el runtime)
-│   ├── index.mjs             # entrypoint: config por env y armado de dependencias
-│   ├── http.mjs              # adaptador de eventos API Gateway v2 / EventBridge
-│   ├── clima.mjs             # lógica cache-first (testeable sin AWS)
-│   ├── repositorio.mjs       # acceso a DynamoDB
-│   ├── openMeteo.mjs         # cliente de Open-Meteo (sin API key)
-│   └── weatherCodes.mjs      # códigos WMO → español
-├── infra/template.yaml       # 5 tablas + Lambda + GET /clima + regla diaria
-├── events/                   # eventos de prueba para la consola o el CLI
-├── scripts/deploy.sh         # package + deploy (CloudShell)
-├── scripts/seed-ubicacion.sh # carga la ubicación de un usuario
-└── tests/                    # node:test
+├── src/
+│   ├── domain/                       # reglas puras, sin I/O ni imports de AWS
+│   │   └── clima/                    #   tipos, errores, reglas de fecha/ubicación, códigos WMO
+│   ├── application/                  # casos de uso: orquestan dominio + puertos
+│   │   └── clima/servicioClima.ts    #   cache-first, fallback a cache vencida, refresco masivo
+│   ├── ports/                        # contratos (interfaces) que necesita la aplicación
+│   │   ├── clima.ts                  #   ClimaRepositorioPort, PronosticoPort
+│   │   └── logger.ts
+│   ├── adapters/
+│   │   ├── in/lambdaClima.ts         #   evento API Gateway v2 / EventBridge → caso de uso
+│   │   └── out/                      #   implementaciones de los puertos
+│   │       ├── climaRepositorioDynamo.ts
+│   │       └── openMeteo.ts
+│   └── composition/obtenerClima.ts   # composition root: lee env y conecta todo (entrypoint de la Lambda)
+├── infra/template.yaml               # 5 tablas + Lambda + GET /clima + regla diaria
+├── events/                           # eventos de prueba para la consola o el CLI
+├── scripts/
+│   ├── build.mjs                     # esbuild: un bundle por Lambda en dist/<nombre>/index.mjs
+│   ├── deploy.sh                     # check + build + package + deploy (CloudShell)
+│   └── seed-ubicacion.sh             # carga la ubicación de un usuario
+├── tests/                            # node:test + tsx, un directorio por capa
+└── dist/                             # generado (ignorado por git)
 ```
 
-## Tests
+**Regla de dependencias:** `adapters → application → domain`. El dominio no importa nada;
+la aplicación solo conoce `ports`. Cambiar de base de datos o de proveedor de clima es escribir
+un adaptador nuevo, sin tocar casos de uso. Para sumar una Lambda: caso de uso en `application/`,
+adaptador de entrada en `adapters/in/`, composition root en `composition/` y registrarla en `scripts/build.mjs`.
+
+## Desarrollo
 
 ```bash
 cd backend
-npm test        # node --test, sin instalar nada
+npm install
+npm run check     # typecheck (tsc --noEmit) + tests
+npm test          # solo tests (node --test con tsx)
+npm run build     # genera dist/obtenerClima/index.mjs con esbuild
 ```
 
 ## Despliegue (AWS CloudShell, región us-east-2)
 
-1. Abrir CloudShell, clonar el repo y pasar a la rama: `git clone … && cd Medianube/backend && git checkout feat/setupBD`
+1. Abrir CloudShell, clonar el repo y pasar a la rama: `git clone … && cd Medianube/backend && git checkout <rama>`
+   (requiere Node.js 22: `node --version`; si CloudShell trae otra versión, `nvm install 22`).
 2. Desplegar:
    ```bash
    chmod +x scripts/*.sh

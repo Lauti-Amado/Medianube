@@ -22,8 +22,12 @@ if [[ -n "${ROL_LAMBDA:-}" ]]; then
   ROL_ARN="arn:aws:iam::${CUENTA}:role/${ROL_LAMBDA}"
 fi
 
-echo "▶ Tests unitarios"
-node --test
+echo "▶ Dependencias, tipos y tests"
+npm ci
+npm run check
+
+echo "▶ Compilando Lambdas (esbuild → dist/)"
+npm run build
 
 echo "▶ Bucket de artefactos: ${BUCKET}"
 if ! aws s3api head-bucket --bucket "${BUCKET}" 2>/dev/null; then

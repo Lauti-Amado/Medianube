@@ -8,6 +8,7 @@ import FileDropzone from "../../../src/src/components/invoices/FileDropzone";
 import IaBanner from "../../../src/src/components/invoices/IaBanner";
 import InvoiceTable, { InvoiceItem } from "../../../src/src/components/invoices/InvoiceTable";
 import { uploadInvoice } from "../../../lib/upload";
+import { validarArchivo } from "../../../lib/validarArchivo";
 
 // ── Mock data ─────────────────────────────────────────────────────────────
 
@@ -48,11 +49,17 @@ export default function SubirFacturaPage() {
 
   async function handleConfirm() {
     if (!file) return;
+    // Se valida otra vez antes de pedir la presigned URL
+    const validationError = await validarArchivo(file);
+    if (validationError) {
+      setUploadError(validationError);
+      return;
+    }
     setUploadError(null);
     setProgress(0);
     try {
       await uploadInvoice(file, { onProgress: setProgress });
-      router.push("/compras");
+      router.push(`/compras?subida=ok&archivo=${encodeURIComponent(file.name)}`);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Falló la subida.");
       setProgress(null);
@@ -168,7 +175,7 @@ export default function SubirFacturaPage() {
         {/* ── Actions ─────────────────────────────────────────────────── */}
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "10px" }}>
           {uploadError && (
-            <p style={{ fontSize: "12px", color: "#C0392B", margin: 0 }}>{uploadError}</p>
+            <p style={{ fontSize: "12px", color: "var(--color-warning-text)", margin: 0 }}>{uploadError}</p>
           )}
           <button
             id="invoice-cancel"

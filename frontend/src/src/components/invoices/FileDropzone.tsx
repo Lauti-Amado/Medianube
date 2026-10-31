@@ -3,9 +3,7 @@
 // FileDropzone — zona para arrastrar o elegir la factura (PDF o imagen)
 
 import { useRef, useState } from "react";
-
-export const ACCEPTED_TYPES = ["application/pdf", "image/jpeg", "image/png"];
-export const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+import { ACCEPT_ATTR, validarArchivo } from "../../../../lib/validarArchivo";
 
 const iconStyle: React.CSSProperties = {
   fontFamily: "Material Symbols Outlined",
@@ -19,20 +17,14 @@ interface Props {
   onFileSelected: (file: File) => void;
 }
 
-function validate(file: File): string | null {
-  if (!ACCEPTED_TYPES.includes(file.type)) return "Formato no soportado. Subí un PDF, JPG o PNG.";
-  if (file.size > MAX_FILE_BYTES) return "El archivo supera los 10 MB.";
-  return null;
-}
-
 export default function FileDropzone({ onFileSelected }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState("");
 
-  function handleFile(file: File | undefined) {
+  async function handleFile(file: File | undefined) {
     if (!file) return;
-    const validationError = validate(file);
+    const validationError = await validarArchivo(file);
     if (validationError) {
       setError(validationError);
       return;
@@ -80,13 +72,13 @@ export default function FileDropzone({ onFileSelected }: Props) {
           Arrastrá la factura acá o hacé click para elegirla
         </p>
         <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }}>
-          PDF, JPG o PNG · hasta 10 MB
+          PDF, PNG, JPG o WEBP · hasta 10 MB
         </p>
         <input
           ref={inputRef}
           id="invoice-file-input"
           type="file"
-          accept={ACCEPTED_TYPES.join(",")}
+          accept={ACCEPT_ATTR}
           style={{ display: "none" }}
           onChange={(e) => {
             handleFile(e.target.files?.[0]);

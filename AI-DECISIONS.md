@@ -174,3 +174,24 @@ La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
 **Código / Arquitectura generada:** eslint.config.mjs con FlatCompat extendiendo next/core-web-vitals y next/typescript.
 
 **Validación y Corrección Humana:** Se confirmó con `npm ls` que el proyecto usa eslint-config-next 15.5.25 y que la config estaba escrita para la versión 16. Tras el fix, el lint corre y devuelve 0 errores y 2 warnings. Se corrigió el warning de variable sin usar en StepIndicator y se dejó el warning de fuentes en layout.tsx, porque en App Router la carga de Material Symbols por <link> funciona correctamente y cambiarla excede el alcance del ticket.
+
+## 29/10/2026 - Arquitectura hexagonal en TypeScript para el backend (refactor de `obtenerClima`)
+
+**Problema abordado:** Antes de sumar el motor de precios con LLM, había que definir una arquitectura de backend mantenible y escalable. La única Lambda existente (`obtenerClima`) estaba en JavaScript plano y mezclaba, en pocos archivos, lógica de negocio, acceso a DynamoDB y parsing de eventos de AWS.
+
+**Prompt / Herramienta utilizada:** Antigravity IDE (Google Deepmind).
+*Prompt:* "Necesito saber qué arquitectura usar para el backend, pensé en una arquitectura hexagonal que sea mantenible y escalable, usando algún framework como Node.js para luego aplicar cómputo serverless mediante funciones (AWS Lambda) para garantizar elasticidad. ¿Qué me recomiendas hacer?"
+
+**Código / Arquitectura generada:**
+
+- **Arquitectura hexagonal sin framework:** capas `domain ← application ← ports ← adapters` con un *composition root* por Lambda. Una Lambda por caso de uso con núcleo compartido. Documentado en `docs/BACKEND-ARCHITECTURE.md`.
+- **Migración a TypeScript estricto** con bundle de esbuild por Lambda (`dist/<nombre>/index.mjs`) y `tsc --noEmit` solo para verificar tipos.
+- **Refactor de `obtenerClima`:** el servicio quedó dependiendo únicamente de los puertos `ClimaRepositorioPort`, `PronosticoPort` y `LoggerPort`; DynamoDB y Open-Meteo pasaron a ser adaptadores de salida, y el handler de Lambda un adaptador de entrada.
+
+**Validación y Corrección Humana:**
+
+- **Framework descartado:** el equipo pidió evaluar un framework de Node.js. La IA recomendó no usar NestJS ni Express, porque en Lambda cada función ya tiene un trigger y un handler, y el framework solo agregaría cold start. El equipo aceptó mantener Node.js plano con inyección de dependencias por funciones.
+- **TypeScript (decisión del equipo):** la IA ofreció mantener JS con JSDoc; el equipo eligió migrar a TypeScript para alinearse con el frontend, aceptando el costo de un paso de build.
+- **Refactor sin cambio de comportamiento:** los 28 tests existentes se migraron a TypeScript separados por capa y siguen pasando; `tsc` no reporta errores. Se verificó que el bundle compilado carga y responde `401` ante un evento sin identidad, y que `cfn-lint` sigue sin errores.
+- **Cambios de infraestructura:** el campo `Code` de la Lambda en `template.yaml` pasó a apuntar a `dist/obtenerClima` y `deploy.sh` ahora corre `npm ci`, `npm run check` y `npm run build` antes de empaquetar.
+- **Riesgo conocido:** CloudShell puede traer una versión de Node distinta de la 22 y el build lo requiere. Se documentó `nvm install 22` en el README del backend.

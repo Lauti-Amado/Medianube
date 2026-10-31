@@ -1,6 +1,7 @@
+// frontend/app/demanda/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -41,7 +42,7 @@ const BARS: DayBar[] = [
   { label: "dom", value: 190, predicted: true  },
 ];
 
-const RECS: Recommendation[] = [
+const RECS_MOCK: Recommendation[] = [
   { id: "r1", product: "Medialunas de manteca", qty: 240, unit: "u.", confidence: "alta"  },
   { id: "r2", product: "Pan francés",           qty: 18,  unit: "kg", confidence: "alta"  },
   { id: "r3", product: "Café con leche",        qty: 95,  unit: "u.", confidence: "media" },
@@ -72,13 +73,39 @@ const icon: React.CSSProperties = {
 
 export default function DemandaPage() {
   const [recalculating, setRecalculating] = useState(false);
+  
+  // Estados para la integración con IA
+  const [recomendaciones, setRecomendaciones] = useState<Recommendation[]>([]);
+  const [kpiDatos, setKpiDatos] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchPrediccion() {
+      try {
+        // MOCK TEMPORAL PARA NO BLOQUEAR EL DESARROLLO FRONTEND
+        await new Promise(resolve => setTimeout(resolve, 800));
+        setRecomendaciones(RECS_MOCK);
+        setKpiDatos({
+            produccionTotal: "2.970 u.",
+            precision: "91.4%"
+        });
+
+      } catch (error) {
+        console.error("Error al obtener predicciones:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchPrediccion();
+  }, []);
 
   const handleRecalculate = () => {
     setRecalculating(true);
     setTimeout(() => setRecalculating(false), 1500);
   };
 
-  const atRisk = RECS.filter((r) => r.risk).length;
+  const atRisk = recomendaciones.filter((r) => r.risk).length;
 
   return (
     <AppLayout activeTab="demanda">
@@ -159,19 +186,19 @@ export default function DemandaPage() {
           {[
             {
               label: "Producción total prevista",
-              value: "2.970 u.",
+              value: isLoading ? "..." : kpiDatos?.produccionTotal || "-",
               sub: "para los próximos 7 días",
               warn: false,
             },
             {
               label: "Precisión del modelo",
-              value: "91.4%",
+              value: isLoading ? "..." : kpiDatos?.precision || "-",
               sub: "sobre las últimas 4 semanas",
               warn: false,
             },
             {
               label: "Productos en riesgo de faltante",
-              value: String(atRisk),
+              value: isLoading ? "..." : String(atRisk),
               sub: "con baja confianza de predicción",
               warn: true,
             },
@@ -426,7 +453,14 @@ export default function DemandaPage() {
           </div>
 
           {/* Filas */}
-          {RECS.map((rec, idx) => (
+          {isLoading ? (
+             <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
+               Cargando predicciones de IA...
+             </div>
+          ) : recomendaciones.length === 0 ? (
+            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>No hay recomendaciones generadas.</div>
+          ) : (
+             recomendaciones.map((rec, idx) => (
             <div
               key={rec.id}
               style={{
@@ -436,7 +470,7 @@ export default function DemandaPage() {
                 padding: "12px 16px",
                 alignItems: "center",
                 borderBottom:
-                  idx < RECS.length - 1 ? "1px solid #F5EBDF" : "none",
+                  idx < recomendaciones.length - 1 ? "1px solid #F5EBDF" : "none",
                 backgroundColor: rec.risk
                   ? "rgba(247,227,221,0.25)"
                   : "transparent",
@@ -506,7 +540,8 @@ export default function DemandaPage() {
                 </span>
               </div>
             </div>
-          ))}
+          ))
+          )}
         </div>
 
       </div>

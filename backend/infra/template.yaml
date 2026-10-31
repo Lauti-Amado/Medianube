@@ -206,7 +206,7 @@ Resources:
       Runtime: nodejs22.x
       Architectures: [arm64]
       Handler: index.handler
-      Code: ../functions/obtenerClima   # `aws cloudformation package` lo sube a S3
+      Code: ../dist/obtenerClima   # bundle generado por `npm run build`; `aws cloudformation package` lo sube a S3
       MemorySize: 128
       Timeout: 10
       ReservedConcurrentExecutions: !Ref ConcurrenciaReservada
