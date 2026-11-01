@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Despliega el stack de Medianube (tablas DynamoDB + Lambda obtenerClima).
+# Despliega el stack de Medianube (tablas DynamoDB + Lambdas obtenerClima y sugerirPrecios).
 # Pensado para ejecutarse en AWS CloudShell (ya trae AWS CLI y credenciales).
 #
 # Uso (desde la carpeta backend/):
 #   ./scripts/deploy.sh                          # modo dev, rol creado por el stack
 #   ROL_LAMBDA=LabRole ./scripts/deploy.sh       # AWS Academy: reutiliza LabRole
-#   MODO_AUTH=jwt ./scripts/deploy.sh            # exige token de Cognito en /clima
+#   MODO_AUTH=jwt ./scripts/deploy.sh            # exige token de Cognito en /clima y /precios/sugerir
+#   CLAUDE_API_KEY=sk-ant-... ./scripts/deploy.sh # API key del motor de precios (si no se pasa,
+#                                                # se conserva la del despliegue anterior)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -18,6 +20,13 @@ CUENTA="$(aws sts get-caller-identity --query Account --output text)"
 BUCKET="${BUCKET_ARTEFACTOS:-medianube-artefactos-${CUENTA}-${REGION}}"
 
 ROL_ARN=""
+PARAMETROS_EXTRA=()
+if [[ -n "${CLAUDE_API_KEY:-}" ]]; then
+  PARAMETROS_EXTRA+=("ClaudeApiKey=${CLAUDE_API_KEY}")
+fi
+if [[ -n "${MODELO_LLM:-}" ]]; then
+  PARAMETROS_EXTRA+=("ModeloLlm=${MODELO_LLM}")
+fi
 if [[ -n "${ROL_LAMBDA:-}" ]]; then
   ROL_ARN="arn:aws:iam::${CUENTA}:role/${ROL_LAMBDA}"
 fi
@@ -55,7 +64,8 @@ aws cloudformation deploy \
   --parameter-overrides \
     Entorno="${ENTORNO}" \
     ModoAutenticacion="${MODO_AUTH}" \
-    RolLambdaArn="${ROL_ARN}"
+    RolLambdaArn="${ROL_ARN}" \
+    ${PARAMETROS_EXTRA[@]+"${PARAMETROS_EXTRA[@]}"}
 
 aws cloudformation describe-stacks --stack-name "${STACK}" --region "${REGION}" \
   --query "Stacks[0].Outputs" --output table

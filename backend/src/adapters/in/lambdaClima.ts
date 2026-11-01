@@ -4,47 +4,19 @@
 import { ErrorServicioExterno, ErrorValidacion } from "../../domain/clima/tipos";
 import type { ServicioClima } from "../../application/clima/servicioClima";
 import type { LoggerPort } from "../../ports/logger";
+import { type EventoHttp, resolverUsuarioID, respuesta } from "./http";
+
+export { resolverUsuarioID };
+export type { RespuestaHttp } from "./http";
 
 /** Subconjunto del evento de Lambda que usamos (evita depender de @types/aws-lambda). */
-export interface EventoLambda {
+export interface EventoLambda extends EventoHttp {
   source?: string;
   "detail-type"?: string;
-  queryStringParameters?: Record<string, string | undefined> | null;
-  requestContext?: {
-    authorizer?: { jwt?: { claims?: Record<string, unknown> } };
-  };
-}
-
-export interface RespuestaHttp {
-  statusCode: number;
-  headers: Record<string, string>;
-  body: string;
-}
-
-function respuesta(statusCode: number, cuerpo: unknown): RespuestaHttp {
-  return {
-    statusCode,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
-    body: JSON.stringify(cuerpo),
-  };
 }
 
 export function esEventoProgramado(event: EventoLambda | null | undefined): boolean {
   return event?.source === "aws.events" || event?.["detail-type"] === "Scheduled Event";
-}
-
-/**
- * Prioriza el `sub` del JWT validado por el authorizer de Cognito en API Gateway.
- * Solo en modo desarrollo (sin authorizer) se acepta `?usuarioID=` por query string.
- */
-export function resolverUsuarioID(
-  event: EventoLambda | null | undefined,
-  { permitirUsuarioQuery }: { permitirUsuarioQuery: boolean }
-): string | null {
-  const sub = event?.requestContext?.authorizer?.jwt?.claims?.sub;
-  if (typeof sub === "string" && sub) return sub;
-  if (permitirUsuarioQuery) return event?.queryStringParameters?.usuarioID ?? null;
-  return null;
 }
 
 export interface DependenciasHandlerClima {

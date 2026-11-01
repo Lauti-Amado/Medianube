@@ -27,16 +27,5 @@ export interface DiaClimaGuardado extends DiaPronostico {
 /** Vista que se devuelve al cliente: sin atributos internos (usuarioID, expiraEn). */
 export type DiaClimaPublico = Omit<DiaClimaGuardado, "usuarioID" | "expiraEn">;
 
-export class ErrorValidacion extends Error {
-  constructor(mensaje: string) {
-    super(mensaje);
-    this.name = "ErrorValidacion";
-  }
-}
-
-export class ErrorServicioExterno extends Error {
-  constructor(mensaje: string, opciones?: { cause?: unknown }) {
-    super(mensaje, opciones);
-    this.name = "ErrorServicioExterno";
-  }
-}
+// Los errores viven en el módulo compartido; se reexportan para no romper los imports existentes.
+export { ErrorServicioExterno, ErrorValidacion } from "../errores";

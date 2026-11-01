@@ -195,3 +195,26 @@ La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
 - **Refactor sin cambio de comportamiento:** los 28 tests existentes se migraron a TypeScript separados por capa y siguen pasando; `tsc` no reporta errores. Se verificó que el bundle compilado carga y responde `401` ante un evento sin identidad, y que `cfn-lint` sigue sin errores.
 - **Cambios de infraestructura:** el campo `Code` de la Lambda en `template.yaml` pasó a apuntar a `dist/obtenerClima` y `deploy.sh` ahora corre `npm ci`, `npm run check` y `npm run build` antes de empaquetar.
 - **Riesgo conocido:** CloudShell puede traer una versión de Node distinta de la 22 y el build lo requiere. Se documentó `nvm install 22` en el README del backend.
+
+## 31/10/2026 - Motor de precios con LLM (`POST /precios/sugerir`)
+
+**Problema abordado:** Diseñar el prompt que compara el ticket extraído de una factura con el historial de compras para sugerir nuevos precios de venta, y la lógica de precios que lo rodea: emparejamiento de insumos, costos por receta, límites de margen y suba, y respuesta ante fallas del LLM.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5).
+*Prompt:* "Necesito realizar una feature en la rama motor-precios que diseñe el prompt LLM que compare el ticket extraído con el historial para sugerir nuevos precios de venta, cubriendo básicamente la lógica de precios. Haz un plan de ejecución para dicha tarea." Primero se pidió y aprobó un plan; después se implementó en commits chicos.
+
+**Código / Arquitectura generada:**
+
+- **Dominio de precios** (`backend/src/domain/precios/`): normalización de presentaciones a precio por kg/l/u, emparejamiento de insumos por similitud de nombres, resumen del historial, costo por receta, guardas (margen mínimo, tope de suba, redondeo ARS) y nivel de confianza.
+- **Caso de uso** `servicioPrecios`: le pasa al LLM los números ya calculados, sanea la respuesta, aplica guardas y, si el LLM falla, responde con reglas (`origen: "reglas"`).
+- **Prompt versionado** `precios-v1` y adaptador de Claude: salida JSON con *structured outputs*, `fallbacks: "default"`, manejo de `stop_reason` y protección contra inyección desde el OCR.
+- **Infraestructura:** Lambda `sugerirPrecios`, ruta `POST /precios/sugerir`, parámetro `ClaudeApiKey` (NoEcho), seed de demo y ADR en `docs/MOTOR-PRECIOS.md`.
+
+**Validación y Corrección Humana:**
+
+- **Decisiones del equipo:** partir de la última versión de `main` (backend hexagonal), usar la API de Claude directa en lugar de Bedrock (bloqueado en Learner Lab) y limitar el alcance a backend + endpoint; el frontend queda con mocks para otra tarea.
+- **Correcciones sobre el plan inicial de la IA:** el plan proponía llamar a la API con `fetch`, usar `claude-sonnet-5-5` y forzar `tool_choice` con `temperature: 0`. Al contrastarlo con la documentación vigente de la API se cambió a: SDK oficial, `claude-opus-5-5` configurable, *structured outputs* (el `tool_choice` forzado y `temperature` devuelven 400 en los modelos actuales) y `effort` explícito.
+- **Modelo de datos:** se detectó que sin recetas no se puede pasar del costo de un insumo al de un producto. Se agregó `receta` a `Medianube-Productos`, y los productos sin receta se informan en lugar de inventarles un costo.
+- **El LLM no tiene la última palabra:** sus precios pasan por guardas determinísticas y su confianza nunca supera la que permite la evidencia (historial y receta), de acuerdo con el principio de "honestidad en la incertidumbre" de `docs/UXUI/DESIGN.md`.
+- **Pruebas:** 80 tests (dominio, caso de uso, prompt y adaptadores con un cliente falso), `tsc` sin errores, bundle verificado en Node 22 y una corrida completa sin AWS con los datos del seed: el detergente no se empareja y "harina 000" no se confunde con "harina 0000".
+- **Pendiente de validar por el equipo:** probar contra la API real con facturas reales (calidad de emparejamientos y justificaciones), confirmar qué tabla y qué atributos usa `listarGastos` para las facturas, y mover la API key a SSM Parameter Store antes de producción.
