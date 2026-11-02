@@ -1,6 +1,7 @@
 // Caso de uso: sugerir precios de venta a partir de un ticket de compra.
 // Los números los calcula el dominio, el LLM empareja insumos y propone/explica, y las guardas
-// tienen la última palabra. Si el LLM falla, se responde igual con sugerencias por reglas.
+// tienen la última palabra. Si el LLM falla o no hay tiempo para esperarlo, se responde igual con
+// sugerencias por reglas y el motivo explícito (degradado / motivoDegradacion).
 // No conoce AWS ni la API de Claude: depende solo de puertos.
 
 import {
@@ -26,7 +27,9 @@ import type {
   Ticket,
   VariacionInsumo,
 } from "../../domain/precios/tipos";
+import { type MotivoFalla, motivoDe, ErrorServicioExterno } from "../../domain/errores";
 import type { LoggerPort } from "../../ports/logger";
+import { registrarCaida } from "../dependencias";
 import type {
   ContextoPrecios,
   PreciosRepositorioPort,
@@ -43,7 +46,16 @@ export interface ConfigPrecios {
   margenMinimo: number;
   topeSubaPct: number;
   ventanaHistorialDias: number;
+  /** Tiempo que se reserva para guardar y responder después del LLM (ms). */
+  margenRespuestaMs?: number;
+  /** Si queda menos que esto para el LLM, ni se lo llama (ms). */
+  minimoLlmMs?: number;
 }
+
+/** Por qué una respuesta salió sin IA. "sin_api_key" agrupa key faltante o inválida. */
+export type MotivoDegradacion = Exclude<MotivoFalla, "sin_configuracion"> | "sin_api_key" | "sin_tiempo";
+
+const aMotivoDegradacion = (m: MotivoFalla): MotivoDegradacion => (m === "sin_configuracion" ? "sin_api_key" : m);
 
 export interface ResultadoPrecios {
   usuarioID: string;
@@ -54,6 +66,11 @@ export interface ResultadoPrecios {
   sugerencias: SugerenciaPrecio[];
   /** Productos que no se pudieron evaluar porque no tienen receta cargada. */
   productosSinReceta: string[];
+  /** true si se quería usar el LLM y no se pudo: las sugerencias salen solo de reglas. */
+  degradado: boolean;
+  motivoDegradacion: MotivoDegradacion | null;
+  /** false si las sugerencias no se pudieron guardar en Productos (la respuesta igual es válida). */
+  guardado: boolean;
 }
 
 export interface DependenciasServicioPrecios {
@@ -65,7 +82,8 @@ export interface DependenciasServicioPrecios {
 }
 
 export interface ServicioPrecios {
-  sugerirPrecios(usuarioID: string, ticket: unknown): Promise<ResultadoPrecios>;
+  /** `plazo`: ms que le quedan a la invocación (Lambda getRemainingTimeInMillis). */
+  sugerirPrecios(usuarioID: string, ticket: unknown, opciones?: { plazo?: () => number }): Promise<ResultadoPrecios>;
 }
 
 const TEXTO_MOTIVO: Record<string, string> = {
@@ -94,6 +112,21 @@ function sanearPropuesta(propuesta: PropuestaLLM, ticket: Ticket, insumos: Set<s
   return { emparejamientos, sugerencias };
 }
 
+/**
+ * Corta una promesa a los `ms` dados aunque quien la produce no respete su timeout.
+ * Red de seguridad: el adaptador de Claude ya corta solo, pero la respuesta no puede depender de eso.
+ */
+function conPlazo<T>(promesa: Promise<T>, ms: number): Promise<T> {
+  let temporizador: ReturnType<typeof setTimeout> | undefined;
+  const corte = new Promise<never>((_, rechazar) => {
+    temporizador = setTimeout(
+      () => rechazar(new ErrorServicioExterno(`El LLM no respondió en ${ms} ms.`, { motivo: "timeout", servicio: "claude" })),
+      ms
+    );
+  });
+  return Promise.race([promesa, corte]).finally(() => clearTimeout(temporizador));
+}
+
 function justificacionPorReglas(afectados: VariacionInsumo[], sinCosto: boolean): string {
   if (sinCosto) return "No se pudo calcular el costo: la receta tiene insumos sin precio de compra.";
   const conVariacion = afectados.filter((v) => v.variacionPct !== null);
@@ -109,8 +142,9 @@ export function crearServicioPrecios({
   ahora = () => new Date(),
   log = console,
 }: DependenciasServicioPrecios): ServicioPrecios {
+  const { margenRespuestaMs = 4_000, minimoLlmMs = 3_000 } = config;
   return {
-    async sugerirPrecios(usuarioID, ticketCrudo) {
+    async sugerirPrecios(usuarioID, ticketCrudo, { plazo } = {}) {
       const ticket = validarTicket(ticketCrudo);
       const instante = ahora();
       const desde = new Date(instante.getTime() - config.ventanaHistorialDias * MS_POR_DIA).toISOString().slice(0, 10);
@@ -184,15 +218,31 @@ export function crearServicioPrecios({
 
       // 1. Pedirle al LLM emparejamientos y propuestas. Si falla, seguir solo con reglas.
       let origen: "llm" | "reglas" = "reglas";
+      let motivoDegradacion: MotivoDegradacion | null = null;
       let propuesta: ReturnType<typeof sanearPropuesta> = { emparejamientos: new Map(), sugerencias: new Map() };
       if (conReceta.length > 0) {
-        try {
-          const cruda = await sugeridor.sugerir(contexto);
-          propuesta = sanearPropuesta(cruda, ticket, new Set(insumos), new Set(conReceta.map((p) => p.productoID)));
-          origen = "llm";
-        } catch (error) {
-          const e = error instanceof Error ? error : new Error(String(error));
-          log.warn(JSON.stringify({ mensaje: "Fallo el LLM de precios; se usan reglas", usuarioID, error: e.message }));
+        // Tiempo para el LLM: lo que le queda a la Lambda menos lo necesario para guardar y responder.
+        // Sin plazo (tests, invocación local) se respeta el timeout propio del sugeridor.
+        const disponibleMs = plazo ? plazo() - margenRespuestaMs : undefined;
+        if (disponibleMs !== undefined && disponibleMs < minimoLlmMs) {
+          motivoDegradacion = "sin_tiempo";
+          registrarCaida(log, {
+            servicio: "claude",
+            error: `quedaban ${disponibleMs} ms para el LLM`,
+            motivo: "timeout",
+            usuarioID,
+            consecuencia: "no se llamó al LLM; se usan reglas",
+          });
+        } else {
+          try {
+            const llamada = sugeridor.sugerir(contexto, disponibleMs !== undefined ? { timeoutMs: disponibleMs } : {});
+            const cruda = disponibleMs !== undefined ? await conPlazo(llamada, disponibleMs) : await llamada;
+            propuesta = sanearPropuesta(cruda, ticket, new Set(insumos), new Set(conReceta.map((p) => p.productoID)));
+            origen = "llm";
+          } catch (error) {
+            motivoDegradacion = aMotivoDegradacion(motivoDe(error));
+            registrarCaida(log, { servicio: "claude", error, usuarioID, consecuencia: "se usan reglas" });
+          }
         }
       }
 
@@ -296,11 +346,24 @@ export function crearServicioPrecios({
       }
 
       const generadaEn = instante.toISOString();
+      // Guardar es un efecto secundario: si falla, la sugerencia calculada se devuelve igual.
+      let guardado = true;
       if (sugerencias.length > 0) {
-        await repositorio.guardarSugerencias(
-          usuarioID,
-          sugerencias.map((s) => ({ ...s, generadaEn, versionPrompt: sugeridor.versionPrompt }))
-        );
+        try {
+          await repositorio.guardarSugerencias(
+            usuarioID,
+            sugerencias.map((s) => ({ ...s, generadaEn, versionPrompt: sugeridor.versionPrompt }))
+          );
+        } catch (error) {
+          guardado = false;
+          log.error(
+            JSON.stringify({
+              mensaje: "No se pudieron guardar las sugerencias; se devuelven igual",
+              usuarioID,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          );
+        }
       }
 
       log.info(
@@ -311,10 +374,23 @@ export function crearServicioPrecios({
           items: ticket.items.length,
           insumosDelTicket: insumosDelTicket.size,
           sugerencias: sugerencias.length,
+          motivoDegradacion,
+          guardado,
         })
       );
 
-      return { usuarioID, origen, versionPrompt: sugeridor.versionPrompt, generadaEn, insumos: variaciones, sugerencias, productosSinReceta };
+      return {
+        usuarioID,
+        origen,
+        versionPrompt: sugeridor.versionPrompt,
+        generadaEn,
+        insumos: variaciones,
+        sugerencias,
+        productosSinReceta,
+        degradado: motivoDegradacion !== null,
+        motivoDegradacion,
+        guardado,
+      };
     },
   };
 }

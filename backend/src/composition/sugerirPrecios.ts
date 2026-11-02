@@ -32,7 +32,10 @@ const sugeridor: SugeridorPreciosPort = env.ANTHROPIC_API_KEY
   : {
       versionPrompt: VERSION_PROMPT,
       async sugerir() {
-        throw new ErrorServicioExterno("No hay ANTHROPIC_API_KEY configurada.");
+        throw new ErrorServicioExterno("No hay ANTHROPIC_API_KEY configurada.", {
+          motivo: "sin_configuracion",
+          servicio: "claude",
+        });
       },
     };
 

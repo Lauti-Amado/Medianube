@@ -4,7 +4,7 @@
 import type { ServicioPrecios } from "../../application/precios/servicioPrecios";
 import { ErrorValidacion } from "../../domain/errores";
 import type { LoggerPort } from "../../ports/logger";
-import { type EventoHttp, resolverUsuarioID, respuesta } from "./http";
+import { type ContextoLambda, type EventoHttp, plazoDe, resolverUsuarioID, respuesta, respuestaError } from "./http";
 
 export interface DependenciasHandlerPrecios {
   servicio: ServicioPrecios;
@@ -23,21 +23,19 @@ function leerCuerpo(event: EventoHttp): unknown {
 }
 
 export function crearHandlerPrecios({ servicio, permitirUsuarioQuery = false, log = console }: DependenciasHandlerPrecios) {
-  return async function handler(event: EventoHttp) {
+  return async function handler(event: EventoHttp, contexto?: ContextoLambda) {
     const usuarioID = resolverUsuarioID(event, { permitirUsuarioQuery });
     if (!usuarioID) return respuesta(401, { error: "No autenticado." });
 
     try {
       const cuerpo = leerCuerpo(event) as { ticket?: unknown } | null;
-      // Las fallas del LLM no llegan acá: el caso de uso responde con reglas (origen "reglas").
-      return respuesta(200, await servicio.sugerirPrecios(usuarioID, cuerpo?.ticket));
+      // Las fallas del LLM no llegan acá: el caso de uso responde con reglas (degradado: true).
+      return respuesta(200, await servicio.sugerirPrecios(usuarioID, cuerpo?.ticket, { plazo: plazoDe(contexto) }));
     } catch (error) {
       if (error instanceof ErrorValidacion) {
         return respuesta(400, { error: error.message });
       }
-      const e = error instanceof Error ? error : new Error(String(error));
-      log.error(JSON.stringify({ mensaje: "Error inesperado en sugerirPrecios", usuarioID, error: e.message, stack: e.stack }));
-      return respuesta(500, { error: "Error interno del servidor." });
+      return respuestaError(error, { requestId: contexto?.awsRequestId, usuarioID, operacion: "sugerirPrecios", log });
     }
   };
 }
