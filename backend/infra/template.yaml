@@ -248,7 +248,9 @@ Resources:
       Handler: index.handler
       Code: ../dist/obtenerClima   # bundle generado por `npm run build`; `aws cloudformation package` lo sube a S3
       MemorySize: 128
-      Timeout: 10
+      # Peor caso HTTP: 2 intentos de 4 s a Open-Meteo + espera ≈ 8,5 s. El refresco programado usa
+      # el mismo valor y corta solo (circuit breaker / plazo) antes de llegar al límite.
+      Timeout: 20
       ReservedConcurrentExecutions: !Ref ConcurrenciaReservada
       Role: !If [CrearRol, !GetAtt RolObtenerClima.Arn, !Ref RolLambdaArn]
       Environment:
@@ -258,7 +260,8 @@ Resources:
           CACHE_HORAS: "6"
           DIAS_PRONOSTICO: "7"
           TTL_DIAS: "14"
-          TIMEOUT_API_MS: "5000"
+          TIMEOUT_API_MS: "4000"
+          REINTENTOS_API: "1"
           ZONA_HORARIA: America/Argentina/Buenos_Aires
           UBICACION_DEFECTO_LAT: !Ref UbicacionDefectoLat
           UBICACION_DEFECTO_LON: !Ref UbicacionDefectoLon
@@ -288,7 +291,7 @@ Resources:
       IntegrationType: AWS_PROXY
       IntegrationUri: !GetAtt FuncionObtenerClima.Arn
       PayloadFormatVersion: "2.0"
-      TimeoutInMillis: 12000
+      TimeoutInMillis: 15000
 
   RutaClima:
     Type: AWS::ApiGatewayV2::Route
