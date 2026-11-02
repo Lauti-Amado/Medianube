@@ -6,19 +6,14 @@ import { ErrorValidacion } from "../../domain/clima/tipos";
 import type { ServicioClima } from "../../application/clima/servicioClima";
 import type { LoggerPort } from "../../ports/logger";
 import { type ContextoLambda, type EventoHttp, plazoDe, resolverUsuarioID, respuesta, respuestaError } from "./http";
+import { type EventoProgramado, esEventoProgramado } from "./eventos";
+import { type EventoHttp, resolverUsuarioID, respuesta } from "./http";
 
-export { resolverUsuarioID };
+export { esEventoProgramado, resolverUsuarioID };
 export type { RespuestaHttp } from "./http";
 
 /** Subconjunto del evento de Lambda que usamos (evita depender de @types/aws-lambda). */
-export interface EventoLambda extends EventoHttp {
-  source?: string;
-  "detail-type"?: string;
-}
-
-export function esEventoProgramado(event: EventoLambda | null | undefined): boolean {
-  return event?.source === "aws.events" || event?.["detail-type"] === "Scheduled Event";
-}
+export interface EventoLambda extends EventoHttp, EventoProgramado {}
 
 export interface DependenciasHandlerClima {
   servicio: ServicioClima;

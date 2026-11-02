@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Despliega el stack de Medianube (tablas DynamoDB + Lambdas obtenerClima y sugerirPrecios).
+# Despliega el stack de Medianube (tablas DynamoDB + Lambdas obtenerClima, sugerirPrecios y
+# predecirDemanda, con sus reglas de EventBridge).
 # Pensado para ejecutarse en AWS CloudShell (ya trae AWS CLI y credenciales).
 #
 # Uso (desde la carpeta backend/):
@@ -8,6 +9,8 @@
 #   MODO_AUTH=jwt ./scripts/deploy.sh            # exige token de Cognito en /clima y /precios/sugerir
 #   CLAUDE_API_KEY=sk-ant-... ./scripts/deploy.sh # API key del motor de precios (si no se pasa,
 #                                                # se conserva la del despliegue anterior)
+#   CRON_PREDICCION="cron(0 9 * * ? *)" ./scripts/deploy.sh  # horario (UTC) de la predicción de demanda
+#                                                # (default 05:30 ART = cron(30 8 * * ? *))
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -26,6 +29,9 @@ if [[ -n "${CLAUDE_API_KEY:-}" ]]; then
 fi
 if [[ -n "${MODELO_LLM:-}" ]]; then
   PARAMETROS_EXTRA+=("ModeloLlm=${MODELO_LLM}")
+fi
+if [[ -n "${CRON_PREDICCION:-}" ]]; then
+  PARAMETROS_EXTRA+=("CronPrediccion=${CRON_PREDICCION}")
 fi
 if [[ -n "${ROL_LAMBDA:-}" ]]; then
   ROL_ARN="arn:aws:iam::${CUENTA}:role/${ROL_LAMBDA}"
