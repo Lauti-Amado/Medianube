@@ -27,7 +27,8 @@ function leerUbicacionPorDefecto(): Ubicacion | null {
 
 const zonaHoraria = env.ZONA_HORARIA || "America/Argentina/Buenos_Aires";
 const diasPronostico = Number(env.DIAS_PRONOSTICO || 7);
-const timeoutMs = Number(env.TIMEOUT_API_MS || 5000);
+const timeoutMs = Number(env.TIMEOUT_API_MS || 4000);
+const reintentos = Number(env.REINTENTOS_API ?? 1);
 
 // Se inicializa fuera del handler para reutilizar el cliente de DynamoDB entre invocaciones (warm start).
 const servicio = crearServicioClima({
@@ -35,13 +36,17 @@ const servicio = crearServicioClima({
     tablaClima: requerida("TABLA_CLIMA"),
     tablaConfiguracion: requerida("TABLA_CONFIGURACION"),
   }),
-  pronostico: crearPronosticoOpenMeteo({ dias: diasPronostico, zonaHoraria, timeoutMs }),
+  pronostico: crearPronosticoOpenMeteo({ dias: diasPronostico, zonaHoraria, timeoutMs, reintentos }),
   config: {
     cacheHoras: Number(env.CACHE_HORAS || 6),
     diasPronostico,
     ttlDias: Number(env.TTL_DIAS || 14),
     zonaHoraria,
     ubicacionPorDefecto: leerUbicacionPorDefecto(),
+    // Refresco programado: corta tras 2 caídas seguidas de Open-Meteo y no empieza un usuario
+    // si queda menos tiempo que el peor caso de una consulta (≈ 8,5 s) más un margen.
+    caidasParaCortar: Number(env.CAIDAS_PARA_CORTAR || 2),
+    margenPlazoMs: Number(env.MARGEN_PLAZO_MS || 10_000),
   },
 });
 

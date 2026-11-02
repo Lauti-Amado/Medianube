@@ -88,5 +88,6 @@ export interface PropuestaLLM {
 export interface SugeridorPreciosPort {
   /** Versión del prompt, para poder auditar qué instrucciones generaron cada sugerencia. */
   readonly versionPrompt: string;
-  sugerir(contexto: ContextoPrecios): Promise<PropuestaLLM>;
+  /** `timeoutMs`: corte para esta llamada (el caso de uso lo acota al tiempo que le queda a la Lambda). */
+  sugerir(contexto: ContextoPrecios, opciones?: { timeoutMs?: number }): Promise<PropuestaLLM>;
 }

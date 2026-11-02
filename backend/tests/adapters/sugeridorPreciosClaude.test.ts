@@ -58,17 +58,35 @@ function mensaje(parcial: Partial<Anthropic.Beta.BetaMessage>): Anthropic.Beta.B
 
 function clienteFalso(responder: () => Promise<Anthropic.Beta.BetaMessage>) {
   const pedidos: Array<Record<string, unknown>> = [];
+  const opcionesPedido: Array<{ timeout?: number } | undefined> = [];
   const cliente = {
     beta: {
       messages: {
-        create: async (params: Record<string, unknown>) => {
+        create: async (params: Record<string, unknown>, opciones?: { timeout?: number }) => {
           pedidos.push(params);
+          opcionesPedido.push(opciones);
           return responder();
         },
       },
     },
   } as unknown as Pick<Anthropic, "beta">;
-  return { cliente, pedidos };
+  return { cliente, pedidos, opcionesPedido };
+}
+
+/** Motivo con el que el sugeridor falla cuando el cliente lanza `error`. */
+async function motivoCon(error: unknown): Promise<string> {
+  const { cliente } = clienteFalso(async () => {
+    throw error;
+  });
+  try {
+    await crearSugeridorClaude({ ...OPCIONES, cliente }).sugerir(CONTEXTO);
+  } catch (e) {
+    assert.ok(e instanceof ErrorServicioExterno);
+    assert.equal(e.servicio, "claude");
+    assert.equal(e.cause, error);
+    return e.motivo;
+  }
+  assert.fail("no falló");
 }
 
 const OPCIONES = { modelo: "claude-opus-5-5", esfuerzo: "low" as const, timeoutMs: 20_000 };
@@ -174,5 +192,41 @@ describe("parseo de la propuesta", () => {
   it("normaliza confianzas desconocidas a baja", () => {
     const p = parsearPropuesta('{"emparejamientos":[{"indiceItem":0,"insumo":null,"certeza":"total"}],"sugerencias":[]}');
     assert.deepEqual(p.emparejamientos[0], { indiceItem: 0, insumo: null, certeza: "baja" });
+  });
+});
+
+describe("caídas de la API de Claude", () => {
+  it("clasifica cada error del SDK con su motivo", async () => {
+    const h = new Headers();
+    assert.equal(await motivoCon(new Anthropic.APIConnectionTimeoutError()), "timeout");
+    assert.equal(await motivoCon(new Anthropic.APIUserAbortError()), "timeout");
+    assert.equal(await motivoCon(new Anthropic.APIConnectionError({ message: "ECONNRESET" })), "no_disponible");
+    assert.equal(await motivoCon(new Anthropic.RateLimitError(429, undefined, "rate", h)), "limite");
+    assert.equal(await motivoCon(new Anthropic.InternalServerError(529, undefined, "overloaded", h)), "limite");
+    assert.equal(await motivoCon(new Anthropic.InternalServerError(503, undefined, "down", h)), "no_disponible");
+    assert.equal(await motivoCon(new Anthropic.AuthenticationError(401, undefined, "bad key", h)), "sin_configuracion");
+    assert.equal(await motivoCon(new Anthropic.PermissionDeniedError(403, undefined, "nope", h)), "sin_configuracion");
+    assert.equal(await motivoCon(new Error("algo raro")), "no_disponible");
+  });
+
+  it("rechazo y respuestas inválidas tienen su propio motivo", async () => {
+    const rechazo = clienteFalso(async () => mensaje({ stop_reason: "refusal", content: [] }));
+    await assert.rejects(crearSugeridorClaude({ ...OPCIONES, cliente: rechazo.cliente }).sugerir(CONTEXTO), { motivo: "rechazo" });
+    const cortada = clienteFalso(async () => mensaje({ stop_reason: "max_tokens" }));
+    await assert.rejects(crearSugeridorClaude({ ...OPCIONES, cliente: cortada.cliente }).sugerir(CONTEXTO), {
+      motivo: "respuesta_invalida",
+    });
+  });
+
+  it("pasa el timeout por request y nunca supera el configurado", async () => {
+    const { cliente, opcionesPedido } = clienteFalso(async () => mensaje({}));
+    const sugeridor = crearSugeridorClaude({ ...OPCIONES, cliente });
+    await sugeridor.sugerir(CONTEXTO, { timeoutMs: 7_500 });
+    await sugeridor.sugerir(CONTEXTO, { timeoutMs: 60_000 });
+    await sugeridor.sugerir(CONTEXTO);
+    assert.deepEqual(
+      opcionesPedido.map((o) => o?.timeout),
+      [7_500, 20_000, 20_000]
+    );
   });
 });
