@@ -218,3 +218,26 @@ La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
 - **El LLM no tiene la última palabra:** sus precios pasan por guardas determinísticas y su confianza nunca supera la que permite la evidencia (historial y receta), de acuerdo con el principio de "honestidad en la incertidumbre" de `docs/UXUI/DESIGN.md`.
 - **Pruebas:** 80 tests (dominio, caso de uso, prompt y adaptadores con un cliente falso), `tsc` sin errores, bundle verificado en Node 22 y una corrida completa sin AWS con los datos del seed: el detergente no se empareja y "harina 000" no se confunde con "harina 0000".
 - **Pendiente de validar por el equipo:** probar contra la API real con facturas reales (calidad de emparejamientos y justificaciones), confirmar qué tabla y qué atributos usa `listarGastos` para las facturas, y mover la API key a SSM Parameter Store antes de producción.
+
+## 01/11/2026 - Predicción de demanda nocturna con EventBridge (`predecirDemanda`)
+
+**Problema abordado:** Configurar Amazon EventBridge para que el modelo predictivo de demanda corra solo todas las madrugadas. Al analizar el repositorio se vio que el modelo no existía: `Medianube-Predicciones` estaba vacía y `/demanda` usaba mocks, así que hubo que crear el modelo además de programarlo.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5).
+*Prompt:* "Necesito configurar Amazon EventBridge para que el modelo predictivo corra automáticamente todas las madrugadas." Primero se pidió y aprobó un plan; después se implementó en la rama `feat/Cronjob` en commits chicos.
+
+**Código / Arquitectura generada:**
+
+- **Modelo `demanda-v1`** (`backend/src/domain/demanda/`): promedio ponderado de las ventas del mismo día de la semana en las últimas 8 semanas, factor por lluvia, confianza según evidencia y dispersión, y precisión estimada con backtest (1 − wMAPE).
+- **Caso de uso** `servicioDemanda`: `predecirUsuario` y `predecirTodos`, la corrida nocturna en serie donde un usuario que falla no corta el resto.
+- **Adaptadores:** repositorio de Ventas, Productos y Predicciones (SK `<fecha>#<productoID>`, TTL de 30 días) y handler que distingue el evento de EventBridge de una invocación manual con `{ usuarioID }`. Reutiliza el repositorio de clima para leer el pronóstico y listar usuarios.
+- **Infraestructura:** Lambda `predecirDemanda` (timeout de 300 s), rol de mínimo privilegio, regla `medianube-prediccion-demanda-<env>` con `cron(30 8 * * ? *)` (05:30 ART), `EventInvokeConfig` con 1 reintento, parámetro `CronPrediccion`, seed de ventas y ADR en `docs/PREDICCION-DEMANDA.md`.
+
+**Validación y Corrección Humana:**
+
+- **Decisiones del equipo:** construir la Lambda dentro del backend hexagonal, en lugar de solo programar la Lambda `sugerencia-produccion` creada desde la consola (que calcula por receta y stock), y correrla a las 05:30 ART, media hora después del refresco de clima. El equipo pidió la rama `feat/Cronjob` en lugar de la que proponía el plan.
+- **Restricciones de AWS Academy:** se mantuvo la regla clásica de EventBridge en lugar de EventBridge Scheduler, porque Scheduler necesita un rol IAM propio. También se descartaron SageMaker y Forecast.
+- **Sin LLM en la corrida nocturna:** se eligió un modelo estadístico determinístico por costo y reproducibilidad. El LLM queda como opción para explicar las predicciones en una v2.
+- **Refactor acotado:** el BatchWrite con reintentos y la detección de eventos programados se extrajeron a módulos compartidos, y la Lambda de clima pasó a usarlos sin cambiar su comportamiento.
+- **Pruebas:** 114 tests (dominio, caso de uso, handler y repositorio con un cliente falso), `tsc` sin errores, bundle verificado en Node 22 y template validado (sin referencias rotas). En una corrida completa sin AWS con el patrón del seed, el sábado predice más que el domingo, la lluvia aplica el factor 0,85 y la precisión estimada es de 95 %.
+- **Pendiente de validar por el equipo:** desplegar y confirmar en CloudWatch la primera corrida de las 05:30, definir quién carga `Medianube-Ventas` y con qué formato (hoy se asume `cantidad` por día y producto), y conectar `/demanda` a `Medianube-Predicciones`.

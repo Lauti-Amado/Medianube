@@ -1,21 +1,10 @@
 // Adaptador de salida: implementa ClimaRepositorioPort sobre DynamoDB.
 // El AWS SDK v3 viene incluido en el runtime Node.js de Lambda, por eso no se empaqueta en el bundle.
 
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import {
-  BatchWriteCommand,
-  DynamoDBDocumentClient,
-  GetCommand,
-  QueryCommand,
-  ScanCommand,
-} from "@aws-sdk/lib-dynamodb";
+import { type DynamoDBDocumentClient, GetCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import type { DiaClimaGuardado } from "../../domain/clima/tipos";
 import type { ClimaRepositorioPort, ConfiguracionClima } from "../../ports/clima";
-
-const LOTE_MAXIMO = 25; // límite de BatchWriteItem
-const REINTENTOS = 3;
-
-const esperar = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+import { crearClienteDocumentos, escribirEnLotes } from "./dynamo";
 
 export interface OpcionesRepositorioDynamo {
   tablaClima: string;
@@ -26,9 +15,7 @@ export interface OpcionesRepositorioDynamo {
 export function crearClimaRepositorioDynamo({
   tablaClima,
   tablaConfiguracion,
-  cliente = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-    marshallOptions: { removeUndefinedValues: true },
-  }),
+  cliente = crearClienteDocumentos(),
 }: OpcionesRepositorioDynamo): ClimaRepositorioPort {
   return {
     async obtenerConfiguracion(usuarioID) {
@@ -62,20 +49,7 @@ export function crearClimaRepositorioDynamo({
     },
 
     async guardarClima(items) {
-      for (let i = 0; i < items.length; i += LOTE_MAXIMO) {
-        let pendientes: Record<string, Array<{ PutRequest: { Item: Record<string, unknown> } }>> | undefined = {
-          [tablaClima]: items
-            .slice(i, i + LOTE_MAXIMO)
-            .map((Item) => ({ PutRequest: { Item: Item as unknown as Record<string, unknown> } })),
-        };
-        // BatchWrite puede devolver ítems sin procesar por throttling: reintento con backoff exponencial.
-        for (let intento = 0; pendientes && Object.keys(pendientes).length > 0; intento++) {
-          if (intento >= REINTENTOS) throw new Error("No se pudieron escribir todos los ítems de clima.");
-          if (intento > 0) await esperar(100 * 2 ** intento);
-          const { UnprocessedItems } = await cliente.send(new BatchWriteCommand({ RequestItems: pendientes }));
-          pendientes = UnprocessedItems as typeof pendientes;
-        }
-      }
+      await escribirEnLotes(cliente, tablaClima, items);
     },
 
     /** Solo lo usa el refresco programado; el volumen de usuarios del MVP hace aceptable un Scan proyectado. */
