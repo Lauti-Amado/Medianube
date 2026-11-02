@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Medianube - Capa de datos (DynamoDB), Lambda obtenerClima (Open-Meteo) y Lambda sugerirPrecios (Claude).
+  Medianube - Capa de datos (DynamoDB), Lambda obtenerClima (Open-Meteo), Lambda sugerirPrecios (Claude)
+  y Lambda predecirDemanda, programada todas las madrugadas con EventBridge.
   Desplegar con backend/scripts/deploy.sh (aws cloudformation package + deploy).
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -73,6 +74,13 @@ Parameters:
     Type: String
     Default: claude-opus-5-5
     Description: Modelo de Claude del motor de precios (ej. claude-haiku-5-5 para bajar costos).
+
+  CronPrediccion:
+    Type: String
+    Default: cron(30 8 * * ? *)
+    Description: >
+      Horario de la predicción de demanda, en UTC. Por defecto 05:30 ART: media hora después del
+      refresco de clima (05:00 ART), para usar el pronóstico recién actualizado.
 
 Conditions:
   UsarJwt: !Equals [!Ref ModoAutenticacion, jwt]
@@ -227,6 +235,36 @@ Resources:
                 Resource: !GetAtt TablaProductos.Arn
               - Effect: Allow
                 Action: dynamodb:GetItem
+                Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TablaConfiguracionNombre}
+
+  RolPredecirDemanda:
+    Type: AWS::IAM::Role
+    Condition: CrearRol
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AccesoTablasDemanda
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:Query
+                Resource:
+                  - !GetAtt TablaVentas.Arn
+                  - !GetAtt TablaProductos.Arn
+                  - !GetAtt TablaClima.Arn
+              - Effect: Allow
+                Action: dynamodb:BatchWriteItem
+                Resource: !GetAtt TablaPredicciones.Arn
+              - Effect: Allow
+                Action: dynamodb:Scan   # listar usuarios para la corrida nocturna
                 Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TablaConfiguracionNombre}
 
   # ── Lambda obtenerClima ────────────────────────────────────────────────────
@@ -395,6 +433,76 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt ReglaRefrescoDiario.Arn
 
+  # ── Lambda predecirDemanda (modelo estadístico, corrida nocturna) ──────────
+
+  LogsPredecirDemanda:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/predecirDemanda-${Entorno}
+      RetentionInDays: 14
+
+  FuncionPredecirDemanda:
+    Type: AWS::Lambda::Function
+    DependsOn: LogsPredecirDemanda
+    Properties:
+      FunctionName: !Sub predecirDemanda-${Entorno}
+      Description: Predice la demanda de los próximos 7 días por producto (ventas + clima) y la guarda en Predicciones.
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Code: ../dist/predecirDemanda   # bundle generado por `npm run build`
+      MemorySize: 256
+      # Sin API Gateway de por medio: recorre todos los usuarios en serie y puede tardar más de 30 s.
+      Timeout: 300
+      ReservedConcurrentExecutions: !Ref ConcurrenciaReservada
+      Role: !If [CrearRol, !GetAtt RolPredecirDemanda.Arn, !Ref RolLambdaArn]
+      Environment:
+        Variables:
+          TABLA_VENTAS: !Ref TablaVentas
+          TABLA_PRODUCTOS: !Ref TablaProductos
+          TABLA_PREDICCIONES: !Ref TablaPredicciones
+          TABLA_CLIMA: !Ref TablaClima
+          TABLA_CONFIGURACION: !Ref TablaConfiguracionNombre
+          ZONA_HORARIA: America/Argentina/Buenos_Aires
+          DIAS_PREDICCION: "7"
+          SEMANAS_HISTORIAL: "8"
+          FACTOR_LLUVIA: "0.85"
+          TTL_PREDICCION_DIAS: "30"
+      Tags:
+        - { Key: Proyecto, Value: Medianube }
+
+  # EventBridge invoca en forma asíncrona: si la corrida falla entera (ej. no se pudo listar
+  # usuarios), Lambda reintenta una vez. Es seguro porque la escritura es idempotente (misma SK).
+  ConfigInvocacionDemanda:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref FuncionPredecirDemanda
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 1
+      MaximumEventAgeInSeconds: 3600
+
+  # ── EventBridge: predicción diaria 05:30 ART (08:30 UTC) ───────────────────
+  # Regla clásica (no EventBridge Scheduler) por el mismo motivo que la de clima: no necesita rol IAM propio.
+
+  ReglaPrediccionDiaria:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub medianube-prediccion-demanda-${Entorno}
+      Description: Corre el modelo de demanda todas las madrugadas, después del refresco de clima de las 05:00 ART.
+      ScheduleExpression: !Ref CronPrediccion
+      State: ENABLED
+      Targets:
+        - Id: predecirDemanda
+          Arn: !GetAtt FuncionPredecirDemanda.Arn
+
+  PermisoEventBridgeDemanda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FuncionPredecirDemanda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ReglaPrediccionDiaria.Arn
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Salidas
 # ─────────────────────────────────────────────────────────────────────────────
@@ -409,6 +517,13 @@ Outputs:
     Value: !Sub https://${ApiId}.execute-api.${AWS::Region}.amazonaws.com/precios/sugerir
   FuncionPrecios:
     Value: !Ref FuncionSugerirPrecios
+  FuncionDemanda:
+    Value: !Ref FuncionPredecirDemanda
+  ReglaDemanda:
+    Description: Regla de EventBridge que dispara la predicción de demanda.
+    Value: !Ref ReglaPrediccionDiaria
+  HorarioDemanda:
+    Value: !Ref CronPrediccion
   TablasCreadas:
     Value: !Join [", ", [!Ref TablaFacturas, !Ref TablaProductos, !Ref TablaVentas, !Ref TablaPredicciones, !Ref TablaClima]]
   ModoAutenticacion:

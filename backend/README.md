@@ -1,7 +1,7 @@
 # Backend Medianube (Serverless)
 
-Infraestructura como código (CloudFormation) para la capa de datos, la Lambda de clima y el
-motor de precios con LLM. El código sigue una **arquitectura hexagonal** (puertos y adaptadores) en **TypeScript**.
+Infraestructura como código (CloudFormation) para la capa de datos, la Lambda de clima, el
+motor de precios con LLM y la predicción de demanda programada con EventBridge. El código sigue una **arquitectura hexagonal** (puertos y adaptadores) en **TypeScript**.
 
 ```
 backend/
@@ -9,34 +9,43 @@ backend/
 │   ├── domain/                       # reglas puras, sin I/O ni imports de AWS
 │   │   ├── errores.ts                #   ErrorValidacion (400) y ErrorServicioExterno (502)
 │   │   ├── clima/                    #   tipos, reglas de fecha/ubicación, códigos WMO
+│   │   ├── demanda/                  #   modelo estadístico: mismo día de la semana, lluvia, confianza, backtest
 │   │   └── precios/                  #   unidades, emparejamiento de insumos, costos por receta, guardas
 │   ├── application/                  # casos de uso: orquestan dominio + puertos
 │   │   ├── clima/servicioClima.ts    #   cache-first, fallback a cache vencida, refresco masivo
+│   │   ├── demanda/servicioDemanda.ts #  predicción de 7 días por producto, corrida nocturna para todos
 │   │   └── precios/servicioPrecios.ts #  ticket + historial + recetas → LLM → guardas → sugerencias
 │   ├── ports/                        # contratos (interfaces) que necesita la aplicación
 │   │   ├── clima.ts                  #   ClimaRepositorioPort, PronosticoPort
+│   │   ├── demanda.ts                #   DemandaRepositorioPort, ClimaLecturaPort
 │   │   ├── precios.ts                #   PreciosRepositorioPort, SugeridorPreciosPort
 │   │   └── logger.ts
 │   ├── adapters/
 │   │   ├── in/                       #   evento API Gateway v2 / EventBridge → caso de uso
 │   │   │   ├── http.ts               #     identidad (JWT / ?usuarioID=) y respuestas, compartido
+│   │   │   ├── eventos.ts            #     detección de eventos programados de EventBridge
 │   │   │   ├── lambdaClima.ts
+│   │   │   ├── lambdaDemanda.ts
 │   │   │   └── lambdaPrecios.ts
 │   │   └── out/                      #   implementaciones de los puertos
+│   │       ├── dynamo.ts             #     cliente y BatchWrite con reintentos, compartido
 │   │       ├── climaRepositorioDynamo.ts
+│   │       ├── demandaRepositorioDynamo.ts
 │   │       ├── openMeteo.ts
 │   │       ├── preciosRepositorioDynamo.ts
 │   │       └── claude/               #     prompt versionado + cliente de la API de Claude
 │   └── composition/                  # composition roots: leen env y conectan todo (entrypoints)
 │       ├── obtenerClima.ts
+│       ├── predecirDemanda.ts
 │       └── sugerirPrecios.ts
-├── infra/template.yaml               # 5 tablas + 2 Lambdas + GET /clima + POST /precios/sugerir + regla diaria
+├── infra/template.yaml               # 5 tablas + 3 Lambdas + GET /clima + POST /precios/sugerir + 2 reglas diarias
 ├── events/                           # eventos de prueba para la consola o el CLI
 ├── scripts/
 │   ├── build.mjs                     # esbuild: un bundle por Lambda en dist/<nombre>/index.mjs
 │   ├── deploy.sh                     # check + build + package + deploy (CloudShell)
 │   ├── seed-ubicacion.sh             # carga la ubicación de un usuario
-│   └── seed-precios.mjs              # carga productos con receta y facturas históricas de demo
+│   ├── seed-precios.mjs              # carga productos con receta y facturas históricas de demo
+│   └── seed-ventas.mjs               # carga 8 semanas de ventas diarias de demo (predicción de demanda)
 ├── tests/                            # node:test + tsx, un directorio por capa
 └── dist/                             # generado (ignorado por git)
 ```
@@ -53,7 +62,7 @@ cd backend
 npm install
 npm run check     # typecheck (tsc --noEmit) + tests
 npm test          # solo tests (node --test con tsx)
-npm run build     # genera dist/obtenerClima/ y dist/sugerirPrecios/ con esbuild
+npm run build     # genera dist/obtenerClima/, dist/sugerirPrecios/ y dist/predecirDemanda/ con esbuild
 node --import tsx --test tests/domain/precios.test.ts   # un solo archivo de tests
 ```
 
@@ -70,12 +79,14 @@ node --import tsx --test tests/domain/precios.test.ts   # un solo archivo de tes
    # Motor de precios: la API key de Anthropic se pasa una vez; los redeploys sin la variable la conservan.
    CLAUDE_API_KEY=sk-ant-... ROL_LAMBDA=LabRole ./scripts/deploy.sh
    MODELO_LLM=claude-haiku-5-5 ./scripts/deploy.sh   # opcional: modelo más barato (default claude-opus-5-5)
+   CRON_PREDICCION="cron(0 9 * * ? *)" ./scripts/deploy.sh   # opcional: otro horario (UTC) para la predicción
    ```
    Sin API key la Lambda de precios igual responde, pero solo con reglas (`"origen": "reglas"`).
 3. Cargar datos del usuario de prueba:
    ```bash
    ./scripts/seed-ubicacion.sh user_test_123 "La Plata" -34.9214 -57.9545
    node scripts/seed-precios.mjs user_test_123   # productos con receta + 4 facturas históricas
+   node scripts/seed-ventas.mjs user_test_123    # 8 semanas de ventas para la predicción de demanda
    ```
 
 > Si `Medianube-Clima` u otra tabla ya existe (creada a mano), CloudFormation falla con
@@ -99,7 +110,50 @@ aws dynamodb query --table-name Medianube-Clima \
 # Motor de precios: sugerencias para un ticket (después de seed-precios.mjs)
 aws lambda invoke --function-name sugerirPrecios-dev \
   --payload fileb://events/post-precios-dev.json /dev/stdout
+
+# Predicción de demanda (después de seed-ventas.mjs): corrida programada o de un solo usuario
+aws lambda invoke --function-name predecirDemanda-dev \
+  --payload fileb://events/prediccion-programada.json /dev/stdout
+aws lambda invoke --function-name predecirDemanda-dev \
+  --payload fileb://events/predecir-usuario-dev.json /dev/stdout
+aws dynamodb query --table-name Medianube-Predicciones \
+  --key-condition-expression "usuarioID = :u" \
+  --expression-attribute-values '{":u":{"S":"user_test_123"}}'
+aws events describe-rule --name medianube-prediccion-demanda-dev   # cron y estado ENABLED
 ```
+
+## Tareas programadas (EventBridge)
+
+| Hora (ART) | Regla | Lambda | Qué hace |
+|---|---|---|---|
+| 05:00 | `medianube-refresco-clima-<env>` | `obtenerClima` | Refresca el pronóstico de 7 días de cada usuario en `Medianube-Clima` |
+| 05:30 | `medianube-prediccion-demanda-<env>` | `predecirDemanda` | Predice la demanda de hoy a hoy+6 por producto y la guarda en `Medianube-Predicciones` |
+
+La predicción corre después del clima para usar el pronóstico recién actualizado. Recorre los usuarios
+de `Medianube-Configuracion` en serie, y si un usuario falla la corrida sigue con el resto. El resumen
+(`total`, `procesados`, `sinVentas`, `predicciones`, `fallidos`) queda en CloudWatch
+(`/aws/lambda/predecirDemanda-<env>`). Diseño del modelo: [docs/PREDICCION-DEMANDA.md](../docs/PREDICCION-DEMANDA.md).
+
+Ítem de `Medianube-Predicciones` (una fila por día y producto; volver a correr el mismo día la pisa):
+
+```json
+{ "usuarioID": "user_test_123", "fechaProducto": "2026-11-07#medialuna-manteca", "fecha": "2026-11-07",
+  "productoID": "medialuna-manteca", "nombre": "Medialunas de manteca (u.)", "cantidad": 274, "base": 322.03,
+  "factorClima": 0.85, "confianza": "alta | media | baja", "observaciones": 8, "precisionPct": 0.954,
+  "versionModelo": "demanda-v1", "generadaEn": "2026-11-01T08:30:00.000Z", "expiraEn": 1796113800 }
+```
+
+`factorClima` es `null` si no había pronóstico para ese día; en ese caso la confianza baja un nivel.
+Se espera que `Medianube-Ventas` tenga una fila por día y producto (`fechaProducto` = `<YYYY-MM-DD>#<productoID>`,
+`cantidad`). También se aceptan `unidades` y `cantidadVendida`.
+
+| Variable de entorno | Default | Uso |
+|---|---|---|
+| `DIAS_PREDICCION` | `7` | Días hacia adelante (desde hoy) |
+| `SEMANAS_HISTORIAL` | `8` | Semanas del mismo día de la semana que se promedian |
+| `FACTOR_LLUVIA` | `0.85` | Multiplicador si se pronostica lluvia (≥ 60 % o ≥ 2 mm) |
+| `TTL_PREDICCION_DIAS` | `30` | Vencimiento de cada ítem (atributo `expiraEn`) |
+| `ZONA_HORARIA` | `America/Argentina/Buenos_Aires` | Define qué es "hoy" |
 
 ## Autenticación de `/clima` y `/precios/sugerir`
 
