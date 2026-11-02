@@ -7,10 +7,11 @@ motor de precios con LLM. El código sigue una **arquitectura hexagonal** (puert
 backend/
 ├── src/
 │   ├── domain/                       # reglas puras, sin I/O ni imports de AWS
-│   │   ├── errores.ts                #   ErrorValidacion (400) y ErrorServicioExterno (502)
+│   │   ├── errores.ts                #   ErrorValidacion (400) y ErrorServicioExterno (con motivo de la falla)
 │   │   ├── clima/                    #   tipos, reglas de fecha/ubicación, códigos WMO
 │   │   └── precios/                  #   unidades, emparejamiento de insumos, costos por receta, guardas
 │   ├── application/                  # casos de uso: orquestan dominio + puertos
+│   │   ├── dependencias.ts           #   registro uniforme de caídas ("dependencia_caida")
 │   │   ├── clima/servicioClima.ts    #   cache-first, fallback a cache vencida, refresco masivo
 │   │   └── precios/servicioPrecios.ts #  ticket + historial + recetas → LLM → guardas → sugerencias
 │   ├── ports/                        # contratos (interfaces) que necesita la aplicación
@@ -113,6 +114,24 @@ Para pasar a producción: `MODO_AUTH=jwt ./scripts/deploy.sh`.
 > **Ojo:** el `sub` de Cognito no es `user_test_123`. Cuando se active `jwt`, el frontend tiene que
 > guardar la configuración usando el `sub` del usuario logueado como `usuarioID`.
 
+## Manejo de errores
+
+Una dependencia externa caída (Open-Meteo, Claude) **nunca es un error HTTP**: se responde 200 con el
+mejor dato disponible y el motivo explícito. Solo un problema propio da 5xx, y siempre como JSON con
+`requestId` para buscarlo en CloudWatch. Diseño completo: [docs/MANEJO-ERRORES.md](../docs/MANEJO-ERRORES.md).
+
+| Falla | `GET /clima` | `POST /precios/sugerir` |
+|---|---|---|
+| Open-Meteo caído, con cache | 200, cache con `desactualizado: true` y `aviso` | — |
+| Open-Meteo caído, sin cache | 200, `disponible: false`, `origen: "sin-datos"`, `dias: []` | — |
+| Claude caído, lento, sin key o rechazo | — | 200 por reglas, `degradado: true` y `motivoDegradacion` |
+| No se pudieron guardar las sugerencias | — | 200 con `guardado: false` |
+| Throttling de DynamoDB | 503 + `Retry-After: 2` | 503 + `Retry-After: 2` |
+| Error inesperado | 500 `{ error, requestId }` | 500 `{ error, requestId }` |
+
+Cada caída se loguea como una línea `{"evento":"dependencia_caida","servicio","motivo",...}` y se cuenta
+en las métricas `Medianube/CaidasOpenMeteo-<env>` y `Medianube/CaidasClaude-<env>` de CloudWatch.
+
 ## Contrato de `GET /clima`
 
 ```json
@@ -120,8 +139,10 @@ Para pasar a producción: `MODO_AUTH=jwt ./scripts/deploy.sh`.
   "usuarioID": "user_test_123",
   "ubicacion": { "lat": -34.9214, "lon": -57.9545, "ciudad": "La Plata" },
   "ubicacionPorDefecto": false,
-  "origen": "cache | open-meteo",
+  "origen": "cache | open-meteo | sin-datos",
+  "disponible": true,
   "desactualizado": false,
+  "aviso": null,
   "dias": [
     { "fecha": "2026-10-18", "tempMax": 14.8, "tempMin": 7.2, "precipitacionMm": 0,
       "probLluvia": 4, "codigoClima": 3, "descripcion": "Nublado", "actualizadoEn": "2026-10-18T23:57:00.000Z" }
@@ -131,10 +152,14 @@ Para pasar a producción: `MODO_AUTH=jwt ./scripts/deploy.sh`.
 
 | Código | Causa |
 |---|---|
-| 200 | OK (`desactualizado: true` si Open-Meteo falló y se devolvió la última cache) |
+| 200 | OK. Si Open-Meteo no responde: la última cache con `desactualizado: true`, o sin cache `disponible: false` y `dias: []`. En ambos casos con `aviso` para mostrar |
 | 400 | El usuario no tiene ubicación y no hay ubicación por defecto |
 | 401 | Sin identidad (sin JWT, o falta `usuarioID` en modo dev) |
-| 502 | Open-Meteo no responde y no hay cache |
+| 500 / 503 | Error propio (503 con `Retry-After` si DynamoDB está saturado), con `requestId` |
+
+Open-Meteo se consulta con 4 s de timeout y un reintento ante errores transitorios (red, timeout, 429, 5xx).
+El refresco programado deja de llamarlo tras 2 caídas seguidas (circuit breaker) y no empieza otro usuario
+si a la invocación le quedan menos de 10 s; el resumen informa `omitidosPorProveedor` y `pendientes`.
 
 ## Contrato de `POST /precios/sugerir`
 
@@ -167,7 +192,10 @@ o de un campo `unidad` opcional.
       "justificacion": "La harina 000 subió 15,5 % respecto de la última compra; …",
       "insumosAfectados": ["harina 000", "manteca"], "ajustadoPorReglas": false, "origen": "llm | reglas" }
   ],
-  "productosSinReceta": ["Alfajor de maicena (u.)"]
+  "productosSinReceta": ["Alfajor de maicena (u.)"],
+  "degradado": false,
+  "motivoDegradacion": "null | sin_api_key | timeout | limite | no_disponible | rechazo | respuesta_invalida | sin_tiempo",
+  "guardado": true
 }
 ```
 
@@ -177,16 +205,20 @@ Para que un producto entre al cálculo necesita `precioActual` y `receta: [{ ins
 
 | Código | Causa |
 |---|---|
-| 200 | OK. Con `origen: "reglas"` si Claude no respondió a tiempo, rechazó la solicitud o no hay API key |
+| 200 | OK. Si Claude no responde a tiempo, rechaza la solicitud o no hay API key: `origen: "reglas"`, `degradado: true` y `motivoDegradacion`. Si no se pudo guardar: `guardado: false` |
 | 400 | Cuerpo que no es JSON, ticket sin ítems o ítems sin descripción/cantidad/precio positivos |
 | 401 | Sin identidad (sin JWT, o falta `usuarioID` en modo dev) |
+| 500 / 503 | Error propio (503 con `Retry-After` si DynamoDB está saturado), con `requestId` |
+
+El tiempo del LLM se acota a lo que le queda a la Lambda menos 4 s (para guardar y responder antes del
+corte de 30 s de API Gateway). Con menos de 3 s disponibles no se lo llama (`motivoDegradacion: "sin_tiempo"`).
 
 | Variable de entorno | Default | Uso |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Parámetro `ClaudeApiKey` del stack (`CLAUDE_API_KEY` en `deploy.sh`) |
 | `MODELO_LLM` | `claude-opus-5-5` | Modelo de Claude |
 | `ESFUERZO_LLM` | `low` | `output_config.effort` (`low`, `medium`, `high`) |
-| `TIMEOUT_LLM_MS` | `22000` | Corte de la llamada al LLM (API Gateway corta a los 30 s) |
+| `TIMEOUT_LLM_MS` | `22000` | Corte máximo de la llamada al LLM; se acota además al tiempo restante de la invocación |
 | `MARGEN_OBJETIVO_DEFECTO` | `0.6` | Si el negocio no tiene `margenObjetivo` en Configuración ni en el producto |
 | `MARGEN_MINIMO` | `0.3` | Piso de margen que ninguna sugerencia puede perforar |
 | `TOPE_SUBA_PCT` | `0.25` | Suba máxima por ajuste |

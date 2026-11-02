@@ -1,10 +1,11 @@
 // Adaptador de entrada: traduce eventos de AWS (API Gateway HTTP API v2 / EventBridge)
 // a llamadas al caso de uso, y los errores del dominio a códigos HTTP.
+// Open-Meteo caído no es un error HTTP: el caso de uso responde 200 con cache o degradado.
 
-import { ErrorServicioExterno, ErrorValidacion } from "../../domain/clima/tipos";
+import { ErrorValidacion } from "../../domain/clima/tipos";
 import type { ServicioClima } from "../../application/clima/servicioClima";
 import type { LoggerPort } from "../../ports/logger";
-import { type EventoHttp, resolverUsuarioID, respuesta } from "./http";
+import { type ContextoLambda, type EventoHttp, plazoDe, resolverUsuarioID, respuesta, respuestaError } from "./http";
 
 export { resolverUsuarioID };
 export type { RespuestaHttp } from "./http";
@@ -26,9 +27,9 @@ export interface DependenciasHandlerClima {
 }
 
 export function crearHandlerClima({ servicio, permitirUsuarioQuery = false, log = console }: DependenciasHandlerClima) {
-  return async function handler(event: EventoLambda) {
+  return async function handler(event: EventoLambda, contexto?: ContextoLambda) {
     if (esEventoProgramado(event)) {
-      const resultado = await servicio.refrescarTodos();
+      const resultado = await servicio.refrescarTodos({ plazo: plazoDe(contexto) });
       log.info(JSON.stringify({ mensaje: "Refresco programado de clima finalizado", ...resultado }));
       return resultado;
     }
@@ -42,15 +43,7 @@ export function crearHandlerClima({ servicio, permitirUsuarioQuery = false, log 
       if (error instanceof ErrorValidacion) {
         return respuesta(400, { error: error.message });
       }
-      if (error instanceof ErrorServicioExterno) {
-        log.error(
-          JSON.stringify({ mensaje: error.message, usuarioID, causa: error.cause instanceof Error ? error.cause.message : undefined })
-        );
-        return respuesta(502, { error: error.message });
-      }
-      const e = error instanceof Error ? error : new Error(String(error));
-      log.error(JSON.stringify({ mensaje: "Error inesperado en obtenerClima", usuarioID, error: e.message, stack: e.stack }));
-      return respuesta(500, { error: "Error interno del servidor." });
+      return respuestaError(error, { requestId: contexto?.awsRequestId, usuarioID, operacion: "obtenerClima", log });
     }
   };
 }

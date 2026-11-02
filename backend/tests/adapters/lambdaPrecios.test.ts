@@ -13,6 +13,9 @@ const RESULTADO: ResultadoPrecios = {
   insumos: [],
   sugerencias: [],
   productosSinReceta: [],
+  degradado: false,
+  motivoDegradacion: null,
+  guardado: true,
 };
 
 const TICKET = { items: [{ descripcion: "Harina 000 x 25 kg", cantidad: 1, precioUnitario: 8200 }] };
@@ -77,7 +80,35 @@ describe("handler POST /precios/sugerir", () => {
     const { servicio } = servicioFalso(async () => {
       throw new Error("ProvisionedThroughputExceeded en tabla X");
     });
+    const r = await crearHandlerPrecios({ servicio, log })(conJwt({ ticket: TICKET }), { awsRequestId: "req-7" });
+    assert.deepEqual([r.statusCode, JSON.parse(r.body)], [500, { error: "Error interno del servidor.", requestId: "req-7" }]);
+  });
+
+  it("throttling de DynamoDB: 503 con Retry-After", async () => {
+    const { servicio } = servicioFalso(async () => {
+      throw Object.assign(new Error("Rate exceeded"), { name: "ProvisionedThroughputExceededException" });
+    });
     const r = await crearHandlerPrecios({ servicio, log })(conJwt({ ticket: TICKET }));
-    assert.deepEqual([r.statusCode, JSON.parse(r.body)], [500, { error: "Error interno del servidor." }]);
+    assert.equal(r.statusCode, 503);
+    assert.equal(r.headers["Retry-After"], "2");
+  });
+
+  it("pasa al caso de uso el tiempo restante de la invocación", async () => {
+    let plazo: number | undefined;
+    const servicio: ServicioPrecios = {
+      async sugerirPrecios(_u, _t, opciones) {
+        plazo = opciones?.plazo?.();
+        return RESULTADO;
+      },
+    };
+    await crearHandlerPrecios({ servicio, log })(conJwt({ ticket: TICKET }), { getRemainingTimeInMillis: () => 27_500 });
+    assert.equal(plazo, 27_500);
+  });
+
+  it("una respuesta degradada (LLM caído) sigue siendo 200", async () => {
+    const { servicio } = servicioFalso(async () => ({ ...RESULTADO, origen: "reglas", degradado: true, motivoDegradacion: "timeout" }));
+    const r = await crearHandlerPrecios({ servicio, log })(conJwt({ ticket: TICKET }));
+    assert.equal(r.statusCode, 200);
+    assert.equal(JSON.parse(r.body).motivoDegradacion, "timeout");
   });
 });

@@ -67,15 +67,19 @@ function crearEntorno({
   productos = [MEDIALUNA, PAN, CAFE, ALFAJOR],
   compras = COMPRAS,
   sugerir = async (): Promise<PropuestaLLM> => ({ emparejamientos: EMPAREJAMIENTOS_OK, sugerencias: [] }),
+  guardar,
+  config = CONFIG,
 }: {
   productos?: Producto[];
   compras?: CompraHistorica[];
   sugerir?: (contexto: ContextoPrecios) => Promise<PropuestaLLM>;
+  guardar?: () => Promise<void>;
+  config?: typeof CONFIG & { margenRespuestaMs?: number; minimoLlmMs?: number };
 } = {}) {
   const guardadas: SugerenciaGuardada[][] = [];
   const contextos: ContextoPrecios[] = [];
   const advertencias: string[] = [];
-  const llamadas = { listarCompras: [] as string[] };
+  const llamadas = { listarCompras: [] as string[], opcionesSugerir: [] as Array<{ timeoutMs?: number } | undefined> };
 
   const repositorio: PreciosRepositorioPort = {
     async listarCompras(_usuarioID, desde) {
@@ -89,22 +93,24 @@ function crearEntorno({
       return { margenObjetivo: 0.55, tipoNegocio: "panaderia" };
     },
     async guardarSugerencias(_usuarioID, sugerencias) {
+      if (guardar) return guardar();
       guardadas.push(sugerencias);
     },
   };
   const sugeridor: SugeridorPreciosPort = {
     versionPrompt: "precios-test",
-    async sugerir(contexto) {
+    async sugerir(contexto, opciones) {
       contextos.push(contexto);
+      llamadas.opcionesSugerir.push(opciones);
       return sugerir(contexto);
     },
   };
   const servicio = crearServicioPrecios({
     repositorio,
     sugeridor,
-    config: CONFIG,
+    config,
     ahora: () => AHORA,
-    log: { info() {}, warn: (m: string) => advertencias.push(m), error() {} },
+    log: { info() {}, warn: (m: string) => void advertencias.push(m), error() {} },
   });
   return { servicio, guardadas, contextos, advertencias, llamadas };
 }
@@ -197,11 +203,15 @@ describe("servicio de precios", () => {
     const r = await servicio.sugerirPrecios(USUARIO, TICKET);
 
     assert.equal(r.origen, "reglas");
+    assert.equal(r.degradado, true);
+    assert.equal(r.motivoDegradacion, "no_disponible");
+    assert.equal(r.guardado, true);
     const medialuna = porID(r, "medialuna");
     assert.equal(medialuna.precioSugerido, 470); // 420 × 42.2 / 38 = 466.4 → $470
     assert.equal(medialuna.confianza, "baja");
     assert.match(medialuna.justificacion, /harina 000 \+17\.1 %/);
     assert.equal(advertencias.length, 1);
+    assert.equal(JSON.parse(advertencias[0]!).evento, "dependencia_caida");
   });
 
   it("descarta de la respuesta del LLM ítems, insumos y productos desconocidos", async () => {
@@ -282,5 +292,68 @@ describe("servicio de precios", () => {
     const { servicio, llamadas } = crearEntorno();
     await assert.rejects(servicio.sugerirPrecios(USUARIO, { items: [] }), ErrorValidacion);
     assert.equal(llamadas.listarCompras.length, 0);
+  });
+
+  describe("caídas del LLM y del guardado", () => {
+    const motivoCon = async (error: unknown) => {
+      const { servicio } = crearEntorno({
+        sugerir: async () => {
+          throw error;
+        },
+      });
+      return (await servicio.sugerirPrecios(USUARIO, TICKET)).motivoDegradacion;
+    };
+
+    it("informa el motivo de la degradación (key faltante o inválida → sin_api_key)", async () => {
+      assert.equal(await motivoCon(new ErrorServicioExterno("x", { motivo: "sin_configuracion" })), "sin_api_key");
+      assert.equal(await motivoCon(new ErrorServicioExterno("x", { motivo: "limite" })), "limite");
+      assert.equal(await motivoCon(new ErrorServicioExterno("x", { motivo: "rechazo" })), "rechazo");
+      assert.equal(await motivoCon(new TypeError("bug del adaptador")), "no_disponible");
+    });
+
+    it("con el LLM ok no está degradado", async () => {
+      const r = await crearEntorno().servicio.sugerirPrecios(USUARIO, TICKET);
+      assert.equal(r.degradado, false);
+      assert.equal(r.motivoDegradacion, null);
+    });
+
+    it("acota el timeout del LLM a lo que le queda a la Lambda menos el margen de respuesta", async () => {
+      const { servicio, llamadas } = crearEntorno();
+      await servicio.sugerirPrecios(USUARIO, TICKET, { plazo: () => 20_000 });
+      assert.deepEqual(llamadas.opcionesSugerir, [{ timeoutMs: 16_000 }]);
+    });
+
+    it("si queda poco tiempo ni llama al LLM: reglas con motivo sin_tiempo", async () => {
+      const { servicio, contextos } = crearEntorno();
+      const r = await servicio.sugerirPrecios(USUARIO, TICKET, { plazo: () => 6_000 });
+      assert.equal(contextos.length, 0);
+      assert.equal(r.origen, "reglas");
+      assert.equal(r.motivoDegradacion, "sin_tiempo");
+      assert.ok(r.sugerencias.length > 0);
+    });
+
+    it("un LLM que nunca responde no cuelga la respuesta: se corta en el plazo", async () => {
+      const { servicio } = crearEntorno({
+        // Ignora el timeout que recibe. El timer mantiene vivo el event loop, como una conexión abierta.
+        sugerir: () => new Promise<PropuestaLLM>(() => void setTimeout(() => {}, 60_000).unref()),
+        config: { ...CONFIG, margenRespuestaMs: 1_000, minimoLlmMs: 50 },
+      });
+      const inicio = Date.now();
+      const r = await servicio.sugerirPrecios(USUARIO, TICKET, { plazo: () => 1_000 + 100 }); // 100 ms para el LLM
+      assert.ok(Date.now() - inicio < 1_000, "no esperó más que el plazo");
+      assert.equal(r.origen, "reglas");
+      assert.equal(r.motivoDegradacion, "timeout");
+    });
+
+    it("si no se pueden guardar las sugerencias responde igual con guardado: false", async () => {
+      const { servicio } = crearEntorno({
+        guardar: async () => {
+          throw Object.assign(new Error("Rate exceeded"), { name: "ThrottlingException" });
+        },
+      });
+      const r = await servicio.sugerirPrecios(USUARIO, TICKET);
+      assert.equal(r.guardado, false);
+      assert.ok(r.sugerencias.length > 0);
+    });
   });
 });

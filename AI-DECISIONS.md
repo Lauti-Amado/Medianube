@@ -218,3 +218,40 @@ La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
 - **El LLM no tiene la última palabra:** sus precios pasan por guardas determinísticas y su confianza nunca supera la que permite la evidencia (historial y receta), de acuerdo con el principio de "honestidad en la incertidumbre" de `docs/UXUI/DESIGN.md`.
 - **Pruebas:** 80 tests (dominio, caso de uso, prompt y adaptadores con un cliente falso), `tsc` sin errores, bundle verificado en Node 22 y una corrida completa sin AWS con los datos del seed: el detergente no se empareja y "harina 000" no se confunde con "harina 0000".
 - **Pendiente de validar por el equipo:** probar contra la API real con facturas reales (calidad de emparejamientos y justificaciones), confirmar qué tabla y qué atributos usa `listarGastos` para las facturas, y mover la API key a SSM Parameter Store antes de producción.
+
+## 01/11/2026 - Manejo de errores del backend ante caídas de Open-Meteo y Claude
+
+**Problema abordado:** Validar que las Lambdas no fallen cuando no responden la API del clima (Open-Meteo) o el LLM (Claude). Al revisar el código se encontraron estos huecos:
+- `GET /clima` respondía 502 sin cache.
+- El refresco programado podía cortarse por timeout con Open-Meteo caído.
+- El LLM tenía un timeout fijo que podía superar el corte de API Gateway.
+- Una falla al guardar las sugerencias convertía en 500 una respuesta ya calculada.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5).
+*Prompt:* "Necesito realizar otra feature en una rama nueva: manejo de errores del back, se debe validar en las lambdas que la aplicación no falle si la API del clima o el modelo LLM no responden." Primero se pidió y aprobó un plan; después se implementó en la rama `feat/manejo-errores` en commits chicos.
+
+**Código / Arquitectura generada:**
+
+- **Errores con motivo:** `ErrorServicioExterno` lleva `motivo` y `servicio`. Se agregaron helpers HTTP (`respuestaError`: 500 con `requestId` o 503 con `Retry-After` por throttling; `plazoDe`: tiempo restante de la Lambda) y un registro uniforme `dependencia_caida`.
+- **Clima:**
+  - respuesta 200 degradada (`disponible: false`) en lugar de 502;
+  - un reintento en Open-Meteo solo ante errores transitorios;
+  - un 200 sin días cuenta como falla;
+  - circuit breaker y plazo en el refresco programado;
+  - Lambda de 20 s.
+- **Precios:**
+  - timeout del LLM acotado al tiempo restante, con una red de seguridad propia;
+  - clasificación de los errores del SDK por clase;
+  - `degradado`, `motivoDegradacion` y `guardado` en la respuesta;
+  - un guardado que falla ya no da 500.
+- **Infraestructura:** filtros de métricas `CaidasOpenMeteo` y `CaidasClaude`. ADR en `docs/MANEJO-ERRORES.md`.
+
+**Validación y Corrección Humana:**
+
+- **Decisiones del equipo:**
+  - con el clima caído y sin cache se responde 200 degradado y no 502;
+  - la rama sale de `main` y no de `feat/Cronjob`, porque `predecirDemanda` ya predice sin clima;
+  - la rama se llama `feat/manejo-errores`.
+- **Verificado contra la documentación:** las clases de error del SDK de Anthropic (`APIConnectionTimeoutError` hereda de `APIConnectionError`) y el timeout por request (`create(params, { timeout })`) se confirmaron en el skill de la API y en las definiciones del SDK instalado, sin suponerlos.
+- **Pruebas:** 109 tests, con fakes que simulan timeouts, 429/5xx, JSON roto, un LLM que nunca responde y throttling de DynamoDB. `tsc` sin errores y template validado. Además, una prueba de caos local con los adaptadores reales contra un puerto cerrado y un servidor que nunca responde: siempre 200 (clima degradado; precios por reglas en el plazo asignado), con el refresco cortado por el circuit breaker.
+- **Pendiente de validar por el equipo:** la prueba en AWS (key inválida y Open-Meteo bloqueado), que el frontend lea los campos nuevos, alarmas sobre las métricas y aplicar el mismo criterio a `predecirDemanda` cuando se mergee `feat/Cronjob`.
