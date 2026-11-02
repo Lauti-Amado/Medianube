@@ -3,9 +3,11 @@ import { describe, it } from "node:test";
 
 import { crearServicioClima } from "../../src/application/clima/servicioClima";
 import { sumarDias } from "../../src/domain/clima/reglas";
+import { AVISO_DESACTUALIZADO, AVISO_SIN_DATOS } from "../../src/application/clima/servicioClima";
 import { ErrorServicioExterno, ErrorValidacion } from "../../src/domain/clima/tipos";
 import type { DiaClimaGuardado, DiaPronostico, Ubicacion } from "../../src/domain/clima/tipos";
 import type { ClimaRepositorioPort, ConfiguracionClima } from "../../src/ports/clima";
+import type { LoggerPort } from "../../src/ports/logger";
 
 const ZONA = "America/Argentina/Buenos_Aires";
 // 18/10/2026 23:30 en Argentina = 19/10/2026 02:30 UTC → el "hoy" local debe ser el 18.
@@ -13,6 +15,7 @@ const AHORA = new Date("2026-10-19T02:30:00Z");
 const DIAS = 3;
 
 const logSilencioso = { info() {}, warn() {}, error() {} };
+const caida = () => new ErrorServicioExterno("Open-Meteo no respondió", { motivo: "timeout", servicio: "open-meteo" });
 
 function diasPronostico(desde = "2026-10-18"): DiaPronostico[] {
   return Array.from({ length: DIAS }, (_, i) => ({
@@ -63,10 +66,12 @@ function crearServicio({
   repo,
   pronostico = async () => diasPronostico(),
   ubicacionPorDefecto = null,
+  log = logSilencioso,
 }: {
   repo: RepoFalso;
   pronostico?: (ubicacion: Ubicacion) => Promise<DiaPronostico[]>;
   ubicacionPorDefecto?: Ubicacion | null;
+  log?: LoggerPort;
 }) {
   let llamadasApi = 0;
   const servicio = crearServicioClima({
@@ -79,7 +84,7 @@ function crearServicio({
     },
     config: { cacheHoras: 6, diasPronostico: DIAS, ttlDias: 14, zonaHoraria: ZONA, ubicacionPorDefecto },
     ahora: () => AHORA,
-    log: logSilencioso,
+    log,
   });
   return { servicio, llamadasApi: () => llamadasApi };
 }
@@ -151,19 +156,32 @@ describe("obtenerClimaUsuario", () => {
 
     const res = await servicio.obtenerClimaUsuario("u1");
     assert.equal(res.origen, "cache");
+    assert.equal(res.disponible, true);
     assert.equal(res.desactualizado, true);
+    assert.equal(res.aviso, AVISO_DESACTUALIZADO);
     assert.equal(repo.guardados.length, 0);
   });
 
-  it("si la API falla y no hay cache: lanza ErrorServicioExterno", async () => {
+  it("si la API falla y no hay cache: responde degradado sin lanzar y registra la caída", async () => {
     const repo = crearRepoFalso({ configuraciones: CONFIG_LA_PLATA });
+    const avisos: string[] = [];
     const { servicio } = crearServicio({
       repo,
       pronostico: async () => {
-        throw new Error("timeout");
+        throw caida();
       },
+      log: { ...logSilencioso, warn: (m: string) => void avisos.push(m) },
     });
-    await assert.rejects(servicio.obtenerClimaUsuario("u1"), ErrorServicioExterno);
+
+    const res = await servicio.obtenerClimaUsuario("u1");
+    assert.deepEqual(
+      { origen: res.origen, disponible: res.disponible, desactualizado: res.desactualizado, aviso: res.aviso, dias: res.dias },
+      { origen: "sin-datos", disponible: false, desactualizado: true, aviso: AVISO_SIN_DATOS, dias: [] }
+    );
+    const linea = JSON.parse(avisos[0]!);
+    assert.equal(linea.evento, "dependencia_caida");
+    assert.equal(linea.servicio, "open-meteo");
+    assert.equal(linea.motivo, "timeout");
   });
 
   it("si falla la escritura en DynamoDB igual devuelve el pronóstico", async () => {
@@ -175,6 +193,8 @@ describe("obtenerClimaUsuario", () => {
 
     const res = await servicio.obtenerClimaUsuario("u1");
     assert.equal(res.origen, "open-meteo");
+    assert.equal(res.disponible, true);
+    assert.equal(res.aviso, null);
   });
 
   it("sin ubicación configurada ni ubicación por defecto: ErrorValidacion", async () => {
@@ -229,5 +249,61 @@ describe("refrescarTodos", () => {
     );
     assert.equal(res.fallidos.length, 1);
     assert.equal(res.fallidos[0]!.usuarioID, "conFallo");
+  });
+
+  it("circuit breaker: tras 2 caídas seguidas deja de llamar a Open-Meteo", async () => {
+    const configuraciones = Object.fromEntries(
+      ["a", "b", "c", "d", "e"].map((u) => [u, { usuarioID: u, ubicacion: { lat: 1, lon: 1 } }])
+    );
+    const repo = crearRepoFalso({ configuraciones });
+    const { servicio, llamadasApi } = crearServicio({
+      repo,
+      pronostico: async () => {
+        throw caida();
+      },
+    });
+
+    const res = await servicio.refrescarTodos();
+    assert.equal(llamadasApi(), 2);
+    assert.equal(res.fallidos.length, 2);
+    assert.equal(res.omitidosPorProveedor, 3);
+    assert.equal(res.pendientes, 0);
+  });
+
+  it("un éxito reinicia el contador de caídas", async () => {
+    const lats: Record<string, number> = { a: 1, b: 2, c: 1, d: 1 };
+    const configuraciones = Object.fromEntries(
+      Object.entries(lats).map(([u, lat]) => [u, { usuarioID: u, ubicacion: { lat, lon: 1 } }])
+    );
+    const repo = crearRepoFalso({ configuraciones });
+    const { servicio, llamadasApi } = crearServicio({
+      repo,
+      pronostico: async ({ lat }) => {
+        if (lat === 1) throw caida();
+        return diasPronostico();
+      },
+    });
+
+    const res = await servicio.refrescarTodos();
+    assert.equal(llamadasApi(), 4); // a falla, b ok (reinicia), c y d fallan
+    assert.equal(res.actualizados, 1);
+    assert.equal(res.omitidosPorProveedor, 0);
+  });
+
+  it("deja de empezar usuarios si se acaba el tiempo de la invocación y devuelve el resumen", async () => {
+    const configuraciones = Object.fromEntries(["a", "b", "c"].map((u) => [u, { usuarioID: u, ubicacion: { lat: 2, lon: 1 } }]));
+    const repo = crearRepoFalso({ configuraciones });
+    const { servicio, llamadasApi } = crearServicio({ repo });
+    let restante = 25_000;
+
+    const res = await servicio.refrescarTodos({
+      plazo: () => {
+        restante -= 7_000; // cada consulta consume 7 s
+        return restante;
+      },
+    });
+    assert.equal(llamadasApi(), 2); // con 18 s y 11 s se empieza; con 4 s ya no
+    assert.equal(res.actualizados, 2);
+    assert.equal(res.pendientes, 1);
   });
 });
