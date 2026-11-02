@@ -398,6 +398,36 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt ReglaRefrescoDiario.Arn
 
+  # ── Observabilidad: caídas de dependencias externas ─────────────────────────
+  # Los casos de uso loguean una línea con "dependencia_caida" cada vez que Open-Meteo o Claude no
+  # responden y la Lambda sigue con cache, reglas o una respuesta degradada. Estos filtros las cuentan
+  # (namespace Medianube) sin roles nuevos. Patrón de texto, no JSON: el formato de log por defecto de
+  # Lambda antepone timestamp y requestId a cada línea. Base para una alarma (requiere un tópico SNS).
+
+  MetricaCaidasOpenMeteo:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref LogsObtenerClima
+      FilterPattern: '"dependencia_caida"'
+      MetricTransformations:
+        - MetricNamespace: Medianube
+          MetricName: !Sub CaidasOpenMeteo-${Entorno}
+          MetricValue: "1"
+          DefaultValue: 0
+          Unit: Count
+
+  MetricaCaidasClaude:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref LogsSugerirPrecios
+      FilterPattern: '"dependencia_caida"'
+      MetricTransformations:
+        - MetricNamespace: Medianube
+          MetricName: !Sub CaidasClaude-${Entorno}
+          MetricValue: "1"
+          DefaultValue: 0
+          Unit: Count
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Salidas
 # ─────────────────────────────────────────────────────────────────────────────
