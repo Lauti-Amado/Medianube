@@ -7,7 +7,6 @@ import type { ServicioClima } from "../../application/clima/servicioClima";
 import type { LoggerPort } from "../../ports/logger";
 import { type ContextoLambda, type EventoHttp, plazoDe, resolverUsuarioID, respuesta, respuestaError } from "./http";
 import { type EventoProgramado, esEventoProgramado } from "./eventos";
-import { type EventoHttp, resolverUsuarioID, respuesta } from "./http";
 
 export { esEventoProgramado, resolverUsuarioID };
 export type { RespuestaHttp } from "./http";
