@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -5,15 +6,13 @@ import AppLayout from "../../src/src/components/layout/AppLayout";
 import { useAuth } from "../../lib/auth-context";
 import {
   sugerirPreciosConIA,
-  TICKETS_PREDETERMINADOS,
+  aplicarPrecioIndividual,
   type ResultadoPrecios,
   type SugerenciaPrecio,
-  type Ticket,
-  type ItemTicket,
-  type Confianza,
+  type ResultadoAplicarPrecio,
 } from "../../lib/precios";
 
-// ── Shared styles matching medianube Design System ───────────────────────────
+// ── Estilos compartidos ──────────────────────────────────────────────────────
 
 const iconStyle: React.CSSProperties = {
   fontFamily: "Material Symbols Outlined",
@@ -44,8 +43,13 @@ const sectionCard: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
+// ── Funciones auxiliares ─────────────────────────────────────────────────────
+
 function formatARS(val: number | null | undefined): string {
-  if (val === null || val === undefined || !Number.isFinite(val)) return "-";
+  if (val === null || val === undefined || !Number.isFinite(val)) {
+    return "-";
+  }
+
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
     currency: "ARS",
@@ -54,588 +58,756 @@ function formatARS(val: number | null | undefined): string {
 }
 
 function formatPct(val: number | null | undefined): string {
-  if (val === null || val === undefined || !Number.isFinite(val)) return "-";
+  if (val === null || val === undefined || !Number.isFinite(val)) {
+    return "-";
+  }
+
   const sign = val > 0 ? "+" : "";
+
   return `${sign}${val.toFixed(1)}%`;
 }
 
-function labelMotivo(motivo: string | null): string {
-  switch (motivo) {
-    case "sin_api_key":
-      return "Motor de IA sin clave configurada en el servidor";
-    case "sin_tiempo":
-      return "Tiempo límite de respuesta alcanzado";
-    case "timeout":
-      return "El motor de IA demoró más del tiempo esperado";
-    case "no_disponible":
-      return "Servicio de IA no disponible temporalmente";
+function formatFecha(fecha: string): string {
+  const date = new Date(fecha);
+
+  if (Number.isNaN(date.getTime())) {
+    return fecha;
+  }
+
+  return new Intl.DateTimeFormat("es-AR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function esAjusteRecomendado(item: SugerenciaPrecio): boolean {
+  return (
+    Math.abs(item.variacionPrecio) >= 2 ||
+    item.superaTopeSuba ||
+    item.precioActual < item.costoActual
+  );
+}
+
+function colorConfianza(confianza: string): {
+  background: string;
+  text: string;
+} {
+  switch (confianza) {
+    case "alta":
+      return {
+        background: "var(--color-success-bg)",
+        text: "var(--color-success-text)",
+      };
+
+    case "media":
+      return {
+        background: "var(--color-neutral-bg)",
+        text: "var(--color-neutral-text)",
+      };
+
     default:
-      return motivo || "Reglas comerciales automáticas";
+      return {
+        background: "var(--color-warning-bg)",
+        text: "var(--color-warning-text)",
+      };
   }
 }
+
+// ── Página de sugerencias de precios ─────────────────────────────────────────
 
 export default function PreciosPage() {
   const { user } = useAuth();
 
-  // ── States ──────────────────────────────────────────────────────────────────
-  const [ticketActual, setTicketActual] = useState<Ticket>(TICKETS_PREDETERMINADOS[0].ticket);
-  const [presetSeleccionado, setPresetSeleccionado] = useState<string>(TICKETS_PREDETERMINADOS[0].id);
-  const [panelTicketAbierto, setPanelTicketAbierto] = useState<boolean>(false);
-
+  // Resultado de la Lambda.
   const [resultado, setResultado] = useState<ResultadoPrecios | null>(null);
+
+  // Estados de carga y errores.
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Filters & Search
-  const [busqueda, setBusqueda] = useState<string>("");
-  const [filtroEstado, setFiltroEstado] = useState<"todos" | "ajustar" | "estable">("todos");
-  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string>("todas");
-
-  // Local applied state
-  const [preciosAplicados, setPreciosAplicados] = useState<Set<string>>(new Set());
-
-  // ── Fetch Suggestions ───────────────────────────────────────────────────────
-  const consultarSugerencias = useCallback(
-    async (ticketAEnviar: Ticket) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await sugerirPreciosConIA(ticketAEnviar, user?.sub);
-        setResultado(res);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Error al conectar con el servicio de precios.";
-        setError(msg);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [user?.sub]
+  // Productos que se están aplicando.
+  const [productosAplicando, setProductosAplicando] = useState<Set<string>>(
+    new Set()
   );
 
+  // Productos que ya fueron aplicados correctamente.
+  const [productosAplicados, setProductosAplicados] = useState<Set<string>>(
+    new Set()
+  );
+
+  // Mensaje de resultado de la aplicación.
+  const [mensajeAplicacion, setMensajeAplicacion] = useState<{
+    tipo: "success" | "error";
+    texto: string;
+  } | null>(null);
+
+  // Filtros y búsqueda.
+  const [busqueda, setBusqueda] = useState<string>("");
+  const [filtroEstado, setFiltroEstado] = useState<
+    "todos" | "ajustar" | "estable"
+  >("todos");
+
+  // ── Consulta a AWS ─────────────────────────────────────────────────────────
+
+  const consultarSugerencias = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await sugerirPreciosConIA(undefined, user?.sub);
+
+      setResultado(res);
+    } catch (err: unknown) {
+      const mensaje =
+        err instanceof Error
+          ? err.message
+          : "Error al conectar con el servicio de precios.";
+
+      setError(mensaje);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.sub]);
+
+  // Primera consulta al entrar en la pantalla.
   useEffect(() => {
-    void consultarSugerencias(ticketActual);
+    void consultarSugerencias();
   }, [consultarSugerencias]);
 
-  // ── Handlers ───────────────────────────────────────────────────────────────
-  const handleSeleccionarPreset = (presetId: string) => {
-    setPresetSeleccionado(presetId);
-    const encontrado = TICKETS_PREDETERMINADOS.find((p) => p.id === presetId);
-    if (encontrado) {
-      setTicketActual(encontrado.ticket);
-      void consultarSugerencias(encontrado.ticket);
+  const handleAplicarPrecio = async (productoID: string) => {
+    if (!resultado?.sugerenciaPrecioID) {
+      setMensajeAplicacion({
+        tipo: "error",
+        texto: "No se encontró el identificador de la sugerencia."
+      });
+      return;
     }
-  };
 
-  const handleModificarItemTicket = (index: number, campo: keyof ItemTicket, valor: string | number) => {
-    setTicketActual((prev) => {
-      const items = [...prev.items];
-      items[index] = { ...items[index], [campo]: valor };
-      return { ...prev, items };
+    if (productosAplicados.has(productoID)) {
+      return;
+    }
+
+    setProductosAplicando((prev) => {
+      const next = new Set(prev);
+      next.add(productoID);
+      return next;
     });
-  };
 
-  const handleAgregarItemTicket = () => {
-    setTicketActual((prev) => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        { descripcion: "Nuevo insumo", cantidad: 1, precioUnitario: 1000, unidad: "u" },
-      ],
-    }));
-  };
+    setMensajeAplicacion(null);
 
-  const handleQuitarItemTicket = (index: number) => {
-    setTicketActual((prev) => ({
-      ...prev,
-      items: prev.items.filter((_, i) => i !== index),
-    }));
-  };
+    try {
+      const respuesta = await aplicarPrecioIndividual(
+        resultado.sugerenciaPrecioID,
+        productoID
+      );
 
-  const handleAplicarPrecio = (productoID: string) => {
-    setPreciosAplicados((prev) => new Set(prev).add(productoID));
-  };
+      setProductosAplicados((prev) => {
+        const next = new Set(prev);
+        next.add(productoID);
+        return next;
+      });
 
-  // ── Filtering Logic ────────────────────────────────────────────────────────
-  const sugerencias = resultado?.sugerencias ?? [];
+      setMensajeAplicacion({
+        tipo: "success",
+        texto: `${productoID}: precio actualizado correctamente a ${formatARS(
+          respuesta.precioNuevo
+        )}.`
+      });
 
-  const categorias = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of sugerencias) {
-      if (s.categoria) set.add(s.categoria);
+    } catch (err: unknown) {
+      const mensaje =
+        err instanceof Error
+          ? err.message
+          : "No se pudo aplicar el precio.";
+
+      setMensajeAplicacion({
+        tipo: "error",
+        texto: mensaje
+      });
+
+    } finally {
+      setProductosAplicando((prev) => {
+        const next = new Set(prev);
+        next.delete(productoID);
+        return next;
+      });
     }
-    return Array.from(set);
+  };
+
+  // ── Datos derivados ────────────────────────────────────────────────────────
+
+  const sugerencias = resultado?.sugerencias ?? [];
+  const productosSinCosto = resultado?.productosSinCosto ?? [];
+
+  const totalAjustar = useMemo(
+    () => sugerencias.filter(esAjusteRecomendado).length,
+    [sugerencias]
+  );
+
+  const totalEstable = sugerencias.length - totalAjustar;
+
+  const promedioAumento = useMemo(() => {
+    const productosConAumento = sugerencias.filter(
+      (item) => item.variacionPrecio > 0
+    );
+
+    if (productosConAumento.length === 0) {
+      return 0;
+    }
+
+    const suma = productosConAumento.reduce(
+      (acumulado, item) => acumulado + item.variacionPrecio,
+      0
+    );
+
+    return suma / productosConAumento.length;
   }, [sugerencias]);
 
   const sugerenciasFiltradas = useMemo(() => {
     return sugerencias.filter((item) => {
-      if (filtroEstado === "ajustar" && item.estado !== "ajustar") return false;
-      if (filtroEstado === "estable" && item.estado !== "estable") return false;
-      if (categoriaSeleccionada !== "todas" && item.categoria !== categoriaSeleccionada) return false;
-      if (busqueda.trim()) {
-        const query = busqueda.toLowerCase();
-        const coincideNombre = item.nombre.toLowerCase().includes(query);
-        const coincideInsumo = item.insumosAfectados?.some((i) => i.toLowerCase().includes(query)) ?? false;
-        if (!coincideNombre && !coincideInsumo) return false;
+      const requiereAjuste = esAjusteRecomendado(item);
+
+      if (filtroEstado === "ajustar" && !requiereAjuste) {
+        return false;
       }
+
+      if (filtroEstado === "estable" && requiereAjuste) {
+        return false;
+      }
+
+      if (busqueda.trim()) {
+        const query = busqueda.trim().toLowerCase();
+
+        const coincideNombre = item.nombre
+          .toLowerCase()
+          .includes(query);
+
+        const coincideID = item.productoID
+          .toLowerCase()
+          .includes(query);
+
+        const coincideRazonamiento = item.razonamiento
+          .toLowerCase()
+          .includes(query);
+
+        if (
+          !coincideNombre &&
+          !coincideID &&
+          !coincideRazonamiento
+        ) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [sugerencias, filtroEstado, categoriaSeleccionada, busqueda]);
+  }, [sugerencias, filtroEstado, busqueda]);
 
-  // KPIs
-  const totalAjustar = sugerencias.filter((s) => s.estado === "ajustar").length;
-  const totalEstable = sugerencias.filter((s) => s.estado === "estable").length;
-  const promedioAumento = useMemo(() => {
-    const aAjustar = sugerencias.filter((s) => s.estado === "ajustar" && s.variacionPct > 0);
-    if (aAjustar.length === 0) return 0;
-    const suma = aAjustar.reduce((acc, cur) => acc + cur.variacionPct, 0);
-    return suma / aAjustar.length;
-  }, [sugerencias]);
+  // ── Renderizado ────────────────────────────────────────────────────────────
 
   return (
     <AppLayout activeTab="precios">
-      <div style={{ display: "flex", flexDirection: "column", gap: "20px", maxWidth: "1200px" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "20px",
+          maxWidth: "1200px",
+        }}
+      >
+        {/* ── 1. Encabezado ──────────────────────────────────────────────── */}
 
-        {/* ── 1. Page Header ───────────────────────────────────────────────── */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            flexWrap: "wrap",
+            gap: "12px",
+          }}
+        >
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <h1 style={{ fontSize: "22px", fontWeight: 600, color: "var(--color-text-primary)", margin: 0, letterSpacing: "-0.01em" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                flexWrap: "wrap",
+              }}
+            >
+              <h1
+                style={{
+                  fontSize: "22px",
+                  fontWeight: 600,
+                  color: "var(--color-text-primary)",
+                  margin: 0,
+                  letterSpacing: "-0.01em",
+                }}
+              >
                 Sugerencias de Precios con IA
               </h1>
-              <span style={badgeStyle("var(--color-accent-tint)", "var(--color-accent-dark)")}>
-                <span style={{ ...iconStyle, fontSize: "13px" }}>auto_awesome</span>
-                Motor IA
+
+              <span
+                style={badgeStyle(
+                  "var(--color-accent-tint)",
+                  "var(--color-accent-dark)"
+                )}
+              >
+                <span style={{ ...iconStyle, fontSize: "13px" }}>
+                  auto_awesome
+                </span>
+                Gemini
               </span>
             </div>
-            <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", margin: "4px 0 0" }}>
-              Precios sugeridos según costos de reposición en facturas, recetas y márgenes de ganancia.
+
+            <p
+              style={{
+                fontSize: "13px",
+                color: "var(--color-text-secondary)",
+                margin: "4px 0 0",
+              }}
+            >
+              Precios sugeridos según recetas, costos de ingredientes y
+              márgenes de rentabilidad.
             </p>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <button
-              type="button"
-              onClick={() => setPanelTicketAbierto((prev) => !prev)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "8px 14px",
-                backgroundColor: panelTicketAbierto ? "var(--color-neutral-bg)" : "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                color: "var(--color-text-primary)",
-                fontSize: "13px",
-                fontWeight: 500,
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <span style={iconStyle}>receipt_long</span>
-              {panelTicketAbierto ? "Ocultar ticket analizado" : "Ver / Cambiar ticket"}
-            </button>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void consultarSugerencias()}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "8px 16px",
+              backgroundColor: "var(--color-accent)",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              color: "#FFFFFF",
+              fontSize: "13px",
+              fontWeight: 500,
+              cursor: loading ? "not-allowed" : "pointer",
+              opacity: loading ? 0.7 : 1,
+            }}
+          >
+            <span style={{ ...iconStyle, fontSize: "15px" }}>
+              refresh
+            </span>
 
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => void consultarSugerencias(ticketActual)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "8px 16px",
-                backgroundColor: "var(--color-accent)",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                color: "#FFFFFF",
-                fontSize: "13px",
-                fontWeight: 500,
-                cursor: loading ? "not-allowed" : "pointer",
-                opacity: loading ? 0.7 : 1,
-                transition: "background-color 0.15s ease",
-              }}
-              onMouseEnter={(e) => {
-                if (!loading) e.currentTarget.style.backgroundColor = "var(--color-accent-dark)";
-              }}
-              onMouseLeave={(e) => {
-                if (!loading) e.currentTarget.style.backgroundColor = "var(--color-accent)";
-              }}
-            >
-              <span style={{ ...iconStyle, fontSize: "15px" }}>refresh</span>
-              {loading ? "Calculando sugerencias..." : "Recalcular con IA"}
-            </button>
-          </div>
+            {loading ? "Calculando sugerencias..." : "Recalcular con IA"}
+          </button>
         </div>
 
-        {/* ── 2. Collapsible Ticket Configuration Panel ─────────────────────── */}
-        {panelTicketAbierto && (
-          <div style={{ ...sectionCard, backgroundColor: "#FFFDFB", borderColor: "var(--color-border-strong)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-              <div>
-                <h3 style={{ fontSize: "14px", fontWeight: 600, color: "var(--color-text-primary)", margin: 0 }}>
-                  Ticket de Compra Evaluado
-                </h3>
-                <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: "2px 0 0" }}>
-                  Seleccioná una factura de ejemplo o modificá las líneas para analizar el impacto de aumentos.
-                </p>
-              </div>
+        {/* ── 2. Información de la última generación ─────────────────────── */}
 
-              {/* Presets dropdown */}
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>Plantillas:</span>
-                <select
-                  value={presetSeleccionado}
-                  onChange={(e) => handleSeleccionarPreset(e.target.value)}
+        {resultado && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "8px",
+              padding: "10px 14px",
+              backgroundColor: "var(--color-success-bg)",
+              borderLeft: "4px solid var(--color-success-text)",
+              borderRadius: "var(--radius-md)",
+              fontSize: "12px",
+              color: "var(--color-success-text)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <span style={iconStyle}>check_circle</span>
+
+              <span>
+                <strong>Generación completada:</strong>{" "}
+                {resultado.mensaje}
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+                gap: "3px",
+              }}
+            >
+              <span>
+                {resultado.fechaGeneracion
+                  ? formatFecha(resultado.fechaGeneracion)
+                  : "Fecha no disponible"}
+              </span>
+
+              {resultado.sugerenciaPrecioID && (
+                <span
                   style={{
-                    padding: "6px 10px",
-                    fontSize: "12px",
-                    borderRadius: "var(--radius-sm)",
-                    border: "1px solid var(--color-border)",
-                    backgroundColor: "var(--color-surface)",
-                    color: "var(--color-text-primary)",
-                    cursor: "pointer",
+                    fontSize: "10px",
+                    opacity: 0.8,
                   }}
+                  title={resultado.sugerenciaPrecioID}
                 >
-                  {TICKETS_PREDETERMINADOS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre}
-                    </option>
-                  ))}
-                  <option value="custom">Ticket Personalizado</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Ticket Header Inputs */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "14px" }}>
-              <div>
-                <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--color-text-secondary)", display: "block", marginBottom: "4px" }}>
-                  PROVEEDOR
-                </label>
-                <input
-                  type="text"
-                  value={ticketActual.proveedor || ""}
-                  onChange={(e) => {
-                    setPresetSeleccionado("custom");
-                    setTicketActual((prev) => ({ ...prev, proveedor: e.target.value }));
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    fontSize: "13px",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-sm)",
-                    backgroundColor: "var(--color-surface)",
-                    color: "var(--color-text-primary)",
-                    boxSizing: "border-box",
-                  }}
-                  placeholder="Ej: Distribuidora Sur S.A."
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--color-text-secondary)", display: "block", marginBottom: "4px" }}>
-                  FECHA FACTURA
-                </label>
-                <input
-                  type="date"
-                  value={ticketActual.fecha || ""}
-                  onChange={(e) => {
-                    setPresetSeleccionado("custom");
-                    setTicketActual((prev) => ({ ...prev, fecha: e.target.value }));
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    fontSize: "13px",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-sm)",
-                    backgroundColor: "var(--color-surface)",
-                    color: "var(--color-text-primary)",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Ticket Items Table */}
-            <div style={{ border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", overflow: "hidden", backgroundColor: "var(--color-surface)" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
-                <thead>
-                  <tr style={{ backgroundColor: "var(--color-bg)", borderBottom: "1px solid var(--color-border)" }}>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)" }}>Descripción del Insumo / Bulto</th>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)", width: "90px" }}>Cantidad</th>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)", width: "140px" }}>Precio Unitario ($)</th>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)", width: "50px" }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ticketActual.items.map((item, idx) => (
-                    <tr key={idx} style={{ borderBottom: idx < ticketActual.items.length - 1 ? "1px solid var(--color-border-subtle)" : "none" }}>
-                      <td style={{ padding: "6px 12px" }}>
-                        <input
-                          type="text"
-                          value={item.descripcion}
-                          onChange={(e) => {
-                            setPresetSeleccionado("custom");
-                            handleModificarItemTicket(idx, "descripcion", e.target.value);
-                          }}
-                          style={{
-                            width: "100%",
-                            padding: "6px 8px",
-                            fontSize: "12px",
-                            border: "1px solid var(--color-border)",
-                            borderRadius: "var(--radius-sm)",
-                            boxSizing: "border-box",
-                          }}
-                          placeholder="Ej: Harina 000 x 25 kg"
-                        />
-                      </td>
-                      <td style={{ padding: "6px 12px" }}>
-                        <input
-                          type="number"
-                          min="1"
-                          value={item.cantidad}
-                          onChange={(e) => {
-                            setPresetSeleccionado("custom");
-                            handleModificarItemTicket(idx, "cantidad", Number(e.target.value) || 1);
-                          }}
-                          style={{
-                            width: "100%",
-                            padding: "6px 8px",
-                            fontSize: "12px",
-                            border: "1px solid var(--color-border)",
-                            borderRadius: "var(--radius-sm)",
-                            boxSizing: "border-box",
-                          }}
-                        />
-                      </td>
-                      <td style={{ padding: "6px 12px" }}>
-                        <input
-                          type="number"
-                          min="1"
-                          value={item.precioUnitario}
-                          onChange={(e) => {
-                            setPresetSeleccionado("custom");
-                            handleModificarItemTicket(idx, "precioUnitario", Number(e.target.value) || 0);
-                          }}
-                          style={{
-                            width: "100%",
-                            padding: "6px 8px",
-                            fontSize: "12px",
-                            border: "1px solid var(--color-border)",
-                            borderRadius: "var(--radius-sm)",
-                            boxSizing: "border-box",
-                          }}
-                        />
-                      </td>
-                      <td style={{ padding: "6px 12px", textAlign: "center" }}>
-                        {ticketActual.items.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleQuitarItemTicket(idx)}
-                            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-warning-text)", padding: "4px" }}
-                            title="Quitar ítem"
-                          >
-                            <span style={{ ...iconStyle, fontSize: "16px" }}>delete</span>
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Actions for Ticket */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
-              <button
-                type="button"
-                onClick={handleAgregarItemTicket}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  fontSize: "12px",
-                  color: "var(--color-accent)",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  fontWeight: 500,
-                }}
-              >
-                <span style={{ ...iconStyle, fontSize: "14px" }}>add</span>
-                Agregar otro insumo
-              </button>
-
-              <button
-                type="button"
-                onClick={() => void consultarSugerencias(ticketActual)}
-                style={{
-                  padding: "6px 14px",
-                  backgroundColor: "var(--color-accent)",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "var(--radius-sm)",
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  cursor: "pointer",
-                }}
-              >
-                Analizar este ticket con IA →
-              </button>
+                  ID: {resultado.sugerenciaPrecioID.slice(0, 18)}...
+                </span>
+              )}
             </div>
           </div>
         )}
 
-        {/* ── 3. Status Banner: Degradado / IA Active ──────────────────────── */}
-        {resultado && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {resultado.degradado ? (
-              <div
+        {/* ── 3. Indicadores principales ─────────────────────────────────── */}
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+            gap: "12px",
+          }}
+        >
+          {/* Productos que requieren revisión */}
+
+          <div style={sectionCard}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "8px",
+              }}
+            >
+              <span
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  padding: "10px 14px",
-                  backgroundColor: "var(--color-warning-bg)",
-                  borderLeft: "4px solid var(--color-warning-text)",
-                  borderRadius: "var(--radius-md)",
-                  fontSize: "12px",
-                  color: "var(--color-warning-text)",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "var(--color-text-secondary)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
                 }}
               >
-                <span style={{ ...iconStyle, color: "var(--color-warning-text)" }}>info</span>
-                <div style={{ flex: 1 }}>
-                  <strong>Lógica de respaldo activa:</strong> Las sugerencias se calcularon mediante las reglas de rentabilidad y guardas de negocio ({labelMotivo(resultado.motivoDegradacion)}). Las recetas y costos son totalmente confiables.
-                </div>
-              </div>
-            ) : (
-              <div
+                Requieren revisión
+              </span>
+
+              <span
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "8px 14px",
-                  backgroundColor: "var(--color-success-bg)",
-                  borderLeft: "4px solid var(--color-success-text)",
-                  borderRadius: "var(--radius-md)",
+                  ...iconStyle,
+                  color:
+                    totalAjustar > 0
+                      ? "var(--color-warning-text)"
+                      : "var(--color-success-text)",
+                }}
+              >
+                warning
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "8px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "24px",
+                  fontWeight: 700,
+                  color: "var(--color-text-primary)",
+                }}
+              >
+                {loading ? "..." : totalAjustar}
+              </span>
+
+              <span
+                style={{
                   fontSize: "12px",
+                  color: "var(--color-text-muted)",
+                }}
+              >
+                productos
+              </span>
+            </div>
+
+            <p
+              style={{
+                fontSize: "11px",
+                color: "var(--color-text-secondary)",
+                margin: "4px 0 0",
+              }}
+            >
+              Variaciones relevantes o productos con pérdida.
+            </p>
+          </div>
+
+          {/* Productos estables */}
+
+          <div style={sectionCard}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "8px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "var(--color-text-secondary)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                }}
+              >
+                Precios estables
+              </span>
+
+              <span
+                style={{
+                  ...iconStyle,
                   color: "var(--color-success-text)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={iconStyle}>check_circle</span>
-                  <span>
-                    <strong>Análisis IA completado exitosamente:</strong> Sugerencias generadas con razonamiento contextual de Claude 3.5 Sonnet.
-                  </span>
-                </div>
-                {resultado.guardado && (
-                  <span style={{ fontSize: "11px", fontWeight: 600, opacity: 0.9 }}>
-                    ✓ Sincronizado en catálogo
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+                check
+              </span>
+            </div>
 
-        {/* ── 4. KPI Summary Cards ─────────────────────────────────────────── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
-          {/* Card 1: Productos a ajustar */}
-          <div style={sectionCard}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-              <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                Ajuste urgente
-              </span>
-              <span style={{ ...iconStyle, color: totalAjustar > 0 ? "var(--color-warning-text)" : "var(--color-success-text)" }}>
-                {totalAjustar > 0 ? "warning" : "verified"}
-              </span>
-            </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-              <span style={{ fontSize: "24px", fontWeight: 700, color: totalAjustar > 0 ? "var(--color-warning-text)" : "var(--color-text-primary)" }}>
-                {loading ? "..." : totalAjustar}
-              </span>
-              <span style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>productos</span>
-            </div>
-            <p style={{ fontSize: "11px", color: "var(--color-text-secondary)", margin: "4px 0 0" }}>
-              {totalAjustar > 0 ? "Margen comprometido por aumentos" : "Todos los márgenes dentro del objetivo"}
-            </p>
-          </div>
-
-          {/* Card 2: Productos estables */}
-          <div style={sectionCard}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-              <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                Precios estables
-              </span>
-              <span style={{ ...iconStyle, color: "var(--color-success-text)" }}>check</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-              <span style={{ fontSize: "24px", fontWeight: 700, color: "var(--color-text-primary)" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "8px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "24px",
+                  fontWeight: 700,
+                  color: "var(--color-text-primary)",
+                }}
+              >
                 {loading ? "..." : totalEstable}
               </span>
-              <span style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>productos</span>
+
+              <span
+                style={{
+                  fontSize: "12px",
+                  color: "var(--color-text-muted)",
+                }}
+              >
+                productos
+              </span>
             </div>
-            <p style={{ fontSize: "11px", color: "var(--color-text-secondary)", margin: "4px 0 0" }}>
-              Variación de costo menor al 2%
+
+            <p
+              style={{
+                fontSize: "11px",
+                color: "var(--color-text-secondary)",
+                margin: "4px 0 0",
+              }}
+            >
+              Variación inferior al umbral de revisión.
             </p>
           </div>
 
-          {/* Card 3: Aumento promedio sugerido */}
+          {/* Aumento promedio */}
+
           <div style={sectionCard}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-              <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "8px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "var(--color-text-secondary)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                }}
+              >
                 Aumento promedio
               </span>
-              <span style={{ ...iconStyle, color: "var(--color-accent)" }}>trending_up</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-              <span style={{ fontSize: "24px", fontWeight: 700, color: "var(--color-text-primary)" }}>
-                {loading ? "..." : promedioAumento > 0 ? `+${promedioAumento.toFixed(1)}%` : "0%"}
+
+              <span
+                style={{
+                  ...iconStyle,
+                  color: "var(--color-accent)",
+                }}
+              >
+                trending_up
               </span>
-              <span style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>en productos a ajustar</span>
             </div>
-            <p style={{ fontSize: "11px", color: "var(--color-text-secondary)", margin: "4px 0 0" }}>
-              Mantiene el margen objetivo del negocio
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "8px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "24px",
+                  fontWeight: 700,
+                  color: "var(--color-text-primary)",
+                }}
+              >
+                {loading
+                  ? "..."
+                  : promedioAumento > 0
+                    ? `+${promedioAumento.toFixed(1)}%`
+                    : "0%"}
+              </span>
+            </div>
+
+            <p
+              style={{
+                fontSize: "11px",
+                color: "var(--color-text-secondary)",
+                margin: "4px 0 0",
+              }}
+            >
+              Promedio de las variaciones positivas sugeridas.
             </p>
           </div>
 
-          {/* Card 4: Insumos vinculados */}
+          {/* Productos sin costo */}
+
           <div style={sectionCard}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-              <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                Insumos impactados
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "8px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "var(--color-text-secondary)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                }}
+              >
+                Sin costo calculable
               </span>
-              <span style={{ ...iconStyle, color: "var(--color-text-muted)" }}>inventory_2</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-              <span style={{ fontSize: "24px", fontWeight: 700, color: "var(--color-text-primary)" }}>
-                {loading ? "..." : resultado?.insumos?.length ?? 0}
+
+              <span
+                style={{
+                  ...iconStyle,
+                  color:
+                    productosSinCosto.length > 0
+                      ? "var(--color-warning-text)"
+                      : "var(--color-text-muted)",
+                }}
+              >
+                inventory_2
               </span>
-              <span style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>en recetas evaluadas</span>
             </div>
-            <p style={{ fontSize: "11px", color: "var(--color-text-secondary)", margin: "4px 0 0" }}>
-              Emparejados contra el ticket de compra
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "8px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "24px",
+                  fontWeight: 700,
+                  color: "var(--color-text-primary)",
+                }}
+              >
+                {loading ? "..." : productosSinCosto.length}
+              </span>
+
+              <span
+                style={{
+                  fontSize: "12px",
+                  color: "var(--color-text-muted)",
+                }}
+              >
+                productos
+              </span>
+            </div>
+
+            <p
+              style={{
+                fontSize: "11px",
+                color: "var(--color-text-secondary)",
+                margin: "4px 0 0",
+              }}
+            >
+              No pudieron recibir una sugerencia de precio.
             </p>
           </div>
         </div>
 
-        {/* ── 5. Error Box if API fails ─────────────────────────────────────── */}
+        {/* ── 4. Error de conexión ───────────────────────────────────────── */}
+
         {error && (
-          <div style={{ ...sectionCard, backgroundColor: "var(--color-warning-bg)", borderColor: "var(--color-warning-text)" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-              <span style={{ ...iconStyle, color: "var(--color-warning-text)", fontSize: "20px" }}>error</span>
+          <div
+            style={{
+              ...sectionCard,
+              backgroundColor: "var(--color-warning-bg)",
+              borderColor: "var(--color-warning-text)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "10px",
+              }}
+            >
+              <span
+                style={{
+                  ...iconStyle,
+                  color: "var(--color-warning-text)",
+                  fontSize: "20px",
+                }}
+              >
+                error
+              </span>
+
               <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: "14px", fontWeight: 600, color: "var(--color-warning-text)", margin: "0 0 4px" }}>
-                  Error al obtener las sugerencias de precios
+                <h3
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: "var(--color-warning-text)",
+                    margin: "0 0 4px",
+                  }}
+                >
+                  Error al obtener las sugerencias
                 </h3>
-                <p style={{ fontSize: "12px", color: "var(--color-warning-text)", margin: 0 }}>
+
+                <p
+                  style={{
+                    fontSize: "12px",
+                    color: "var(--color-warning-text)",
+                    margin: 0,
+                  }}
+                >
                   {error}
                 </p>
+
                 <button
                   type="button"
-                  onClick={() => void consultarSugerencias(ticketActual)}
+                  onClick={() => void consultarSugerencias()}
+                  disabled={loading}
                   style={{
                     marginTop: "10px",
                     padding: "6px 12px",
@@ -655,153 +827,231 @@ export default function PreciosPage() {
           </div>
         )}
 
-        {/* ── 6. Filters & Search Bar ──────────────────────────────────────── */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
-          {/* Tabs: Todos, Ajustar, Estables */}
-          <div style={{ display: "flex", gap: "6px", backgroundColor: "var(--color-neutral-bg)", padding: "3px", borderRadius: "var(--radius-md)" }}>
-            <button
-              type="button"
-              onClick={() => setFiltroEstado("todos")}
-              style={{
-                padding: "6px 12px",
-                fontSize: "12px",
-                fontWeight: filtroEstado === "todos" ? 600 : 400,
-                backgroundColor: filtroEstado === "todos" ? "var(--color-surface)" : "transparent",
-                color: filtroEstado === "todos" ? "var(--color-text-primary)" : "var(--color-text-secondary)",
-                border: "none",
-                borderRadius: "var(--radius-sm)",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-            >
-              Todos ({sugerencias.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFiltroEstado("ajustar")}
-              style={{
-                padding: "6px 12px",
-                fontSize: "12px",
-                fontWeight: filtroEstado === "ajustar" ? 600 : 400,
-                backgroundColor: filtroEstado === "ajustar" ? "var(--color-surface)" : "transparent",
-                color: filtroEstado === "ajustar" ? "var(--color-warning-text)" : "var(--color-text-secondary)",
-                border: "none",
-                borderRadius: "var(--radius-sm)",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-            >
-              Requieren ajuste ({totalAjustar})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFiltroEstado("estable")}
-              style={{
-                padding: "6px 12px",
-                fontSize: "12px",
-                fontWeight: filtroEstado === "estable" ? 600 : 400,
-                backgroundColor: filtroEstado === "estable" ? "var(--color-surface)" : "transparent",
-                color: filtroEstado === "estable" ? "var(--color-success-text)" : "var(--color-text-secondary)",
-                border: "none",
-                borderRadius: "var(--radius-sm)",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-            >
-              Estables ({totalEstable})
-            </button>
+        {mensajeAplicacion && (
+          <div
+            style={{
+              padding: "12px 16px",
+              borderRadius: "var(--radius-md)",
+              backgroundColor:
+                mensajeAplicacion.tipo === "success"
+                  ? "var(--color-success-bg)"
+                  : "var(--color-warning-bg)",
+              color:
+                mensajeAplicacion.tipo === "success"
+                  ? "var(--color-success-text)"
+                  : "var(--color-warning-text)",
+              fontSize: "13px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}
+          >
+            <span style={iconStyle}>
+              {mensajeAplicacion.tipo === "success"
+                ? "check_circle"
+                : "error"}
+            </span>
+
+            {mensajeAplicacion.texto}
+          </div>
+        )}
+
+        {/* ── 5. Filtros y búsqueda ──────────────────────────────────────── */}
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "12px",
+          }}
+        >
+          {/* Filtros de estado */}
+
+          <div
+            style={{
+              display: "flex",
+              gap: "6px",
+              backgroundColor: "var(--color-neutral-bg)",
+              padding: "3px",
+              borderRadius: "var(--radius-md)",
+              flexWrap: "wrap",
+            }}
+          >
+            {(
+              [
+                { value: "todos", label: `Todos (${sugerencias.length})` },
+                {
+                  value: "ajustar",
+                  label: `Requieren revisión (${totalAjustar})`,
+                },
+                {
+                  value: "estable",
+                  label: `Estables (${totalEstable})`,
+                },
+              ] as const
+            ).map((filtro) => {
+              const activo = filtroEstado === filtro.value;
+
+              return (
+                <button
+                  key={filtro.value}
+                  type="button"
+                  onClick={() => setFiltroEstado(filtro.value)}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: "12px",
+                    fontWeight: activo ? 600 : 400,
+                    backgroundColor: activo
+                      ? "var(--color-surface)"
+                      : "transparent",
+                    color: activo
+                      ? "var(--color-text-primary)"
+                      : "var(--color-text-secondary)",
+                    border: "none",
+                    borderRadius: "var(--radius-sm)",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {filtro.label}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Search box & Category filter */}
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            {categorias.length > 0 && (
-              <select
-                value={categoriaSeleccionada}
-                onChange={(e) => setCategoriaSeleccionada(e.target.value)}
-                style={{
-                  padding: "7px 10px",
-                  fontSize: "12px",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-sm)",
-                  backgroundColor: "var(--color-surface)",
-                  color: "var(--color-text-primary)",
-                  cursor: "pointer",
-                }}
-              >
-                <option value="todas">Todas las categorías</option>
-                {categorias.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            )}
+          {/* Buscador */}
 
-            <div style={{ position: "relative", minWidth: "220px" }}>
-              <input
-                type="text"
-                placeholder="Buscar por producto o insumo..."
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "7px 10px 7px 30px",
-                  fontSize: "12px",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-sm)",
-                  backgroundColor: "var(--color-surface)",
-                  color: "var(--color-text-primary)",
-                  boxSizing: "border-box",
-                }}
-              />
-              <span
-                style={{
-                  ...iconStyle,
-                  position: "absolute",
-                  left: "8px",
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  color: "var(--color-text-muted)",
-                  fontSize: "15px",
-                }}
-              >
-                search
-              </span>
-            </div>
+          <div
+            style={{
+              position: "relative",
+              minWidth: "220px",
+              maxWidth: "100%",
+            }}
+          >
+            <input
+              type="text"
+              placeholder="Buscar producto..."
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "7px 10px 7px 30px",
+                fontSize: "12px",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: "var(--color-surface)",
+                color: "var(--color-text-primary)",
+                boxSizing: "border-box",
+              }}
+            />
+
+            <span
+              style={{
+                ...iconStyle,
+                position: "absolute",
+                left: "8px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "var(--color-text-muted)",
+                fontSize: "15px",
+              }}
+            >
+              search
+            </span>
           </div>
         </div>
 
-        {/* ── 7. Price Suggestions Cards Grid ──────────────────────────────── */}
+        {/* ── 6. Indicador de carga ──────────────────────────────────────── */}
+
         {loading && (
-          <div style={{ ...sectionCard, textAlign: "center", padding: "40px" }}>
-            <span style={{ ...iconStyle, fontSize: "28px", color: "var(--color-accent)", animation: "spin 2s linear infinite" }}>
+          <div
+            style={{
+              ...sectionCard,
+              textAlign: "center",
+              padding: "40px",
+            }}
+          >
+            <span
+              style={{
+                ...iconStyle,
+                fontSize: "28px",
+                color: "var(--color-accent)",
+              }}
+            >
               auto_awesome
             </span>
-            <p style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", marginTop: "12px" }}>
-              Analizando variaciones de costos con la IA...
+
+            <p
+              style={{
+                fontSize: "14px",
+                fontWeight: 500,
+                color: "var(--color-text-primary)",
+                marginTop: "12px",
+              }}
+            >
+              Analizando productos con Gemini...
             </p>
-            <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: "4px 0 0" }}>
-              Evaluando recetas, compras históricas y márgenes de seguridad.
+
+            <p
+              style={{
+                fontSize: "12px",
+                color: "var(--color-text-muted)",
+                margin: "4px 0 0",
+              }}
+            >
+              Evaluando recetas, gastos registrados y márgenes de
+              rentabilidad.
             </p>
           </div>
         )}
 
-        {!loading && sugerenciasFiltradas.length === 0 && (
-          <div style={{ ...sectionCard, textAlign: "center", padding: "40px" }}>
-            <span style={{ ...iconStyle, fontSize: "32px", color: "var(--color-text-muted)" }}>
+        {/* ── 7. Estado vacío ───────────────────────────────────────────── */}
+
+        {!loading && !error && sugerenciasFiltradas.length === 0 && (
+          <div
+            style={{
+              ...sectionCard,
+              textAlign: "center",
+              padding: "40px",
+            }}
+          >
+            <span
+              style={{
+                ...iconStyle,
+                fontSize: "32px",
+                color: "var(--color-text-muted)",
+              }}
+            >
               sell
             </span>
-            <p style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", marginTop: "8px" }}>
-              No se encontraron sugerencias de precios con los filtros actuales.
+
+            <p
+              style={{
+                fontSize: "14px",
+                fontWeight: 500,
+                color: "var(--color-text-primary)",
+                marginTop: "8px",
+              }}
+            >
+              No se encontraron sugerencias.
             </p>
-            <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: "4px 0 12px" }}>
-              Probá restableciendo los filtros o analizando otro ticket de compra.
+
+            <p
+              style={{
+                fontSize: "12px",
+                color: "var(--color-text-muted)",
+                margin: "4px 0 12px",
+              }}
+            >
+              Probá restableciendo los filtros o generando un nuevo análisis.
             </p>
+
             <button
               type="button"
               onClick={() => {
                 setFiltroEstado("todos");
-                setCategoriaSeleccionada("todas");
                 setBusqueda("");
               }}
               style={{
@@ -819,11 +1069,30 @@ export default function PreciosPage() {
           </div>
         )}
 
+        {/* ── 8. Tarjetas de sugerencias ─────────────────────────────────── */}
+
         {!loading && sugerenciasFiltradas.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: "16px" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+              gap: "16px",
+            }}
+          >
             {sugerenciasFiltradas.map((item) => {
-              const estaAplicado = preciosAplicados.has(item.productoID);
-              const esAjuste = item.estado === "ajustar";
+              const requiereAjuste = esAjusteRecomendado(item);
+
+              const colorEstado = requiereAjuste
+                ? {
+                    background: "var(--color-warning-bg)",
+                    text: "var(--color-warning-text)",
+                  }
+                : {
+                    background: "var(--color-success-bg)",
+                    text: "var(--color-success-text)",
+                  };
+
+              const colorNivel = colorConfianza(item.confianza);
 
               return (
                 <div
@@ -834,134 +1103,259 @@ export default function PreciosPage() {
                     flexDirection: "column",
                     justifyContent: "space-between",
                     gap: "14px",
-                    borderLeft: esAjuste ? "4px solid var(--color-warning-text)" : "4px solid var(--color-border)",
+                    borderLeft: requiereAjuste
+                      ? "4px solid var(--color-warning-text)"
+                      : "4px solid var(--color-success-text)",
                   }}
                 >
-                  {/* Card Header */}
+                  {/* Encabezado de la tarjeta */}
+
                   <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "6px" }}>
-                      <span style={{ fontSize: "10px", fontWeight: 700, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                        {item.categoria || "PRODUCTO"}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: "8px",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 700,
+                          color: "var(--color-text-muted)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                        }}
+                      >
+                        {item.unidadProducto || "Producto"}
                       </span>
 
-                      <div style={{ display: "flex", gap: "6px" }}>
-                        {/* Status Badge */}
-                        {esAjuste ? (
-                          <span style={badgeStyle("var(--color-warning-bg)", "var(--color-warning-text)")}>
-                            ⚠️ Ajustar {formatPct(item.variacionPct)}
-                          </span>
-                        ) : (
-                          <span style={badgeStyle("var(--color-success-bg)", "var(--color-success-text)")}>
-                            ✓ Estable
-                          </span>
-                        )}
-
-                        {/* Confidence Badge */}
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          justifyContent: "flex-end",
+                          gap: "5px",
+                        }}
+                      >
                         <span
                           style={badgeStyle(
-                            item.confianza === "alta"
-                              ? "var(--color-success-bg)"
-                              : item.confianza === "media"
-                              ? "var(--color-neutral-bg)"
-                              : "var(--color-warning-bg)",
-                            item.confianza === "alta"
-                              ? "var(--color-success-text)"
-                              : item.confianza === "media"
-                              ? "var(--color-neutral-text)"
-                              : "var(--color-warning-text)"
+                            colorEstado.background,
+                            colorEstado.text
+                          )}
+                        >
+                          {requiereAjuste ? "Revisar precio" : "Estable"}
+                        </span>
+
+                        <span
+                          style={badgeStyle(
+                            colorNivel.background,
+                            colorNivel.text
                           )}
                           title={`Confianza del análisis: ${item.confianza}`}
                         >
-                          {item.confianza === "alta" ? "Alta" : item.confianza === "media" ? "Media" : "Baja"}
+                          Confianza {item.confianza}
                         </span>
                       </div>
                     </div>
 
-                    <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--color-text-primary)", margin: "0 0 4px" }}>
+                    <h2
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: 600,
+                        color: "var(--color-text-primary)",
+                        margin: "0 0 4px",
+                      }}
+                    >
                       {item.nombre}
                     </h2>
 
-                    {/* Affected ingredients pills */}
-                    {(item.insumosAfectados?.length ?? 0) > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
-                        <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>Insumos:</span>
-                        {item.insumosAfectados?.map((insumo) => (
-                          <span
-                            key={insumo}
-                            style={{
-                              fontSize: "10px",
-                              backgroundColor: "var(--color-bg)",
-                              color: "var(--color-text-secondary)",
-                              padding: "1px 6px",
-                              borderRadius: "var(--radius-sm)",
-                              border: "1px solid var(--color-border-subtle)",
-                            }}
-                          >
-                            {insumo}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    <p
+                      style={{
+                        fontSize: "10px",
+                        color: "var(--color-text-muted)",
+                        margin: 0,
+                      }}
+                    >
+                      ID: {item.productoID}
+                    </p>
                   </div>
 
-                  {/* Pricing Comparison Grid */}
+                  {/* Comparación de costos y precios */}
+
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "1fr 1fr 1fr",
-                      gap: "8px",
+                      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                      gap: "6px",
                       backgroundColor: "var(--color-bg)",
-                      padding: "10px 12px",
+                      padding: "10px 8px",
                       borderRadius: "var(--radius-md)",
                       border: "1px solid var(--color-border-subtle)",
                       textAlign: "center",
                     }}
                   >
-                    {/* Costo Receta */}
+                    {/* Costo actual */}
+
                     <div>
-                      <p style={{ fontSize: "10px", fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase", margin: "0 0 2px" }}>
-                        Costo Receta
+                      <p
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          color: "var(--color-text-muted)",
+                          textTransform: "uppercase",
+                          margin: "0 0 4px",
+                        }}
+                      >
+                        Costo
                       </p>
-                      <p style={{ fontSize: "13px", fontWeight: 600, color: "var(--color-text-primary)", margin: 0 }}>
-                        {formatARS(item.costoNuevo)}
+
+                      <p
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          color: "var(--color-text-primary)",
+                          margin: 0,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {formatARS(item.costoActual)}
                       </p>
-                      {item.costoAnterior !== null && (
-                        <p style={{ fontSize: "10px", color: "var(--color-text-secondary)", margin: "2px 0 0" }}>
-                          era {formatARS(item.costoAnterior)}
+
+                      {item.variacionCosto !== null && (
+                        <p
+                          style={{
+                            fontSize: "10px",
+                            color:
+                              item.variacionCosto > 0
+                                ? "var(--color-warning-text)"
+                                : "var(--color-text-secondary)",
+                            margin: "3px 0 0",
+                          }}
+                        >
+                          {formatPct(item.variacionCosto)}
                         </p>
                       )}
                     </div>
 
-                    {/* Precio Venta Actual */}
+                    {/* Precio actual */}
+
                     <div>
-                      <p style={{ fontSize: "10px", fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase", margin: "0 0 2px" }}>
-                        Precio Actual
+                      <p
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          color: "var(--color-text-muted)",
+                          textTransform: "uppercase",
+                          margin: "0 0 4px",
+                        }}
+                      >
+                        Actual
                       </p>
-                      <p style={{ fontSize: "13px", fontWeight: 600, color: "var(--color-text-secondary)", margin: 0 }}>
+
+                      <p
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          color: "var(--color-text-secondary)",
+                          margin: 0,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
                         {formatARS(item.precioActual)}
                       </p>
-                      <p style={{ fontSize: "10px", color: "var(--color-text-muted)", margin: "2px 0 0" }}>
-                        vigente
+
+                      <p
+                        style={{
+                          fontSize: "10px",
+                          color: "var(--color-text-muted)",
+                          margin: "3px 0 0",
+                        }}
+                      >
+                        Vigente
                       </p>
                     </div>
 
-                    {/* Precio Sugerido */}
+                    {/* Precio sugerido */}
+
                     <div>
-                      <p style={{ fontSize: "10px", fontWeight: 600, color: "var(--color-accent-dark)", textTransform: "uppercase", margin: "0 0 2px" }}>
-                        Sugerido IA
+                      <p
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          color: "var(--color-accent-dark)",
+                          textTransform: "uppercase",
+                          margin: "0 0 4px",
+                        }}
+                      >
+                        Sugerido
                       </p>
-                      <p style={{ fontSize: "15px", fontWeight: 700, color: esAjuste ? "var(--color-warning-text)" : "var(--color-success-text)", margin: 0 }}>
+
+                      <p
+                        style={{
+                          fontSize: "15px",
+                          fontWeight: 700,
+                          color: requiereAjuste
+                            ? "var(--color-warning-text)"
+                            : "var(--color-success-text)",
+                          margin: 0,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
                         {formatARS(item.precioSugerido)}
                       </p>
-                      {item.margenResultante !== null && (
-                        <p style={{ fontSize: "10px", fontWeight: 500, color: "var(--color-text-secondary)", margin: "2px 0 0" }}>
-                          margen {(item.margenResultante * 100).toFixed(0)}%
-                        </p>
-                      )}
+
+                      <p
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          color:
+                            item.variacionPrecio > 0
+                              ? "var(--color-warning-text)"
+                              : "var(--color-text-secondary)",
+                          margin: "3px 0 0",
+                        }}
+                      >
+                        {formatPct(item.variacionPrecio)}
+                      </p>
                     </div>
                   </div>
 
-                  {/* AI Explanation / Reasoning Box */}
+                  {/* Margen resultante */}
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "9px 11px",
+                      backgroundColor: "var(--color-neutral-bg)",
+                      borderRadius: "var(--radius-md)",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        color: "var(--color-text-secondary)",
+                      }}
+                    >
+                      Margen resultante
+                    </span>
+
+                    <strong
+                      style={{
+                        fontSize: "14px",
+                        color: "var(--color-text-primary)",
+                      }}
+                    >
+                      {item.margenResultante.toFixed(1)}%
+                    </strong>
+                  </div>
+
+                  {/* Razonamiento de Gemini */}
+
                   <div
                     style={{
                       padding: "10px 12px",
@@ -972,157 +1366,261 @@ export default function PreciosPage() {
                       color: "var(--color-text-callout)",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "3px" }}>
-                      <span style={{ ...iconStyle, fontSize: "14px", color: "var(--color-accent-dark)" }}>auto_awesome</span>
-                      <strong style={{ fontSize: "11px", fontWeight: 600, color: "var(--color-accent-dark)" }}>
-                        {item.origen === "llm" ? "Análisis de la IA:" : "Cálculo por reglas de margen:"}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        marginBottom: "5px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          ...iconStyle,
+                          fontSize: "14px",
+                          color: "var(--color-accent-dark)",
+                        }}
+                      >
+                        auto_awesome
+                      </span>
+
+                      <strong
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          color: "var(--color-accent-dark)",
+                        }}
+                      >
+                        Análisis de Gemini
                       </strong>
                     </div>
-                    <p style={{ margin: 0 }}>{item.justificacion}</p>
-                    {item.ajustadoPorReglas && (
-                      <p style={{ fontSize: "11px", fontWeight: 500, color: "var(--color-warning-text)", marginTop: "4px", marginBottom: 0 }}>
-                        🛡️ Precio ajustado por guardas comerciales de seguridad.
+
+                    <p style={{ margin: 0 }}>
+                      {item.razonamiento ||
+                        "No se proporcionó una explicación para esta sugerencia."}
+                    </p>
+
+                    {item.superaTopeSuba && (
+                      <p
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          color: "var(--color-warning-text)",
+                          marginTop: "7px",
+                          marginBottom: 0,
+                        }}
+                      >
+                        Atención: la variación supera el tope de aumento de
+                        referencia.
                       </p>
                     )}
                   </div>
 
-                  {/* Card Action */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--color-border-subtle)", paddingTop: "10px" }}>
-                    <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>
-                      {esAjuste ? "Ajuste recomendado" : "No requiere cambios"}
+                  {/* Aplicación del precio */}
+
+                    
+                  {/* Aplicación del precio */}
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "8px",
+                      borderTop: "1px solid var(--color-border-subtle)",
+                      paddingTop: "10px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        color: productosAplicados.has(item.productoID)
+                          ? "var(--color-success-text)"
+                          : "var(--color-text-muted)",
+                      }}
+                    >
+                      {productosAplicados.has(item.productoID)
+                        ? "Precio aplicado"
+                        : "Pendiente de aprobación"}
                     </span>
 
                     <button
                       type="button"
-                      disabled={estaAplicado}
-                      onClick={() => handleAplicarPrecio(item.productoID)}
+                      disabled={
+                        productosAplicados.has(item.productoID) ||
+                        productosAplicando.has(item.productoID)
+                      }
+                      onClick={() => void handleAplicarPrecio(item.productoID)}
                       style={{
-                        padding: "6px 14px",
+                        padding: "7px 14px",
                         fontSize: "12px",
                         fontWeight: 600,
-                        backgroundColor: estaAplicado ? "var(--color-success-bg)" : "var(--color-accent)",
-                        color: estaAplicado ? "var(--color-success-text)" : "#FFFFFF",
+                        backgroundColor: productosAplicados.has(item.productoID)
+                          ? "var(--color-success-bg)"
+                          : "var(--color-accent)",
+                        color: productosAplicados.has(item.productoID)
+                          ? "var(--color-success-text)"
+                          : "#FFFFFF",
                         border: "none",
                         borderRadius: "var(--radius-sm)",
-                        cursor: estaAplicado ? "default" : "pointer",
+                        cursor:
+                          productosAplicados.has(item.productoID) ||
+                          productosAplicando.has(item.productoID)
+                            ? "not-allowed"
+                            : "pointer",
                         display: "inline-flex",
                         alignItems: "center",
                         gap: "5px",
-                        transition: "background-color 0.15s ease",
+                        opacity: productosAplicando.has(item.productoID) ? 0.7 : 1,
                       }}
                     >
-                      {estaAplicado ? (
-                        <>
-                          <span style={{ ...iconStyle, fontSize: "14px" }}>check</span>
-                          Aplicado
-                        </>
-                      ) : (
-                        <>
-                          <span style={{ ...iconStyle, fontSize: "14px" }}>done_all</span>
-                          Aplicar precio
-                        </>
-                      )}
+                      <span style={{ ...iconStyle, fontSize: "14px" }}>
+                        {productosAplicados.has(item.productoID)
+                          ? "check_circle"
+                          : productosAplicando.has(item.productoID)
+                            ? "progress_activity"
+                            : "check"}
+                      </span>
+
+                      {productosAplicados.has(item.productoID)
+                        ? "Aplicado"
+                        : productosAplicando.has(item.productoID)
+                          ? "Aplicando..."
+                          : "Aplicar precio"}
                     </button>
                   </div>
+
+                  
                 </div>
               );
             })}
           </div>
         )}
 
-        {/* ── 8. Ingredients Cost Variations Table ─────────────────────────── */}
-        {(resultado?.insumos?.length ?? 0) > 0 && (
-          <div style={{ ...sectionCard, marginTop: "10px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-              <span style={{ ...iconStyle, color: "var(--color-accent)" }}>query_stats</span>
-              <h3 style={{ fontSize: "14px", fontWeight: 600, color: "var(--color-text-primary)", margin: 0 }}>
-                Insumos Emparejados y Variaciones de Costo
-              </h3>
-            </div>
-            <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: "0 0 14px" }}>
-              Variación de precios unitarios normalizados detectada entre el ticket y las compras anteriores en el sistema.
-            </p>
+        {/* ── 9. Productos sin costo calculable ──────────────────────────── */}
 
-            <div style={{ border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", textAlign: "left", whiteSpace: "nowrap" }}>
-                <thead>
-                  <tr style={{ backgroundColor: "var(--color-bg)", borderBottom: "1px solid var(--color-border)" }}>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)" }}>Insumo Receta</th>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)" }}>Descripción en Ticket</th>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)" }}>Unidad</th>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)" }}>Precio Anterior</th>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)" }}>Precio Nuevo</th>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)" }}>Variación vs Última</th>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)" }}>Variación vs Promedio</th>
-                    <th style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-secondary)" }}>Certeza</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resultado?.insumos?.map((v, i) => (
-                    <tr
-                      key={i}
-                      style={{
-                        borderBottom: i < (resultado.insumos?.length ?? 0) - 1 ? "1px solid var(--color-border-subtle)" : "none",
-                        backgroundColor: i % 2 === 1 ? "#FDF9F5" : "var(--color-surface)",
-                      }}
-                    >
-                      <td style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-primary)" }}>{v.insumo}</td>
-                      <td style={{ padding: "8px 12px", color: "var(--color-text-secondary)" }}>{v.descripcionTicket}</td>
-                      <td style={{ padding: "8px 12px", color: "var(--color-text-muted)" }}>${`/${v.unidad}`}</td>
-                      <td style={{ padding: "8px 12px", color: "var(--color-text-secondary)" }}>{formatARS(v.precioAnterior)}</td>
-                      <td style={{ padding: "8px 12px", fontWeight: 600, color: "var(--color-text-primary)" }}>{formatARS(v.precioNuevo)}</td>
-                      <td style={{ padding: "8px 12px" }}>
-                        <span
-                          style={{
-                            fontWeight: 600,
-                            color: v.variacionPct && v.variacionPct > 0 ? "var(--color-warning-text)" : "var(--color-text-secondary)",
-                          }}
-                        >
-                          {formatPct(v.variacionPct)}
-                        </span>
-                      </td>
-                      <td style={{ padding: "8px 12px", color: "var(--color-text-secondary)" }}>{formatPct(v.variacionVsPromedioPct)}</td>
-                      <td style={{ padding: "8px 12px" }}>
-                        <span
-                          style={badgeStyle(
-                            v.certeza === "alta" ? "var(--color-success-bg)" : "var(--color-neutral-bg)",
-                            v.certeza === "alta" ? "var(--color-success-text)" : "var(--color-neutral-text)"
-                          )}
-                        >
-                          {v.certeza}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ── 9. Notice for Products Without Recipe ────────────────────────── */}
-        {(resultado?.productosSinReceta?.length ?? 0) > 0 && (
+        {!loading && productosSinCosto.length > 0 && (
           <div
             style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "10px",
-              padding: "12px 16px",
-              backgroundColor: "var(--color-neutral-bg)",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--color-border)",
-              fontSize: "12px",
-              color: "var(--color-text-secondary)",
+              ...sectionCard,
+              borderColor: "var(--color-warning-text)",
             }}
           >
-            <span style={{ ...iconStyle, color: "var(--color-text-muted)" }}>help_outline</span>
-            <div>
-              <strong style={{ color: "var(--color-text-primary)" }}>Productos pendientes de receta:</strong>{" "}
-              {resultado?.productosSinReceta?.join(", ") ?? ""}. Estos productos no pudieron ser evaluados porque no tienen ingredientes cargados en su receta. Podés configurarlos desde la pantalla de Configuración.
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                marginBottom: "12px",
+              }}
+            >
+              <span
+                style={{
+                  ...iconStyle,
+                  color: "var(--color-warning-text)",
+                  fontSize: "20px",
+                }}
+              >
+                warning
+              </span>
+
+              <h3
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  color: "var(--color-text-primary)",
+                  margin: 0,
+                }}
+              >
+                Productos sin costo calculable
+              </h3>
+            </div>
+
+            <p
+              style={{
+                fontSize: "12px",
+                color: "var(--color-text-secondary)",
+                margin: "0 0 12px",
+              }}
+            >
+              Estos productos no recibieron una sugerencia. Revisá los
+              motivos y verificá que tengan su correspondiente registro
+              en las tablas Producto y Receta-nueva.
+            </p>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+              }}
+            >
+              {productosSinCosto.map((producto, index) => (
+                <div
+                  key={`${producto.productoID}-${index}`}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                    padding: "10px 12px",
+                    backgroundColor: "var(--color-bg)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--color-border-subtle)",
+                  }}
+                >
+                  <div>
+                    <strong
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--color-text-primary)",
+                      }}
+                    >
+                      {producto.productoID}
+                    </strong>
+
+                    <p
+                      style={{
+                        fontSize: "11px",
+                        color: "var(--color-text-secondary)",
+                        margin: "3px 0 0",
+                      }}
+                    >
+                      {producto.motivo}
+                    </p>
+                  </div>
+
+                  <span
+                    style={badgeStyle(
+                      "var(--color-warning-bg)",
+                      "var(--color-warning-text)"
+                    )}
+                  >
+                    Sin analizar
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
+        {/* ── 10. Información de la generación ───────────────────────────── */}
+
+        {resultado && !loading && (
+          <div
+            style={{
+              fontSize: "11px",
+              color: "var(--color-text-muted)",
+              textAlign: "right",
+              paddingBottom: "8px",
+            }}
+          >
+            {resultado.cantidadProductosAnalizados} productos analizados ·{" "}
+            {resultado.cantidadSugerencias} sugerencias generadas · Estado:{" "}
+            {resultado.estado}
+          </div>
+        )}
       </div>
     </AppLayout>
   );

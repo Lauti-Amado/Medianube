@@ -1,11 +1,24 @@
+
 import userPool from "./cognito";
 import type { CognitoUserSession } from "amazon-cognito-identity-js";
 
-// ── Tipos del Dominio de Precios ─────────────────────────────────────────────
+// ── Tipos del dominio ────────────────────────────────────────────────────────
 
 export type Confianza = "alta" | "media" | "baja";
 export type UnidadBase = "kg" | "l" | "u";
 export type EstadoPrecio = "estable" | "ajustar";
+
+export interface ResultadoAplicarPrecio {
+  success: boolean;
+  mensaje: string;
+  sugerenciaPrecioID: string;
+  productoID: string;
+  precioAnterior: number;
+  precioNuevo: number;
+  fechaAplicacion: string;
+  estadoAplicacion: "aplicada";
+  estadoSugerencia: "parcial" | "aplicada";
+}
 
 export interface ItemTicket {
   descripcion: string;
@@ -31,22 +44,42 @@ export interface VariacionInsumo {
   certeza: Confianza;
 }
 
+// Respuesta real de la Lambda sugerirPrecios-dev.
 export interface SugerenciaPrecio {
   productoID: string;
   nombre: string;
-  categoria: string | null;
-  costoAnterior: number | null;
-  costoNuevo: number | null;
+  unidadProducto: string;
+
   precioActual: number;
+  costoActual: number;
+
+  costoAnterior: number | null;
+  variacionCosto: number | null;
+
   precioSugerido: number;
-  variacionPct: number;
-  margenResultante: number | null;
-  estado: EstadoPrecio;
+  variacionPrecio: number;
+
+  // La Lambda devuelve 60 para representar un margen del 60%.
+  margenResultante: number;
+
+  razonamiento: string;
   confianza: Confianza;
+  superaTopeSuba: boolean;
+
+  // Compatibilidad temporal con la pantalla anterior.
+  categoria: string | null;
+  costoNuevo: number | null;
+  variacionPct: number;
+  estado: EstadoPrecio;
   justificacion: string;
   insumosAfectados: string[];
   ajustadoPorReglas: boolean;
   origen: "llm" | "reglas";
+}
+
+export interface ProductoSinCosto {
+  productoID: string;
+  motivo: string;
 }
 
 export type MotivoDegradacion =
@@ -59,19 +92,35 @@ export type MotivoDegradacion =
   | string;
 
 export interface ResultadoPrecios {
+  success: boolean;
+  mensaje: string;
+
+  sugerenciaPrecioID: string;
+  fechaGeneracion: string;
+  estado: string;
+
+  cantidadProductosAnalizados: number;
+  cantidadSugerencias: number;
+  cantidadProductosSinCosto: number;
+
+  sugerencias: SugerenciaPrecio[];
+  productosSinCosto: ProductoSinCosto[];
+
+  // Compatibilidad temporal con la pantalla anterior.
   usuarioID: string;
   origen: "llm" | "reglas";
   versionPrompt: string;
   generadaEn: string;
   insumos: VariacionInsumo[];
-  sugerencias: SugerenciaPrecio[];
   productosSinReceta: string[];
   degradado: boolean;
   motivoDegradacion: MotivoDegradacion | null;
   guardado: boolean;
 }
 
-// ── Presets de Tickets de Compra para Análisis ───────────────────────────────
+// ── Presets de tickets ────────────────────────────────────────────────────────
+// Se mantienen temporalmente porque precios.tsx todavía los importa.
+// La Lambda actual no utiliza estos tickets: obtiene los datos de DynamoDB.
 
 export interface TicketPreset {
   id: string;
@@ -89,8 +138,18 @@ export const TICKETS_PREDETERMINADOS: TicketPreset[] = [
       proveedor: "Molino Cañuelas S.A.",
       fecha: new Date().toISOString().slice(0, 10),
       items: [
-        { descripcion: "Harina 000 x 25 kg Cañuelas", cantidad: 4, precioUnitario: 8200, unidad: "kg" },
-        { descripcion: "Manteca x 5 kg", cantidad: 2, precioUnitario: 6450, unidad: "kg" },
+        {
+          descripcion: "Harina 000 x 25 kg Cañuelas",
+          cantidad: 4,
+          precioUnitario: 8200,
+          unidad: "kg",
+        },
+        {
+          descripcion: "Manteca x 5 kg",
+          cantidad: 2,
+          precioUnitario: 6450,
+          unidad: "kg",
+        },
       ],
     },
   },
@@ -102,8 +161,18 @@ export const TICKETS_PREDETERMINADOS: TicketPreset[] = [
       proveedor: "Lácteos La Pampa",
       fecha: new Date().toISOString().slice(0, 10),
       items: [
-        { descripcion: "Manteca x 5 kg La Serenísima", cantidad: 3, precioUnitario: 6600, unidad: "kg" },
-        { descripcion: "Dulce de leche repostero 4 kg", cantidad: 2, precioUnitario: 4500, unidad: "kg" },
+        {
+          descripcion: "Manteca x 5 kg La Serenísima",
+          cantidad: 3,
+          precioUnitario: 6600,
+          unidad: "kg",
+        },
+        {
+          descripcion: "Dulce de leche repostero 4 kg",
+          cantidad: 2,
+          precioUnitario: 4500,
+          unidad: "kg",
+        },
       ],
     },
   },
@@ -115,237 +184,377 @@ export const TICKETS_PREDETERMINADOS: TicketPreset[] = [
       proveedor: "Distribuidora San Justo",
       fecha: new Date().toISOString().slice(0, 10),
       items: [
-        { descripcion: "Harina 000 x 25 kg", cantidad: 5, precioUnitario: 8400, unidad: "kg" },
-        { descripcion: "Manteca x 5 kg industrial", cantidad: 2, precioUnitario: 6500, unidad: "kg" },
-        { descripcion: "Azúcar común x 50 kg", cantidad: 1, precioUnitario: 12500, unidad: "kg" },
-        { descripcion: "Levadura fresca x 500 g", cantidad: 6, precioUnitario: 1100, unidad: "u" },
+        {
+          descripcion: "Harina 000 x 25 kg",
+          cantidad: 5,
+          precioUnitario: 8400,
+          unidad: "kg",
+        },
+        {
+          descripcion: "Manteca x 5 kg industrial",
+          cantidad: 2,
+          precioUnitario: 6500,
+          unidad: "kg",
+        },
+        {
+          descripcion: "Azúcar común x 50 kg",
+          cantidad: 1,
+          precioUnitario: 12500,
+          unidad: "kg",
+        },
+        {
+          descripcion: "Levadura fresca x 500 g",
+          cantidad: 6,
+          precioUnitario: 1100,
+          unidad: "u",
+        },
       ],
     },
   },
 ];
 
-// ── Obtención del Token de Autenticación ──────────────────────────────────────
+// ── Autenticación Cognito ────────────────────────────────────────────────────
 
 export async function obtenerTokenAuth(): Promise<string | null> {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined") {
+    return null;
+  }
 
-  // 1. Cookie cognitoIdToken sincronizada por el AuthProvider
-  const match = document.cookie.match(/(?:^|;\s*)cognitoIdToken=([^;]+)/);
-  if (match && match[1]) {
+  // Primero intentamos obtener el token de la cookie.
+  const match = document.cookie.match(
+    /(?:^|;\s*)cognitoIdToken=([^;]+)/
+  );
+
+  if (match?.[1]) {
     return decodeURIComponent(match[1]);
   }
 
-  // 2. Sesión activa de Amazon Cognito
+  // Si no existe la cookie, consultamos la sesión de Cognito.
   const cognitoUser = userPool.getCurrentUser();
-  if (cognitoUser) {
-    return new Promise((resolve) => {
-      cognitoUser.getSession((err: Error | null, session: CognitoUserSession | null) => {
+
+  if (!cognitoUser) {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    cognitoUser.getSession(
+      (err: Error | null, session: CognitoUserSession | null) => {
         if (!err && session?.isValid()) {
           resolve(session.getIdToken().getJwtToken());
         } else {
           resolve(null);
         }
-      });
-    });
-  }
-
-  return null;
+      }
+    );
+  });
 }
 
-// ── Consumo del Endpoint de Sugerencias de Precios ───────────────────────────
+// ── Configuración del endpoint ────────────────────────────────────────────────
 
-const DEFAULT_API_BASE = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com";
+const DEFAULT_API_BASE =
+  "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com";
 
 function obtenerEndpointPrecios(): string {
   const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
   const rawBase = envUrl || DEFAULT_API_BASE;
+
   const baseLimpia = rawBase.replace(/\/+$/, "");
 
   if (baseLimpia.endsWith("/precios/sugerir")) {
     return baseLimpia;
   }
+
   if (baseLimpia.endsWith("/precios")) {
     return `${baseLimpia}/sugerir`;
   }
+
   return `${baseLimpia}/precios/sugerir`;
 }
 
-// ── Normalización Defensiva de Respuestas ───────────────────────────────────
+// ── Funciones auxiliares de normalización ─────────────────────────────────────
+
+function obtenerConfianza(valor: unknown): Confianza {
+  if (valor === "alta" || valor === "media" || valor === "baja") {
+    return valor;
+  }
+
+  return "baja";
+}
+
+function obtenerNumero(
+  valor: unknown,
+  valorAlternativo = 0
+): number {
+  const numero = Number(valor);
+
+  return Number.isFinite(numero) ? numero : valorAlternativo;
+}
 
 function normalizarSugerencia(raw: any): SugerenciaPrecio {
-  if (!raw || typeof raw !== "object") {
+  const precioActual = obtenerNumero(raw?.precioActual);
+  const precioSugerido = obtenerNumero(
+    raw?.precioSugerido,
+    precioActual
+  );
+
+  const variacionPrecio = obtenerNumero(
+    raw?.variacionPrecio,
+    precioActual > 0
+      ? Math.round(
+          ((precioSugerido - precioActual) / precioActual) * 10000
+        ) / 100
+      : 0
+  );
+
+  const costoActual = obtenerNumero(raw?.costoActual);
+
+  const costoAnterior =
+    raw?.costoAnterior !== null &&
+    raw?.costoAnterior !== undefined &&
+    Number.isFinite(Number(raw.costoAnterior))
+      ? Number(raw.costoAnterior)
+      : null;
+
+  const variacionCosto =
+    raw?.variacionCosto !== null &&
+    raw?.variacionCosto !== undefined &&
+    Number.isFinite(Number(raw.variacionCosto))
+      ? Number(raw.variacionCosto)
+      : null;
+
+  const razonamiento = String(
+    raw?.razonamiento ?? raw?.justificacion ?? ""
+  );
+
+  return {
+    productoID: String(raw?.productoID ?? ""),
+    nombre: String(raw?.nombre ?? "Producto sin nombre"),
+    unidadProducto: String(raw?.unidadProducto ?? "unidad"),
+
+    precioActual,
+    costoActual,
+
+    costoAnterior,
+    variacionCosto,
+
+    precioSugerido,
+    variacionPrecio,
+
+    margenResultante: obtenerNumero(raw?.margenResultante),
+
+    razonamiento,
+    confianza: obtenerConfianza(raw?.confianza),
+    superaTopeSuba: Boolean(raw?.superaTopeSuba),
+
+    // Compatibilidad con la versión anterior de precios.tsx.
+    categoria: null,
+    costoNuevo: costoActual,
+    variacionPct: variacionPrecio,
+    estado:
+      Math.abs(variacionPrecio) < 0.01 ? "estable" : "ajustar",
+    justificacion: razonamiento,
+    insumosAfectados: [],
+    ajustadoPorReglas: false,
+    origen: "llm",
+  };
+}
+
+function normalizarProductoSinCosto(raw: any): ProductoSinCosto {
+  if (typeof raw === "string") {
     return {
-      productoID: "",
-      nombre: "Producto desconocido",
-      categoria: null,
-      costoAnterior: null,
-      costoNuevo: null,
-      precioActual: 0,
-      precioSugerido: 0,
-      variacionPct: 0,
-      margenResultante: null,
-      estado: "ajustar",
-      confianza: "baja",
-      justificacion: "",
-      insumosAfectados: [],
-      ajustadoPorReglas: false,
-      origen: "reglas",
+      productoID: raw,
+      motivo: "No se pudo calcular el costo del producto.",
     };
   }
 
-  const precioActual = Number(raw.precioActual ?? raw.precio ?? 0);
-  const precioSugerido = Number(raw.precioSugerido ?? raw.precioNuevo ?? precioActual);
-  const variacionPct =
-    typeof raw.variacionPct === "number"
-      ? raw.variacionPct
-      : typeof raw.variacionPorcentaje === "number"
-      ? raw.variacionPorcentaje
-      : precioActual > 0
-      ? Math.round(((precioSugerido - precioActual) / precioActual) * 1000) / 10
-      : 0;
-
   return {
-    productoID: String(raw.productoID ?? raw.id ?? Math.random()),
-    nombre: String(raw.nombre ?? raw.name ?? raw.producto ?? "Producto"),
-    categoria: raw.categoria ? String(raw.categoria) : null,
-    costoAnterior: typeof raw.costoAnterior === "number" ? raw.costoAnterior : null,
-    costoNuevo:
-      typeof raw.costoNuevo === "number"
-        ? raw.costoNuevo
-        : typeof raw.costo === "number"
-        ? raw.costo
-        : null,
-    precioActual,
-    precioSugerido,
-    variacionPct,
-    margenResultante: typeof raw.margenResultante === "number" ? raw.margenResultante : null,
-    estado: raw.estado === "estable" ? "estable" : "ajustar",
-    confianza: raw.confianza === "alta" || raw.confianza === "media" ? raw.confianza : "baja",
-    justificacion: String(raw.justificacion ?? raw.justificacionIA ?? ""),
-    insumosAfectados: Array.isArray(raw.insumosAfectados)
-      ? raw.insumosAfectados.map(String)
-      : Array.isArray(raw.insumos)
-      ? raw.insumos.map((i: any) => (typeof i === "string" ? i : String(i.insumo || "")))
-      : [],
-    ajustadoPorReglas: Boolean(raw.ajustadoPorReglas),
-    origen: raw.origen === "llm" ? "llm" : "reglas",
+    productoID: String(raw?.productoID ?? ""),
+    motivo: String(raw?.motivo ?? "No se pudo calcular el costo."),
   };
 }
 
 function normalizarInsumo(raw: any): VariacionInsumo {
   return {
     insumo: String(raw?.insumo ?? ""),
-    descripcionTicket: String(raw?.descripcionTicket ?? raw?.descripcion ?? ""),
-    unidad: raw?.unidad === "kg" || raw?.unidad === "l" || raw?.unidad === "u" ? raw.unidad : "u",
-    precioAnterior: typeof raw?.precioAnterior === "number" ? raw.precioAnterior : null,
-    precioNuevo: Number(raw?.precioNuevo ?? raw?.precio ?? 0),
-    variacionPct: typeof raw?.variacionPct === "number" ? raw.variacionPct : null,
+    descripcionTicket: String(
+      raw?.descripcionTicket ?? raw?.descripcion ?? ""
+    ),
+    unidad:
+      raw?.unidad === "kg" ||
+      raw?.unidad === "l" ||
+      raw?.unidad === "u"
+        ? raw.unidad
+        : "u",
+    precioAnterior:
+      typeof raw?.precioAnterior === "number"
+        ? raw.precioAnterior
+        : null,
+    precioNuevo: obtenerNumero(raw?.precioNuevo ?? raw?.precio),
+    variacionPct:
+      typeof raw?.variacionPct === "number"
+        ? raw.variacionPct
+        : null,
     variacionVsPromedioPct:
-      typeof raw?.variacionVsPromedioPct === "number" ? raw.variacionVsPromedioPct : null,
-    certeza: raw?.certeza === "alta" || raw?.certeza === "media" ? raw.certeza : "baja",
+      typeof raw?.variacionVsPromedioPct === "number"
+        ? raw.variacionVsPromedioPct
+        : null,
+    certeza: obtenerConfianza(raw?.certeza),
   };
 }
 
-export function normalizarResultadoPrecios(raw: unknown): ResultadoPrecios {
+// ── Normalización de la respuesta de la Lambda ────────────────────────────────
+
+export function normalizarResultadoPrecios(
+  raw: unknown
+): ResultadoPrecios {
+  const resultadoVacio: ResultadoPrecios = {
+    success: false,
+    mensaje: "No se recibieron datos de la Lambda.",
+
+    sugerenciaPrecioID: "",
+    fechaGeneracion: new Date().toISOString(),
+    estado: "pendiente",
+
+    cantidadProductosAnalizados: 0,
+    cantidadSugerencias: 0,
+    cantidadProductosSinCosto: 0,
+
+    sugerencias: [],
+    productosSinCosto: [],
+
+    // Compatibilidad temporal.
+    usuarioID: "",
+    origen: "reglas",
+    versionPrompt: "",
+    generadaEn: new Date().toISOString(),
+    insumos: [],
+    productosSinReceta: [],
+    degradado: false,
+    motivoDegradacion: null,
+    guardado: false,
+  };
+
   if (!raw || typeof raw !== "object") {
-    return {
-      usuarioID: "",
-      origen: "reglas",
-      versionPrompt: "",
-      generadaEn: new Date().toISOString(),
-      insumos: [],
-      sugerencias: [],
-      productosSinReceta: [],
-      degradado: false,
-      motivoDegradacion: null,
-      guardado: false,
-    };
+    return resultadoVacio;
   }
 
-  // Si vino un array directo de sugerencias
-  if (Array.isArray(raw)) {
-    return {
-      usuarioID: "",
-      origen: "reglas",
-      versionPrompt: "",
-      generadaEn: new Date().toISOString(),
-      insumos: [],
-      sugerencias: raw.map(normalizarSugerencia),
-      productosSinReceta: [],
-      degradado: false,
-      motivoDegradacion: null,
-      guardado: false,
-    };
-  }
+  // Algunas integraciones pueden devolver el body como JSON en texto.
+  const obj = raw as Record<string, any>;
 
-  const obj = raw as Record<string, unknown>;
-
-  // Si el cuerpo viene como string JSON (Lambda proxy)
   if (typeof obj.body === "string") {
     try {
-      const parsed = JSON.parse(obj.body);
-      return normalizarResultadoPrecios(parsed);
+      return normalizarResultadoPrecios(JSON.parse(obj.body));
     } catch {
-      // Ignorar si no es JSON válido
+      return {
+        ...resultadoVacio,
+        mensaje: "La respuesta de AWS no contiene un JSON válido.",
+      };
     }
   }
 
   const sugerenciasRaw = Array.isArray(obj.sugerencias)
     ? obj.sugerencias
-    : Array.isArray(obj.precios)
-    ? obj.precios
     : [];
 
-  const insumosRaw = Array.isArray(obj.insumos) ? obj.insumos : [];
-  const sinRecetaRaw = Array.isArray(obj.productosSinReceta) ? obj.productosSinReceta : [];
+  const productosSinCostoRaw = Array.isArray(obj.productosSinCosto)
+    ? obj.productosSinCosto
+    : [];
+
+  const sugerencias = sugerenciasRaw.map(normalizarSugerencia);
+  const productosSinCosto =
+    productosSinCostoRaw.map(normalizarProductoSinCosto);
+
+  const fechaGeneracion =
+    typeof obj.fechaGeneracion === "string"
+      ? obj.fechaGeneracion
+      : new Date().toISOString();
+
+  const sugerenciaPrecioID =
+    typeof obj.sugerenciaPrecioID === "string"
+      ? obj.sugerenciaPrecioID
+      : "";
 
   return {
-    usuarioID: typeof obj.usuarioID === "string" ? obj.usuarioID : "",
-    origen: obj.origen === "llm" ? "llm" : "reglas",
-    versionPrompt: typeof obj.versionPrompt === "string" ? obj.versionPrompt : "",
-    generadaEn: typeof obj.generadaEn === "string" ? obj.generadaEn : new Date().toISOString(),
-    insumos: insumosRaw.map(normalizarInsumo),
-    sugerencias: sugerenciasRaw.map(normalizarSugerencia),
-    productosSinReceta: sinRecetaRaw.map(String),
-    degradado: Boolean(obj.degradado),
-    motivoDegradacion: typeof obj.motivoDegradacion === "string" ? obj.motivoDegradacion : null,
-    guardado: Boolean(obj.guardado),
+    success: obj.success === true,
+    mensaje: String(
+      obj.mensaje ?? "Sugerencias procesadas."
+    ),
+
+    sugerenciaPrecioID,
+    fechaGeneracion,
+    estado: String(obj.estado ?? "pendiente"),
+
+    cantidadProductosAnalizados: obtenerNumero(
+      obj.cantidadProductosAnalizados
+    ),
+    cantidadSugerencias: obtenerNumero(
+      obj.cantidadSugerencias,
+      sugerencias.length
+    ),
+    cantidadProductosSinCosto: obtenerNumero(
+      obj.cantidadProductosSinCosto,
+      productosSinCosto.length
+    ),
+
+    sugerencias,
+    productosSinCosto,
+
+    // Compatibilidad temporal con la pantalla anterior.
+    usuarioID: "",
+    origen: "llm",
+    versionPrompt: "",
+    generadaEn: fechaGeneracion,
+    insumos: Array.isArray(obj.insumos)
+      ? obj.insumos.map(normalizarInsumo)
+      : [],
+    productosSinReceta: productosSinCosto.map(
+      (producto) => producto.productoID
+    ),
+    degradado: false,
+    motivoDegradacion: null,
+    guardado: Boolean(sugerenciaPrecioID),
   };
 }
 
+// ── Consumo del endpoint de sugerencias ───────────────────────────────────────
+
 export async function sugerirPreciosConIA(
-  ticket: Ticket,
-  usuarioID?: string | null
+  _ticket?: Ticket,
+  _usuarioID?: string | null
 ): Promise<ResultadoPrecios> {
   const token = await obtenerTokenAuth();
-
-  const idUsuario = usuarioID || "user_test_123";
   const endpoint = obtenerEndpointPrecios();
-  // Pasamos el usuarioID por query string para habilitar desarrollo/pruebas locales si no hay Authorizer activo
-  const url = `${endpoint}?usuarioID=${encodeURIComponent(idUsuario)}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
   if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+    headers.Authorization = `Bearer ${token}`;
   }
 
   let response: Response;
+
   try {
-    response = await fetch(url, {
+    response = await fetch(endpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify({ ticket }),
+      // La Lambda obtiene los productos, recetas y gastos desde DynamoDB.
+      body: JSON.stringify({}),
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    if (errorMsg.includes("Failed to fetch") || errorMsg.includes("ERR_FAILED")) {
+    const errorMsg =
+      err instanceof Error ? err.message : String(err);
+
+    if (
+      errorMsg.includes("Failed to fetch") ||
+      errorMsg.includes("ERR_FAILED")
+    ) {
       throw new Error(
-        `Error de conexión con AWS (${endpoint}). Verificá que la ruta esté desplegada en API Gateway y que tenga CORS habilitado para peticiones POST con Content-Type y Authorization.`
+        `Error de conexión con AWS (${endpoint}). Verificá que la ruta esté desplegada en API Gateway y que CORS permita el origen de tu frontend.`
       );
     }
+
     throw new Error(`Error de red al consultar AWS: ${errorMsg}`);
   }
 
@@ -353,11 +562,71 @@ export async function sugerirPreciosConIA(
 
   if (!response.ok) {
     const errorMsg =
-      (data && typeof data === "object" && "error" in data && typeof data.error === "string" && data.error) ||
-      `Error ${response.status}: no se pudieron calcular las sugerencias de precios.`;
+      data &&
+      typeof data === "object" &&
+      typeof data.error === "string"
+        ? data.error
+        : `Error ${response.status}: no se pudieron generar las sugerencias.`;
+
     throw new Error(errorMsg);
   }
 
-  return normalizarResultadoPrecios(data);
+  const resultado = normalizarResultadoPrecios(data);
+
+  if (!resultado.success) {
+    throw new Error(
+      resultado.mensaje || "La Lambda no pudo generar las sugerencias."
+    );
+  }
+
+  return resultado;
 }
 
+export async function aplicarPrecioIndividual(
+  sugerenciaPrecioID: string,
+  productoID: string
+): Promise<ResultadoAplicarPrecio> {
+  if (!sugerenciaPrecioID || !productoID) {
+    throw new Error(
+      "Falta el identificador de la sugerencia o del producto."
+    );
+  }
+
+  const token = await obtenerTokenAuth();
+
+  if (!token) {
+    throw new Error(
+      "No se pudo obtener el token de autenticación. Iniciá sesión nuevamente."
+    );
+  }
+
+  const apiBase = (
+    process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE
+  ).replace(/\/+$/, "");
+
+  const url = `${apiBase}/precios/aplicar`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      sugerenciaPrecioID,
+      productoID,
+    }),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok || !data.success) {
+    throw new Error(
+      data.mensaje ||
+      data.error ||
+      "No se pudo aplicar el precio."
+    );
+  }
+
+  return data as ResultadoAplicarPrecio;
+}
