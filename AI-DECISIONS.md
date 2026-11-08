@@ -140,3 +140,292 @@ La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
 **Prompt / Herramienta utilizada:** Cloud Debugging con Gemini.
 **Código / Arquitectura generada:** Implementación del patrón Amazon API Gateway (HTTP API) como proxy inverso frente a Lambda.
 **Validación y Corrección Humana:** Rediseño alineado a topologías de producción. Se delegó el manejo de CORS y el enrutamiento público a API Gateway, superando el bloqueo de seguridad del entorno.
+
+## 18/10/2026 - Aprovisionamiento de tablas DynamoDB (IaC) y Lambda de Clima
+
+**Problema abordado:** Faltaba aprovisionar la capa de datos para facturas, productos, ventas y predicciones, y una función que traiga el pronóstico del clima (una variable del modelo de predicción de demanda, según el one-pager). Hasta ahora toda la infraestructura se creaba a mano en la consola, sin trazabilidad en el repositorio.
+
+**Prompt / Herramienta utilizada:** Antigravity IDE (Google Deepmind).
+*Prompt:* "Actúa como un ingeniero de software experto en desarrollo full stack, necesito aprovisionar las tablas en DynamoDB/RDS y armar la función lambda que consume la API del clima. Haz un plan de ejecución para dicha tarea."
+
+**Código / Arquitectura generada:**
+
+- **ADR `docs/DATABASE-DECISION.md`:** DynamoDB On-Demand sobre RDS. Con RDS la Lambda tendría que vivir en una VPC y necesitaría un NAT Gateway (~USD 32/mes) para llegar a la API del clima.
+- **`backend/infra/template.yaml` (CloudFormation):** 5 tablas con clave compuesta `usuarioID` + SK (`Facturas`, `Productos`, `Ventas`, `Predicciones`, `Clima`), TTL en Clima/Predicciones, `DeletionPolicy: Retain` en las tablas de negocio. Lambda `obtenerClima` (Node 20, arm64, concurrencia reservada 2), ruta `GET /clima` agregada a la HTTP API existente, authorizer JWT de Cognito opcional y regla de EventBridge diaria a las 05:00 ART.
+- **Lambda `obtenerClima`:** consume **Open-Meteo** (gratis, sin API key → no hay secretos que gestionar). Usa estrategia cache-first (6 h) en `Medianube-Clima`; si la API falla, devuelve la última cache marcada como `desactualizado`. La lógica está desacoplada del AWS SDK por inyección de dependencias y tiene 28 tests unitarios con `node:test`.
+
+**Validación y Corrección Humana:**
+
+- **Clave de `Medianube-Clima`:** la IA planteó que el clima depende de la ubicación y no del usuario. El equipo decidió mantener la clave compuesta `usuarioID` + `fecha` para respetar la convención del README, aceptando que se dupliquen datos de usuarios de la misma ciudad.
+- **Herramientas disponibles:** el equipo no tiene AWS CLI ni SAM CLI instalados. Se descartó SAM y se usó CloudFormation puro, desplegable desde AWS CloudShell con `aws cloudformation package/deploy`.
+- **Restricciones de AWS Academy:** como no se pueden crear roles IAM, el template recibe un `RolLambdaArn` opcional (`LabRole`). Se eligió una regla clásica de EventBridge en lugar de EventBridge Scheduler porque esta última requiere un rol propio.
+- **Autenticación:** el equipo no tenía confirmado si existía un authorizer JWT en API Gateway. Se dejó un parámetro `ModoAutenticacion` (`dev` acepta `?usuarioID=`, `jwt` valida el token de Cognito). La Lambda siempre prioriza el claim `sub` por sobre el query string, para evitar suplantación cuando se active `jwt`.
+- **Fechas:** se verificó por test que el "hoy" se calcule en la zona horaria de Argentina (a las 23:30 ART ya es el día siguiente en UTC).
+- **Prueba real:** se validó la normalización contra la API real de Open-Meteo para La Plata (7 días con códigos WMO traducidos al español).
+- **Riesgo detectado:** si `guardarConfiguracionOnboarding` usa `PutItem`, va a borrar el atributo `ubicacion`. Hay que migrarla a `UpdateItem`.
+- **Runtime deprecado:** la IA propuso primero `nodejs20.x`. Al validar el template con `cfn-lint` apareció el aviso W2531 (runtime deprecado desde el 30/04/2026) y se pasó a `nodejs22.x`, alineado con la versión local del equipo.
+
+
+
+## 23/10/2026 - Motor OCR: trigger de S3 hacia AWS Lambda y Amazon Textract
+
+**Problema abordado:** Procesar automáticamente cada factura subida desde la vista `app/compras/subir`, sin intervención del usuario, para extraer sus datos (proveedor, fecha, total e ítems). Las facturas ya se alojaban en S3 mediante Presigned URLs, pero nada reaccionaba a la subida.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic).
+*Prompt:* "Soy la Persona 3 del proyecto. Mi tarea es configurar un trigger de S3 para enviar la factura a Amazon Textract o IA Vision y extraer el texto. ¿Cómo sigo?", seguido de consultas paso a paso sobre la consola de AWS (permisos del rol, timeout, configuración del desencadenador y lectura de logs en CloudWatch).
+
+**Código / Arquitectura generada:**
+
+- Arquitectura orientada a eventos: S3 Event Notification (`Todos los eventos de creación de objetos`, prefijo de facturas) → Lambda `procesarFactura` (Node.js) → Amazon Textract.
+- Uso de la API `AnalyzeExpense` en lugar de `DetectDocumentText`, porque devuelve los campos de la factura ya etiquetados (`VENDOR_NAME`, `INVOICE_RECEIPT_DATE`, `TOTAL`) y los ítems en `LineItemGroups`, en vez de texto plano.
+- Código de la Lambda que toma el bucket y la key del evento (decodificando la key), llama a Textract, normaliza la respuesta a un JSON con proveedor, fecha, total e ítems, y maneja errores por factura con `try/catch` para que un archivo defectuoso no corte el procesamiento.
+- Ajuste del timeout de la Lambda de 3 a 30 segundos.
+
+**Validación y Corrección Humana:**
+
+- **Prueba incremental:** antes de integrar Textract se desplegó una versión que solo logueaba el evento recibido (`console.log(JSON.stringify(event))`), y se verificó en CloudWatch que S3 disparaba la Lambda con el bucket y la key correctos.
+- **Permisos:** se revisó el rol de ejecución (`PowerUser-lambda-4`) y se confirmó que ya tenía `PowerUserAccess`, por lo que no fue necesario agregar las políticas de Textract y S3 que la IA había propuesto inicialmente.
+- **Invocación recursiva:** se aceptó la advertencia de AWS dejando como regla que la Lambda nunca escriba archivos en el mismo prefijo que la dispara, para evitar un loop de ejecuciones.
+- **Limitación detectada:** la versión sincrónica de `AnalyzeExpense` solo admite PDF de una página; los documentos de varias páginas requieren la API asincrónica (`StartExpenseAnalysis`).
+
+
+## 23/10/2026 - Diagnóstico del bloqueo de Amazon Textract (AccessDeniedException por SCP)
+
+**Problema abordado:** Al probar el motor OCR, la Lambda fallaba con `AccessDeniedException`: el rol no estaba autorizado a ejecutar `textract:AnalyzeExpense` por un *explicit deny* en una Service Control Policy. El trigger, el código y los permisos IAM eran correctos.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic), con búsqueda web sobre la documentación de AWS. Se le enviaron los logs completos de CloudWatch y una captura de la página de inicio de la consola, preguntando el origen del bloqueo y cómo verificarlo.
+
+**Código / Arquitectura generada:** La IA explicó que un *explicit deny* en una SCP se define a nivel de organización y prevalece sobre cualquier política IAM (incluida `PowerUserAccess`), por lo que no se resuelve modificando el rol. Con la documentación de AWS identificó la causa: la cuenta usa la nueva experiencia de AWS (proyectos y equipo) con plan gratuito, en la que Textract no está habilitado salvo que se activen las "características avanzadas". Según AWS, las cuentas con plan gratuito pasan automáticamente al plan pago al unirse a AWS Organizations.
+
+**Validación y Corrección Humana:**
+
+- **Diagnósticos erróneos de la IA:** la IA concluyó primero que la cuenta no pertenecía a ninguna organización, lo que contradecía el ARN de la SCP presente en los logs (una organización administrada desde otra cuenta). Después supuso que el acceso a AWS era una plataforma de terceros; la captura de la consola demostró que era AWS oficial, con "Medianube" como proyecto. Ambas conclusiones se descartaron contrastándolas con la evidencia real (logs, URL y pantallas de la consola).
+- **Rechazo de activar características avanzadas:** el asistente de AWS para activarlas pedía crear un equipo y una nueva cuenta de administración con otro correo. Se decidió no hacerlo, porque implicaba reorganizar la cuenta del proyecto, probablemente pasar al plan pago (con riesgo de costos fuera de los créditos) y era un cambio difícil de revertir para una tarea puntual.
+- **Conclusión:** se confirmó en "Facturación y administración de costos" que la cuenta está en plan gratuito, y se descartó Textract como motor OCR.
+
+
+## 23/10/2026 - Reemplazo de Amazon Textract por un LLM con visión (Gemini)
+
+**Problema abordado:** Con Textract bloqueado, había que elegir otro motor OCR que funcionara bien con facturas y no generara costos ni requiriera cambiar el plan de la cuenta de AWS.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic).
+*Prompts:* "¿Qué alternativa proponés?", "¿Hay que pagar para usar un LLM con visión?" y "Quiero algo que funcione bien y sea gratis".
+
+**Código / Arquitectura generada:** La IA comparó cuatro alternativas:
+
+- **Amazon Bedrock** (Nova o Claude): quedaría dentro de AWS y sin API key, pero su disponibilidad en el plan gratuito solo estaba respaldada por una fuente de la comunidad, no oficial.
+- **Amazon Rekognition:** descartado, porque está pensado para detectar texto en fotos y carteles, no para leer facturas completas.
+- **APIs pagas** (OpenAI, Anthropic): requieren tarjeta y saldo; la suscripción a los chats no incluye la API.
+- **Gemini** de Google, nivel gratuito de Google AI Studio: sin tarjeta, admite imágenes y PDF de varias páginas, y no depende de las restricciones de la cuenta de AWS.
+
+Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y permisos) y cambiando solo la parte del código que llama al motor OCR.
+
+**Validación y Corrección Humana:**
+
+- **Alineación con la planificación:** se verificó que la tarea original permitía "Amazon Textract o IA Vision", y que la tarea de la semana 3 ya mencionaba el "JSON estructurado devuelto por la IA de Visión", por lo que el cambio no altera el alcance.
+- **Gestión del secreto:** la API key se guardó como variable de entorno de la Lambda (`GEMINI_API_KEY`) y no se escribe en el código ni se sube al repositorio.
+- **Privacidad:** se tuvo en cuenta que, en el nivel gratuito, Google puede usar los datos enviados para mejorar sus modelos. Se aceptó para facturas de prueba, y queda señalado como punto a revisar antes de procesar facturas reales de clientes.
+
+
+## 23/10/2026 - Integración con la API de Gemini y diseño del prompt de extracción
+
+**Problema abordado:** Implementar la llamada a Gemini desde la Lambda y diseñar un prompt que devuelva datos de facturas en un formato estable y apto para guardar en la base de datos.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic), con los logs de CloudWatch de cada prueba.
+
+**Código / Arquitectura generada:**
+
+- La Lambda descarga la factura de S3 (`GetObject`), la convierte a base64 y la envía a la API `generateContent` de Gemini junto con el prompt, detectando el tipo de archivo por la extensión (PDF, PNG, JPG, WEBP).
+- Prompt de extracción con un esquema JSON fijo (proveedor, CUIT, número de factura, fecha `AAAA-MM-DD`, total, moneda e ítems), números sin símbolos ni separadores de miles, y la instrucción explícita de devolver `null` ante datos ausentes y no inventar información.
+- Configuración `responseMimeType: "application/json"` y `temperature: 0`, para obtener JSON válido y respuestas deterministas.
+
+**Validación y Corrección Humana:**
+
+- **API key inválida (400 `API_KEY_INVALID`):** se resolvió volviendo a copiar la clave desde Google AI Studio en la variable de entorno.
+- **Timeout:** la Lambda llegaba al límite de 30 s con 111 de 128 MB de memoria. Se subió la memoria a 512 MB y el timeout a 90 s.
+- **Saturación del modelo (503 `UNAVAILABLE`):** el modelo inicial (`gemini-flash-latest`) rechazaba los pedidos por alta demanda. Se cambió a `gemini-flash-lite-latest`, que respondió en 1,5 s.
+- **Verificación de la extracción:** con una factura de prueba se comprobaron las cuentas (25 × 254,62 = 6.365,50 y 25 × 9 = 225) y que el total coincidía con el subtotal más un 21% de impuestos. El CUIT vino en `null` porque la factura era extranjera: el modelo no inventó el dato.
+- **Pendiente:** validar la extracción con facturas argentinas reales.
+
+
+## 23/10/2026 - Persistencia del resultado del OCR en DynamoDB
+
+**Problema abordado:** Guardar el JSON devuelto por Gemini en DynamoDB de forma que el historial de compras (Lambda `listarGastos` y su pantalla) lo muestre sin modificaciones.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic). Se le pasaron los atributos reales de la tabla `Gastos` (clave de partición `gastoID` y campos `categoria`, `fecha`, `monto`, `proveedor` y `usuarioID`), pidiendo guardar el resultado del OCR respetando ese esquema.
+
+**Código / Arquitectura generada:**
+
+- Mapeo del JSON de Gemini al esquema existente: `gastoID` generado con `randomUUID()` (prefijo `g-`), `monto` = total de la factura, `fecha` y `proveedor` directos, y `usuarioID` tomado del segmento de usuario de la key de S3 (`facturas/<usuario>/...`).
+- Nuevo campo `categoria` en el prompt: una palabra en minúscula que describe el producto principal (por ejemplo, `harina`), para mantener la convención de los datos existentes.
+- Atributos adicionales que DynamoDB admite por no tener esquema fijo: `moneda`, `numeroFactura`, `cuitProveedor`, `items` y `archivoS3`, este último con la ruta del archivo original en el bucket.
+- Escritura con `PutCommand` del `DynamoDBDocumentClient`, con el nombre de la tabla en una variable de entorno (`TABLA_GASTOS`).
+
+**Validación y Corrección Humana:**
+
+- **Compatibilidad:** se priorizó respetar el esquema que ya consumía el historial (Persona 1 y Persona 2) en lugar de crear una estructura nueva, para no romper funcionalidades existentes.
+- **Prueba de punta a punta:** se subió una factura desde el frontend y se verificó la fila nueva en DynamoDB con los datos extraídos.
+- **Trazabilidad:** el campo `archivoS3` vincula cada gasto con su comprobante original, lo que permite agregar a futuro una opción para ver la factura desde el historial.
+- **Pendiente:** el segmento de usuario de la key de S3 hoy es `anon`; cuando la subida use el usuario autenticado en Cognito, `usuarioID` va a quedar asociado al usuario real sin cambios en la Lambda.
+
+## 24/10/2026 - Corrección de la configuración de ESLint del frontend
+
+**Problema abordado:** `npm run lint` fallaba con "Cannot find module eslint-config-next/core-web-vitals" porque `eslint.config.mjs` estaba escrito para eslint-config-next 16 y el proyecto usa la versión 15.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic). Prompt: error completo de lint y package.json, pidiendo la corrección sin actualizar dependencias.
+
+**Código / Arquitectura generada:** eslint.config.mjs con FlatCompat extendiendo next/core-web-vitals y next/typescript.
+
+**Validación y Corrección Humana:** Se confirmó con `npm ls` que el proyecto usa eslint-config-next 15.5.25 y que la config estaba escrita para la versión 16. Tras el fix, el lint corre y devuelve 0 errores y 2 warnings. Se corrigió el warning de variable sin usar en StepIndicator y se dejó el warning de fuentes en layout.tsx, porque en App Router la carga de Material Symbols por <link> funciona correctamente y cambiarla excede el alcance del ticket.
+
+## 29/10/2026 - Arquitectura hexagonal en TypeScript para el backend (refactor de `obtenerClima`)
+
+**Problema abordado:** Antes de sumar el motor de precios con LLM, había que definir una arquitectura de backend mantenible y escalable. La única Lambda existente (`obtenerClima`) estaba en JavaScript plano y mezclaba, en pocos archivos, lógica de negocio, acceso a DynamoDB y parsing de eventos de AWS.
+
+**Prompt / Herramienta utilizada:** Antigravity IDE (Google Deepmind).
+*Prompt:* "Necesito saber qué arquitectura usar para el backend, pensé en una arquitectura hexagonal que sea mantenible y escalable, usando algún framework como Node.js para luego aplicar cómputo serverless mediante funciones (AWS Lambda) para garantizar elasticidad. ¿Qué me recomiendas hacer?"
+
+**Código / Arquitectura generada:**
+
+- **Arquitectura hexagonal sin framework:** capas `domain ← application ← ports ← adapters` con un *composition root* por Lambda. Una Lambda por caso de uso con núcleo compartido. Documentado en `docs/BACKEND-ARCHITECTURE.md`.
+- **Migración a TypeScript estricto** con bundle de esbuild por Lambda (`dist/<nombre>/index.mjs`) y `tsc --noEmit` solo para verificar tipos.
+- **Refactor de `obtenerClima`:** el servicio quedó dependiendo únicamente de los puertos `ClimaRepositorioPort`, `PronosticoPort` y `LoggerPort`; DynamoDB y Open-Meteo pasaron a ser adaptadores de salida, y el handler de Lambda un adaptador de entrada.
+
+**Validación y Corrección Humana:**
+
+- **Framework descartado:** el equipo pidió evaluar un framework de Node.js. La IA recomendó no usar NestJS ni Express, porque en Lambda cada función ya tiene un trigger y un handler, y el framework solo agregaría cold start. El equipo aceptó mantener Node.js plano con inyección de dependencias por funciones.
+- **TypeScript (decisión del equipo):** la IA ofreció mantener JS con JSDoc; el equipo eligió migrar a TypeScript para alinearse con el frontend, aceptando el costo de un paso de build.
+- **Refactor sin cambio de comportamiento:** los 28 tests existentes se migraron a TypeScript separados por capa y siguen pasando; `tsc` no reporta errores. Se verificó que el bundle compilado carga y responde `401` ante un evento sin identidad, y que `cfn-lint` sigue sin errores.
+- **Cambios de infraestructura:** el campo `Code` de la Lambda en `template.yaml` pasó a apuntar a `dist/obtenerClima` y `deploy.sh` ahora corre `npm ci`, `npm run check` y `npm run build` antes de empaquetar.
+- **Riesgo conocido:** CloudShell puede traer una versión de Node distinta de la 22 y el build lo requiere. Se documentó `nvm install 22` en el README del backend.
+
+## 31/10/2026 - Motor de precios con LLM (`POST /precios/sugerir`)
+
+**Problema abordado:** Diseñar el prompt que compara el ticket extraído de una factura con el historial de compras para sugerir nuevos precios de venta, y la lógica de precios que lo rodea: emparejamiento de insumos, costos por receta, límites de margen y suba, y respuesta ante fallas del LLM.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5).
+*Prompt:* "Necesito realizar una feature en la rama motor-precios que diseñe el prompt LLM que compare el ticket extraído con el historial para sugerir nuevos precios de venta, cubriendo básicamente la lógica de precios. Haz un plan de ejecución para dicha tarea." Primero se pidió y aprobó un plan; después se implementó en commits chicos.
+
+**Código / Arquitectura generada:**
+
+- **Dominio de precios** (`backend/src/domain/precios/`): normalización de presentaciones a precio por kg/l/u, emparejamiento de insumos por similitud de nombres, resumen del historial, costo por receta, guardas (margen mínimo, tope de suba, redondeo ARS) y nivel de confianza.
+- **Caso de uso** `servicioPrecios`: le pasa al LLM los números ya calculados, sanea la respuesta, aplica guardas y, si el LLM falla, responde con reglas (`origen: "reglas"`).
+- **Prompt versionado** `precios-v1` y adaptador de Claude: salida JSON con *structured outputs*, `fallbacks: "default"`, manejo de `stop_reason` y protección contra inyección desde el OCR.
+- **Infraestructura:** Lambda `sugerirPrecios`, ruta `POST /precios/sugerir`, parámetro `ClaudeApiKey` (NoEcho), seed de demo y ADR en `docs/MOTOR-PRECIOS.md`.
+
+**Validación y Corrección Humana:**
+
+- **Decisiones del equipo:** partir de la última versión de `main` (backend hexagonal), usar la API de Claude directa en lugar de Bedrock (bloqueado en Learner Lab) y limitar el alcance a backend + endpoint; el frontend queda con mocks para otra tarea.
+- **Correcciones sobre el plan inicial de la IA:** el plan proponía llamar a la API con `fetch`, usar `claude-sonnet-5-5` y forzar `tool_choice` con `temperature: 0`. Al contrastarlo con la documentación vigente de la API se cambió a: SDK oficial, `claude-opus-5-5` configurable, *structured outputs* (el `tool_choice` forzado y `temperature` devuelven 400 en los modelos actuales) y `effort` explícito.
+- **Modelo de datos:** se detectó que sin recetas no se puede pasar del costo de un insumo al de un producto. Se agregó `receta` a `Medianube-Productos`, y los productos sin receta se informan en lugar de inventarles un costo.
+- **El LLM no tiene la última palabra:** sus precios pasan por guardas determinísticas y su confianza nunca supera la que permite la evidencia (historial y receta), de acuerdo con el principio de "honestidad en la incertidumbre" de `docs/UXUI/DESIGN.md`.
+- **Pruebas:** 80 tests (dominio, caso de uso, prompt y adaptadores con un cliente falso), `tsc` sin errores, bundle verificado en Node 22 y una corrida completa sin AWS con los datos del seed: el detergente no se empareja y "harina 000" no se confunde con "harina 0000".
+- **Pendiente de validar por el equipo:** probar contra la API real con facturas reales (calidad de emparejamientos y justificaciones), confirmar qué tabla y qué atributos usa `listarGastos` para las facturas, y mover la API key a SSM Parameter Store antes de producción.
+
+
+## 31/10/2026 - Filtros y búsqueda en la Lambda `listarGastos`
+
+**Problema abordado:** La Lambda del historial devolvía siempre todos los gastos, sin orden y leyendo una sola página del `Scan` (hasta 1 MB). Había que permitir búsquedas por proveedor y rango de fechas sin romper la pantalla que ya la consumía.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic). Se le pasó el código original de `listarGastos` y la tarea de la planificación: "Modificar la Lambda de historial para permitir búsquedas por fecha/proveedor y conectarlo a la UI de compras".
+
+**Código / Arquitectura generada:**
+
+- Lectura de filtros opcionales desde `queryStringParameters`: `proveedor`, `desde` y `hasta`.
+- Validación de las fechas con una expresión regular (`AAAA-MM-DD`), respondiendo `400` con un mensaje de error si el formato es inválido.
+- `Scan` paginado con `LastEvaluatedKey` / `ExclusiveStartKey` para leer la tabla completa.
+- Filtrado en memoria: búsqueda parcial de proveedor sin distinguir mayúsculas y rango de fechas por comparación de strings (válida por el formato ISO).
+- Orden de los resultados del más nuevo al más viejo.
+- Mismo formato de respuesta (`{ gastos, count }`), con `count` igual a la cantidad de resultados filtrados.
+
+**Validación y Corrección Humana:**
+
+- **Scan frente a Query con GSI:** se evaluó rediseñar la tabla con un índice secundario por proveedor y fecha. Se eligió `Scan` con filtrado en memoria por ser suficiente para el volumen de datos del MVP y no requerir cambios en la tabla. Queda como deuda técnica migrar a `Query` con GSI si la tabla crece.
+- **Nombre de la tabla:** la IA propuso pasarlo a una variable de entorno; se decidió mantener `"Gastos"` fijo, como en el código original de Persona 1.
+- **Posible error de tabla detectado por la IA:** la IA advirtió una posible diferencia entre `Gastos` y `gastos`. Se verificó que existe una sola tabla (`Gastos`), y que estaba vacía porque sus registros de ejemplo habían sido borrados.
+- **Datos de prueba:** se cargaron 4 gastos desde la consola de DynamoDB. La consola rechazaba el JSON común con el editor en modo "JSON de DynamoDB", y se resolvió usando el formato tipado (`{"S": ...}`, `{"N": ...}`).
+- **Pruebas:** se ejecutaron 5 eventos de prueba en la consola (sin filtros, por proveedor, desde una fecha, por rango y con una fecha mal escrita) y todos devolvieron lo esperado, incluido el `400`.
+- **Compatibilidad hacia atrás:** sin filtros, la respuesta conserva el formato original, por lo que la pantalla existente sigue funcionando sin cambios.
+
+
+## 31/10/2026 - Integración de los filtros en el frontend y separación de correcciones de lint
+
+**Problema abordado:** Agregar los filtros de proveedor y fechas a la pantalla del historial de compras, conectándolos con el endpoint de `listarGastos`.
+
+**Prompt / Herramienta utilizada:** Claude Code (Anthropic), ejecutado sobre el repositorio en la rama `feature/filtros-historial`.
+*Prompt:* "Necesito agregar filtros de búsqueda a la pantalla del historial de compras. El endpoint acepta proveedor (búsqueda parcial), desde y hasta (AAAA-MM-DD) y responde 400 si la fecha es inválida. Quiero un campo de proveedor, dos campos de fecha, botones Buscar y Limpiar, validación de que Desde no sea posterior a Hasta y estados de carga, error y sin resultados. Reutilizá la URL y la lógica de fetch existentes, respetá el estilo de la UI, no cambies cómo se renderiza la lista y no hagas commits. Primero explicame qué vas a cambiar; al final corré lint y build."
+
+**Código / Arquitectura generada:**
+
+- Antes de editar, la IA detectó que `frontend/app/compras/page.tsx` no llamaba a ningún endpoint: mostraba una constante `INVOICES` escrita a mano. El `fetch` a `/compras` existía solo en la rama `feat/historial-compras-front`, que no estaba integrada, y propuso tres formas de traerlo.
+- Función `buscarGastos(filtros)` que arma los parámetros con `URLSearchParams` (solo los filtros completos) y propaga el mensaje de error del `400`.
+- Componente nuevo `app/compras/FiltrosHistorial.tsx` con los campos Proveedor, Desde y Hasta, botones Buscar y Limpiar, búsqueda con Enter y validación del rango de fechas.
+- Estados de carga, error y "No se encontraron compras con esos filtros" en `page.tsx`, sin cambiar el renderizado de las filas.
+
+**Validación y Corrección Humana:**
+
+- **Dependencia con otra rama:** se integró el trabajo de la rama del historial antes de agregar los filtros, en lugar de reescribir el fetch desde cero, para no duplicar código ni generar conflictos.
+- **Errores de lint previos:** la IA corrió el lint antes de hacer cambios para distinguir errores existentes de nuevos. El build fallaba por dos `any` ajenos a la tarea, en `app/dashboard/page.tsx` y `app/demanda/page.tsx`. Se rechazó corregirlos dentro del PR de filtros para que este contenga solo la funcionalidad. La corrección se hizo en una rama aparte (`fix/frontend-lint-any`), creada desde `main` en un *git worktree*, para no afectar cambios sin commitear de la rama de filtros.
+- **Prevención de conflictos:** los `any` de `app/compras/page.tsx` se corrigieron solo en la rama de filtros, porque esas líneas ya se modificaban ahí; corregirlos también en la rama de fix habría generado conflictos al mergear.
+- **Verificación:** los archivos nuevos pasaron el lint y el chequeo de tipos (`tsc`), y la funcionalidad se probó manualmente en el navegador contra el backend real (búsqueda por proveedor, por rango de fechas, rango inválido y limpieza de filtros) antes de abrir el Pull Request.
+
+## 01/11/2026 - Manejo de errores del backend ante caídas de Open-Meteo y Claude
+
+**Problema abordado:** Validar que las Lambdas no fallen cuando no responden la API del clima (Open-Meteo) o el LLM (Claude). Al revisar el código se encontraron estos huecos:
+- `GET /clima` respondía 502 sin cache.
+- El refresco programado podía cortarse por timeout con Open-Meteo caído.
+- El LLM tenía un timeout fijo que podía superar el corte de API Gateway.
+- Una falla al guardar las sugerencias convertía en 500 una respuesta ya calculada.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5).
+*Prompt:* "Necesito realizar otra feature en una rama nueva: manejo de errores del back, se debe validar en las lambdas que la aplicación no falle si la API del clima o el modelo LLM no responden." Primero se pidió y aprobó un plan; después se implementó en la rama `feat/manejo-errores` en commits chicos.
+
+**Código / Arquitectura generada:**
+
+- **Errores con motivo:** `ErrorServicioExterno` lleva `motivo` y `servicio`. Se agregaron helpers HTTP (`respuestaError`: 500 con `requestId` o 503 con `Retry-After` por throttling; `plazoDe`: tiempo restante de la Lambda) y un registro uniforme `dependencia_caida`.
+- **Clima:**
+  - respuesta 200 degradada (`disponible: false`) en lugar de 502;
+  - un reintento en Open-Meteo solo ante errores transitorios;
+  - un 200 sin días cuenta como falla;
+  - circuit breaker y plazo en el refresco programado;
+  - Lambda de 20 s.
+- **Precios:**
+  - timeout del LLM acotado al tiempo restante, con una red de seguridad propia;
+  - clasificación de los errores del SDK por clase;
+  - `degradado`, `motivoDegradacion` y `guardado` en la respuesta;
+  - un guardado que falla ya no da 500.
+- **Infraestructura:** filtros de métricas `CaidasOpenMeteo` y `CaidasClaude`. ADR en `docs/MANEJO-ERRORES.md`.
+
+**Validación y Corrección Humana:**
+
+- **Decisiones del equipo:**
+  - con el clima caído y sin cache se responde 200 degradado y no 502;
+  - la rama sale de `main` y no de `feat/Cronjob`, porque `predecirDemanda` ya predice sin clima;
+  - la rama se llama `feat/manejo-errores`.
+- **Verificado contra la documentación:** las clases de error del SDK de Anthropic (`APIConnectionTimeoutError` hereda de `APIConnectionError`) y el timeout por request (`create(params, { timeout })`) se confirmaron en el skill de la API y en las definiciones del SDK instalado, sin suponerlos.
+- **Pruebas:** 109 tests, con fakes que simulan timeouts, 429/5xx, JSON roto, un LLM que nunca responde y throttling de DynamoDB. `tsc` sin errores y template validado. Además, una prueba de caos local con los adaptadores reales contra un puerto cerrado y un servidor que nunca responde: siempre 200 (clima degradado; precios por reglas en el plazo asignado), con el refresco cortado por el circuit breaker.
+- **Pendiente de validar por el equipo:** la prueba en AWS (key inválida y Open-Meteo bloqueado), que el frontend lea los campos nuevos, alarmas sobre las métricas y aplicar el mismo criterio a `predecirDemanda` cuando se mergee `feat/Cronjob`.
+
+
+## 01/11/2026 - Predicción de demanda nocturna con EventBridge (`predecirDemanda`)
+
+**Problema abordado:** Configurar Amazon EventBridge para que el modelo predictivo de demanda corra solo todas las madrugadas. Al analizar el repositorio se vio que el modelo no existía: `Medianube-Predicciones` estaba vacía y `/demanda` usaba mocks, así que hubo que crear el modelo además de programarlo.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5).
+*Prompt:* "Necesito configurar Amazon EventBridge para que el modelo predictivo corra automáticamente todas las madrugadas." Primero se pidió y aprobó un plan; después se implementó en la rama `feat/Cronjob` en commits chicos.
+
+**Código / Arquitectura generada:**
+
+- **Modelo `demanda-v1`** (`backend/src/domain/demanda/`): promedio ponderado de las ventas del mismo día de la semana en las últimas 8 semanas, factor por lluvia, confianza según evidencia y dispersión, y precisión estimada con backtest (1 − wMAPE).
+- **Caso de uso** `servicioDemanda`: `predecirUsuario` y `predecirTodos`, la corrida nocturna en serie donde un usuario que falla no corta el resto.
+- **Adaptadores:** repositorio de Ventas, Productos y Predicciones (SK `<fecha>#<productoID>`, TTL de 30 días) y handler que distingue el evento de EventBridge de una invocación manual con `{ usuarioID }`. Reutiliza el repositorio de clima para leer el pronóstico y listar usuarios.
+- **Infraestructura:** Lambda `predecirDemanda` (timeout de 300 s), rol de mínimo privilegio, regla `medianube-prediccion-demanda-<env>` con `cron(30 8 * * ? *)` (05:30 ART), `EventInvokeConfig` con 1 reintento, parámetro `CronPrediccion`, seed de ventas y ADR en `docs/PREDICCION-DEMANDA.md`.
+
+**Validación y Corrección Humana:**
+
+- **Decisiones del equipo:** construir la Lambda dentro del backend hexagonal, en lugar de solo programar la Lambda `sugerencia-produccion` creada desde la consola (que calcula por receta y stock), y correrla a las 05:30 ART, media hora después del refresco de clima. El equipo pidió la rama `feat/Cronjob` en lugar de la que proponía el plan.
+- **Restricciones de AWS Academy:** se mantuvo la regla clásica de EventBridge en lugar de EventBridge Scheduler, porque Scheduler necesita un rol IAM propio. También se descartaron SageMaker y Forecast.
+- **Sin LLM en la corrida nocturna:** se eligió un modelo estadístico determinístico por costo y reproducibilidad. El LLM queda como opción para explicar las predicciones en una v2.
+- **Refactor acotado:** el BatchWrite con reintentos y la detección de eventos programados se extrajeron a módulos compartidos, y la Lambda de clima pasó a usarlos sin cambiar su comportamiento.
+- **Pruebas:** 114 tests (dominio, caso de uso, handler y repositorio con un cliente falso), `tsc` sin errores, bundle verificado en Node 22 y template validado (sin referencias rotas). En una corrida completa sin AWS con el patrón del seed, el sábado predice más que el domingo, la lluvia aplica el factor 0,85 y la precisión estimada es de 95 %.
+- **Pendiente de validar por el equipo:** desplegar y confirmar en CloudWatch la primera corrida de las 05:30, definir quién carga `Medianube-Ventas` y con qué formato (hoy se asume `cantidad` por día y producto), y conectar `/demanda` a `Medianube-Predicciones`.
