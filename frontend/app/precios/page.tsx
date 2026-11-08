@@ -7,11 +7,10 @@ import {
   sugerirPreciosConIA,
   TICKETS_PREDETERMINADOS,
   type ResultadoPrecios,
-  type SugerenciaPrecio,
   type Ticket,
   type ItemTicket,
-  type Confianza,
 } from "../../lib/precios";
+import EstadoApi from "../../src/src/components/ui/EstadoApi";
 
 // ── Shared styles matching medianube Design System ───────────────────────────
 
@@ -488,57 +487,31 @@ export default function PreciosPage() {
           </div>
         )}
 
-        {/* ── 3. Status Banner: Degradado / IA Active ──────────────────────── */}
-        {resultado && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {resultado.degradado ? (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  padding: "10px 14px",
-                  backgroundColor: "var(--color-warning-bg)",
-                  borderLeft: "4px solid var(--color-warning-text)",
-                  borderRadius: "var(--radius-md)",
-                  fontSize: "12px",
-                  color: "var(--color-warning-text)",
-                }}
-              >
-                <span style={{ ...iconStyle, color: "var(--color-warning-text)" }}>info</span>
-                <div style={{ flex: 1 }}>
-                  <strong>Lógica de respaldo activa:</strong> Las sugerencias se calcularon mediante las reglas de rentabilidad y guardas de negocio ({labelMotivo(resultado.motivoDegradacion)}). Las recetas y costos son totalmente confiables.
-                </div>
-              </div>
-            ) : (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "8px 14px",
-                  backgroundColor: "var(--color-success-bg)",
-                  borderLeft: "4px solid var(--color-success-text)",
-                  borderRadius: "var(--radius-md)",
-                  fontSize: "12px",
-                  color: "var(--color-success-text)",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={iconStyle}>check_circle</span>
-                  <span>
-                    <strong>Análisis IA completado exitosamente:</strong> Sugerencias generadas con razonamiento contextual de Claude 3.5 Sonnet.
-                  </span>
-                </div>
-                {resultado.guardado && (
-                  <span style={{ fontSize: "11px", fontWeight: 600, opacity: 0.9 }}>
-                    ✓ Sincronizado en catálogo
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        <EstadoApi
+          loading={loading}
+          loadingLabel="Analizando variaciones de costos con la IA…"
+          error={error}
+          errorTitle="Error al obtener las sugerencias de precios"
+          onRetry={() => void consultarSugerencias(ticketActual)}
+          origen={resultado?.degradado ? "reglas" : resultado?.origen ?? null}
+          mensajeReglas={
+            <>
+              <strong>Sin datos de IA.</strong> La Lambda devolvió origen &quot;reglas&quot;
+              {resultado?.motivoDegradacion
+                ? ` (${labelMotivo(resultado.motivoDegradacion)})`
+                : ""}
+              . Las sugerencias salen de las reglas de rentabilidad, no de un modelo de lenguaje.
+            </>
+          }
+          mensajeIa={
+            <>
+              <strong>Datos con IA.</strong> Las sugerencias las generó el modelo a partir del ticket,
+              recetas y márgenes enviados a la Lambda.
+              {resultado?.guardado ? " Sincronizado en catálogo." : ""}
+            </>
+          }
+        >
+        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
 
         {/* ── 4. KPI Summary Cards ─────────────────────────────────────────── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
@@ -620,40 +593,6 @@ export default function PreciosPage() {
             </p>
           </div>
         </div>
-
-        {/* ── 5. Error Box if API fails ─────────────────────────────────────── */}
-        {error && (
-          <div style={{ ...sectionCard, backgroundColor: "var(--color-warning-bg)", borderColor: "var(--color-warning-text)" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-              <span style={{ ...iconStyle, color: "var(--color-warning-text)", fontSize: "20px" }}>error</span>
-              <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: "14px", fontWeight: 600, color: "var(--color-warning-text)", margin: "0 0 4px" }}>
-                  Error al obtener las sugerencias de precios
-                </h3>
-                <p style={{ fontSize: "12px", color: "var(--color-warning-text)", margin: 0 }}>
-                  {error}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void consultarSugerencias(ticketActual)}
-                  style={{
-                    marginTop: "10px",
-                    padding: "6px 12px",
-                    backgroundColor: "var(--color-warning-text)",
-                    color: "#FFFFFF",
-                    border: "none",
-                    borderRadius: "var(--radius-sm)",
-                    fontSize: "12px",
-                    fontWeight: 500,
-                    cursor: "pointer",
-                  }}
-                >
-                  Reintentar consulta
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* ── 6. Filters & Search Bar ──────────────────────────────────────── */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
@@ -772,21 +711,7 @@ export default function PreciosPage() {
         </div>
 
         {/* ── 7. Price Suggestions Cards Grid ──────────────────────────────── */}
-        {loading && (
-          <div style={{ ...sectionCard, textAlign: "center", padding: "40px" }}>
-            <span style={{ ...iconStyle, fontSize: "28px", color: "var(--color-accent)", animation: "spin 2s linear infinite" }}>
-              auto_awesome
-            </span>
-            <p style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", marginTop: "12px" }}>
-              Analizando variaciones de costos con la IA...
-            </p>
-            <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: "4px 0 0" }}>
-              Evaluando recetas, compras históricas y márgenes de seguridad.
-            </p>
-          </div>
-        )}
-
-        {!loading && sugerenciasFiltradas.length === 0 && (
+        {sugerenciasFiltradas.length === 0 && (
           <div style={{ ...sectionCard, textAlign: "center", padding: "40px" }}>
             <span style={{ ...iconStyle, fontSize: "32px", color: "var(--color-text-muted)" }}>
               sell
@@ -819,7 +744,7 @@ export default function PreciosPage() {
           </div>
         )}
 
-        {!loading && sugerenciasFiltradas.length > 0 && (
+        {sugerenciasFiltradas.length > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: "16px" }}>
             {sugerenciasFiltradas.map((item) => {
               const estaAplicado = preciosAplicados.has(item.productoID);
@@ -1122,6 +1047,9 @@ export default function PreciosPage() {
             </div>
           </div>
         )}
+
+        </div>
+        </EstadoApi>
 
       </div>
     </AppLayout>
