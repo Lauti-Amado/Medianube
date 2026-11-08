@@ -43,7 +43,8 @@ backend/
 ├── events/                           # eventos de prueba para la consola o el CLI
 ├── scripts/
 │   ├── build.mjs                     # esbuild: un bundle por Lambda en dist/<nombre>/index.mjs
-│   ├── deploy.sh                     # check + build + package + deploy (CloudShell)
+│   ├── deploy.sh                     # chequeo de tablas + check + build + package + deploy (CloudShell)
+│   ├── preparar-demo.sh              # datos de demo + clima + predicción para un usuario, en un paso
 │   ├── seed-ubicacion.sh             # carga la ubicación de un usuario
 │   ├── seed-precios.mjs              # carga productos con receta y facturas históricas de demo
 │   └── seed-ventas.mjs               # carga 8 semanas de ventas diarias de demo (predicción de demanda)
@@ -83,15 +84,22 @@ node --import tsx --test tests/domain/precios.test.ts   # un solo archivo de tes
    CRON_PREDICCION="cron(0 9 * * ? *)" ./scripts/deploy.sh   # opcional: otro horario (UTC) para la predicción
    ```
    Sin API key la Lambda de precios igual responde, pero solo con reglas (`"origen": "reglas"`).
-3. Cargar datos del usuario de prueba:
-   ```bash
-   ./scripts/seed-ubicacion.sh user_test_123 "La Plata" -34.9214 -57.9545
-   node scripts/seed-precios.mjs user_test_123   # productos con receta + 4 facturas históricas
-   node scripts/seed-ventas.mjs user_test_123    # 8 semanas de ventas para la predicción de demanda
-   ```
 
-> Si `Medianube-Clima` u otra tabla ya existe (creada a mano), CloudFormation falla con
-> *"already exists"*. Hay que borrarla o importarla al stack antes de desplegar.
+   Antes de compilar, `deploy.sh` revisa que ninguna de las 5 tablas del stack exista ya en la cuenta
+   creada a mano. Si encuentra una, **corta sin desplegar ni borrar nada** y muestra la tabla y sus ítems.
+   Hay dos salidas: borrarla, si está vacía o es de prueba, o importarla al stack, si tiene datos de un
+   compañero. También avisa si el stack quedó en `ROLLBACK_COMPLETE` por un primer intento fallido.
+3. Cargar datos del usuario de prueba y generar clima y predicción, en un paso:
+   ```bash
+   ./scripts/preparar-demo.sh                          # user_test_123 en La Plata
+   ./scripts/preparar-demo.sh otro_usuario "Rosario" -32.9468 -60.6393
+   ```
+   Corre `seed-ubicacion.sh`, `seed-precios.mjs` y `seed-ventas.mjs`, invoca `obtenerClima` y
+   `predecirDemanda` sin esperar a las 05:00 y 05:30, y verifica cuántas filas quedaron en
+   `Medianube-Clima` y `Medianube-Predicciones`. Cada seed también se puede correr por separado.
+
+Para consumir el clima y la predicción de demanda desde otra Lambda (por ejemplo, la sugerencia de
+producción), ver [docs/INTEGRACION-CLIMA.md](../docs/INTEGRACION-CLIMA.md).
 
 ## Verificación
 
