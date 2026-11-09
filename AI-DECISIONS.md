@@ -165,6 +165,7 @@ La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
 - **Riesgo detectado:** si `guardarConfiguracionOnboarding` usa `PutItem`, va a borrar el atributo `ubicacion`. Hay que migrarla a `UpdateItem`.
 - **Runtime deprecado:** la IA propuso primero `nodejs20.x`. Al validar el template con `cfn-lint` apareció el aviso W2531 (runtime deprecado desde el 30/04/2026) y se pasó a `nodejs22.x`, alineado con la versión local del equipo.
 
+<<<<<<< HEAD
 
 
 ## 23/10/2026 - Motor OCR: trigger de S3 hacia AWS Lambda y Amazon Textract
@@ -268,6 +269,8 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Trazabilidad:** el campo `archivoS3` vincula cada gasto con su comprobante original, lo que permite agregar a futuro una opción para ver la factura desde el historial.
 - **Pendiente:** el segmento de usuario de la key de S3 hoy es `anon`; cuando la subida use el usuario autenticado en Cognito, `usuarioID` va a quedar asociado al usuario real sin cambios en la Lambda.
 
+=======
+>>>>>>> ff207fa05e5bf15a6bcc62bc00350e31e9f546b6
 ## 24/10/2026 - Corrección de la configuración de ESLint del frontend
 
 **Problema abordado:** `npm run lint` fallaba con "Cannot find module eslint-config-next/core-web-vitals" porque `eslint.config.mjs` estaba escrito para eslint-config-next 16 y el proyecto usa la versión 15.
@@ -322,6 +325,7 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Pruebas:** 80 tests (dominio, caso de uso, prompt y adaptadores con un cliente falso), `tsc` sin errores, bundle verificado en Node 22 y una corrida completa sin AWS con los datos del seed: el detergente no se empareja y "harina 000" no se confunde con "harina 0000".
 - **Pendiente de validar por el equipo:** probar contra la API real con facturas reales (calidad de emparejamientos y justificaciones), confirmar qué tabla y qué atributos usa `listarGastos` para las facturas, y mover la API key a SSM Parameter Store antes de producción.
 
+<<<<<<< HEAD
 
 ## 31/10/2026 - Filtros y búsqueda en la Lambda `listarGastos`
 
@@ -369,6 +373,8 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Prevención de conflictos:** los `any` de `app/compras/page.tsx` se corrigieron solo en la rama de filtros, porque esas líneas ya se modificaban ahí; corregirlos también en la rama de fix habría generado conflictos al mergear.
 - **Verificación:** los archivos nuevos pasaron el lint y el chequeo de tipos (`tsc`), y la funcionalidad se probó manualmente en el navegador contra el backend real (búsqueda por proveedor, por rango de fechas, rango inválido y limpieza de filtros) antes de abrir el Pull Request.
 
+=======
+>>>>>>> ff207fa05e5bf15a6bcc62bc00350e31e9f546b6
 ## 01/11/2026 - Manejo de errores del backend ante caídas de Open-Meteo y Claude
 
 **Problema abordado:** Validar que las Lambdas no fallen cuando no responden la API del clima (Open-Meteo) o el LLM (Claude). Al revisar el código se encontraron estos huecos:
@@ -405,8 +411,12 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Verificado contra la documentación:** las clases de error del SDK de Anthropic (`APIConnectionTimeoutError` hereda de `APIConnectionError`) y el timeout por request (`create(params, { timeout })`) se confirmaron en el skill de la API y en las definiciones del SDK instalado, sin suponerlos.
 - **Pruebas:** 109 tests, con fakes que simulan timeouts, 429/5xx, JSON roto, un LLM que nunca responde y throttling de DynamoDB. `tsc` sin errores y template validado. Además, una prueba de caos local con los adaptadores reales contra un puerto cerrado y un servidor que nunca responde: siempre 200 (clima degradado; precios por reglas en el plazo asignado), con el refresco cortado por el circuit breaker.
 - **Pendiente de validar por el equipo:** la prueba en AWS (key inválida y Open-Meteo bloqueado), que el frontend lea los campos nuevos, alarmas sobre las métricas y aplicar el mismo criterio a `predecirDemanda` cuando se mergee `feat/Cronjob`.
+<<<<<<< HEAD
 
 
+=======
+- 
+>>>>>>> ff207fa05e5bf15a6bcc62bc00350e31e9f546b6
 ## 01/11/2026 - Predicción de demanda nocturna con EventBridge (`predecirDemanda`)
 
 **Problema abordado:** Configurar Amazon EventBridge para que el modelo predictivo de demanda corra solo todas las madrugadas. Al analizar el repositorio se vio que el modelo no existía: `Medianube-Predicciones` estaba vacía y `/demanda` usaba mocks, así que hubo que crear el modelo además de programarlo.
