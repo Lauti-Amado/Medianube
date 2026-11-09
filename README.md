@@ -50,7 +50,8 @@ El uso de asistentes está permitido, pero es nuestra responsabilidad determinar
 
 ### 5. Entregas y Releases
 El código correspondiente a cada Checkpoint evaluativo se congela mediante Tags de Git y ramas específicas para facilitar la auditoría de la cátedra:
-* **Checkpoint 1 (28/09):** Tag `v0.1-checkpoint-1` (Rama: `entrega/checkpoint-1`).
+- **Checkpoint 1 (28/09):** Tag `v0.1-checkpoint-1` (Rama: `entrega/checkpoint-1`).
+- **Checkpoint 2 (09/11):** Tag `v0.2-checkpoint-2` (Rama: `entrega/checkpoint-2`).
 
 ### 6. Convenciones de Arquitectura y Base de Datos
 * **DynamoDB (Partition Keys):** Para garantizar la consistencia en todo el ecosistema Serverless y evitar deuda técnica al cruzar datos con los modelos de IA (RAG), el estándar para todas las tablas es utilizar `usuarioID` (String) como clave primaria. Quedan prohibidas variantes locales como `userId` o `id_usuario`.
