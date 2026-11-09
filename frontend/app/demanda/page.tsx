@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
+import EstadoApi from "../../src/src/components/ui/EstadoApi";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -59,21 +60,24 @@ interface ProductoApi {
   nombre: string;
   unidadProducto: string;
   cantidad: number;
+  confianza?: string;
 }
 
 interface SugerenciaApi {
+  origen?: string;
   canastasCompletas?: number;
   produccion?: ProductoApi[];
   body?: string;
 }
 
-function randomConfidence(): Confidence {
+function asConfidence(valor: string | undefined): Confidence {
+  if (valor === "alta" || valor === "media" || valor === "baja") return valor;
   return CONFIDENCES[Math.floor(Math.random() * CONFIDENCES.length)];
 }
 
 function mapProduccion(items: ProductoApi[]): Recommendation[] {
   return items.map((item) => {
-    const confidence = randomConfidence();
+    const confidence = asConfidence(item.confianza);
     return {
       id: item.productoID,
       product: item.nombre,
@@ -85,13 +89,15 @@ function mapProduccion(items: ProductoApi[]): Recommendation[] {
   });
 }
 
-function parseSugerencia(data: SugerenciaApi): ProductoApi[] {
-  if (Array.isArray(data.produccion)) return data.produccion;
+function unwrapSugerencia(data: SugerenciaApi): SugerenciaApi {
   if (typeof data.body === "string") {
-    const inner = JSON.parse(data.body) as SugerenciaApi;
-    return inner.produccion ?? [];
+    try {
+      return { ...data, ...(JSON.parse(data.body) as SugerenciaApi) };
+    } catch {
+      return data;
+    }
   }
-  return [];
+  return data;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -125,9 +131,11 @@ export default function DemandaPage() {
   const [kpiDatos, setKpiDatos] = useState<{ produccionTotal: string; precision: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
+  const [origen, setOrigen] = useState<string | null>(null);
 
   async function fetchPrediccion() {
     setErrorMsg("");
+    setOrigen(null);
     try {
       const response = await fetch(SUGERENCIA_URL, {
         method: "GET",
@@ -135,8 +143,9 @@ export default function DemandaPage() {
       });
       if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
 
-      const data = (await response.json()) as SugerenciaApi;
-      const productos = parseSugerencia(data);
+      const data = unwrapSugerencia((await response.json()) as SugerenciaApi);
+      setOrigen(data.origen ?? null);
+      const productos = data.produccion ?? [];
       const mapped = mapProduccion(productos);
       setRecomendaciones(mapped);
 
@@ -474,6 +483,17 @@ export default function DemandaPage() {
         </div>
 
         {/* ── Recomendaciones para mañana ──────────────────────────────── */}
+        <EstadoApi
+          loading={isLoading}
+          loadingLabel="Cargando predicciones de IA…"
+          error={errorMsg || null}
+          errorTitle="No se pudo obtener la sugerencia de producción"
+          onRetry={() => {
+            setIsLoading(true);
+            void fetchPrediccion();
+          }}
+          origen={origen}
+        >
         <div
           style={{
             backgroundColor: "var(--color-surface)",
@@ -513,13 +533,7 @@ export default function DemandaPage() {
           </div>
 
           {/* Filas */}
-          {isLoading ? (
-             <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
-               Cargando predicciones de IA...
-             </div>
-          ) : errorMsg ? (
-            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>{errorMsg}</div>
-          ) : recomendaciones.length === 0 ? (
+          {recomendaciones.length === 0 ? (
             <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>No hay recomendaciones generadas.</div>
           ) : (
              recomendaciones.map((rec, idx) => (
@@ -605,6 +619,7 @@ export default function DemandaPage() {
           ))
           )}
         </div>
+        </EstadoApi>
 
       </div>
     </AppLayout>

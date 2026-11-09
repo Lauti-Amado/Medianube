@@ -11,6 +11,7 @@ import {
   type SugerenciaPrecio,
   type ResultadoAplicarPrecio,
 } from "../../lib/precios";
+import EstadoApi from "../../src/src/components/ui/EstadoApi";
 
 // ── Estilos compartidos ──────────────────────────────────────────────────────
 
