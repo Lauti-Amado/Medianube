@@ -278,3 +278,23 @@ La IA propuso e implementó la siguiente arquitectura de autenticación cliente:
 - **Refactor acotado:** el BatchWrite con reintentos y la detección de eventos programados se extrajeron a módulos compartidos, y la Lambda de clima pasó a usarlos sin cambiar su comportamiento.
 - **Pruebas:** 114 tests (dominio, caso de uso, handler y repositorio con un cliente falso), `tsc` sin errores, bundle verificado en Node 22 y template validado (sin referencias rotas). En una corrida completa sin AWS con el patrón del seed, el sábado predice más que el domingo, la lluvia aplica el factor 0,85 y la precisión estimada es de 95 %.
 - **Pendiente de validar por el equipo:** desplegar y confirmar en CloudWatch la primera corrida de las 05:30, definir quién carga `Medianube-Ventas` y con qué formato (hoy se asume `cantidad` por día y producto), y conectar `/demanda` a `Medianube-Predicciones`.
+
+## 08/11/2026 - Despliegue seguro y guía de integración del clima para la sugerencia de producción
+
+**Problema abordado:** Persona 1 necesitaba el clima disponible en AWS para el motor predictivo de producción (semana 3), que depende de la tarea "Setup BD & API Clima" (semana 1). El código de las tablas y de `obtenerClima` estaba completo, pero no había confirmación de despliegue ni un camino corto para tener datos de prueba. Tampoco había un contrato de cómo leer el clima desde una Lambda creada fuera del repositorio.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5).
+*Prompt:* "Haz el plan de ejecución con lo que falta para destrabarlo." Primero se revisó qué estaba hecho y qué faltaba de la tarea; después se pidió y aprobó un plan sobre la rama `feat/API-clima`.
+
+**Código / Arquitectura generada:**
+
+- **Chequeo previo en `deploy.sh`:** antes de compilar, compara las 5 tablas del template con las que ya existen en la cuenta y con las que administra el stack. Si alguna se creó a mano, corta sin borrar nada y muestra la tabla, sus ítems y las dos salidas posibles (borrar o importar). También detecta un stack en `ROLLBACK_COMPLETE`.
+- **`scripts/preparar-demo.sh`:** carga en un paso la ubicación, los productos, las facturas y las ventas de un usuario. Después invoca `obtenerClima` y `predecirDemanda` y verifica las filas resultantes, con un resumen por paso.
+- **`docs/INTEGRACION-CLIMA.md`:** guía para Persona 1 con el esquema de `Medianube-Clima` y `Medianube-Predicciones`, un ejemplo de `QueryCommand`, la alternativa `GET /clima`, qué tolerar y los permisos.
+
+**Validación y Corrección Humana:**
+
+- **Decisiones del equipo:** trabajar en la rama `feat/API-clima` y que los commits los haga el integrante a mano desde su cuenta.
+- **Seguridad de datos:** el chequeo nunca borra tablas, porque podrían tener datos de un compañero; la decisión queda en el equipo. La comparación contra los recursos del stack también cubre las tablas que se agreguen al template más adelante.
+- **Pruebas:** `bash -n` sobre los dos scripts. El chequeo previo se probó con un `aws` simulado en cinco escenarios (tabla creada a mano con el stack nuevo o existente, `ROLLBACK_COMPLETE`, sin conflictos y cuenta limpia). `preparar-demo.sh` se probó con un camino exitoso, una Lambda que falla y argumentos inválidos. El ejemplo de la guía se validó con `node --check`. Los tests del backend no cambian.
+- **Pendiente de validar por el equipo:** correr `deploy.sh` y `preparar-demo.sh` en CloudShell con la cuenta real. Que Persona 2 guarde la ubicación del negocio con `UpdateItem`.
