@@ -24,10 +24,9 @@ interface Recommendation {
 }
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
-// Apunta a tu API Gateway real (el usuarioID se pasa como querystring por ahora)
 const API_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/demanda?usuarioID=user_test_123";
-
-const CONFIDENCES: Confidence[] = ["alta", "media", "baja"];
+const CLIMA_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/clima?usuarioID=user_test_123";
+const DIAS_SEMANA = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 
 const UNIT_LABEL: Record<string, string> = {
   unidad: "u.",
@@ -50,9 +49,6 @@ interface DemandaApiResponse {
   produccion?: ProductoApi[];
   precision?: number | null;
 }
-
-const CLIMA_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/clima?usuarioID=user_test_123";
-const DIAS_SEMANA = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 
 interface DiaClima {
   fecha: string;
@@ -77,14 +73,14 @@ function etiquetaDia(fecha: string): string {
 
 function asConfidence(valor: string | undefined): Confidence {
   if (valor === "alta" || valor === "media" || valor === "baja") return valor;
-  return "media"; // Default seguro si la BD devuelve otra cosa
+  return "media";
 }
 
 function mapProduccion(items: ProductoApi[]): Recommendation[] {
   return items.map((item) => {
     const confidence = asConfidence(item.confianza);
     return {
-      id: item.productoID + (item.fecha ? `-${item.fecha}` : ""), // Clave única para iterar
+      id: item.productoID + (item.fecha ? `-${item.fecha}` : ""),
       product: item.nombre,
       qty: item.cantidad,
       unit: item.unidadProducto ? (UNIT_LABEL[item.unidadProducto] ?? item.unidadProducto) : "u.",
@@ -119,8 +115,7 @@ export default function DemandaPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [origen, setOrigen] = useState<string | null>(null);
-  
-  // Estado para el gráfico dinámico
+
   const [barsData, setBarsData] = useState<DayBar[]>([]);
 
   const [clima, setClima] = useState<DiaClima[]>([]);
@@ -141,7 +136,7 @@ export default function DemandaPage() {
 
       const data = (await response.json()) as DemandaApiResponse;
       setOrigen(data.origen ?? null);
-      
+
       const productos = data.produccion ?? [];
       const mapped = mapProduccion(productos);
       setRecomendaciones(mapped);
@@ -149,26 +144,23 @@ export default function DemandaPage() {
       const totalUnidades = mapped.reduce((acc, r) => acc + r.qty, 0);
       setKpiDatos({
         produccionTotal: `${totalUnidades.toLocaleString("es-AR")} u.`,
-           precision: data.precision != null ? `${(data.precision * 100).toFixed(1)}%` : "-",
+        precision: data.precision != null ? `${(data.precision * 100).toFixed(1)}%` : "-",
       });
 
-      // Lógica para armar gráfico (simplificado: agrupa totales por fecha)
-         const porFecha = new Map<string, number>();
-          for (const p of productos) {
-            if (!p.fecha) continue;
-            porFecha.set(p.fecha, (porFecha.get(p.fecha) ?? 0) + p.cantidad);
-          }
-          const dias = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
-          setBarsData(
-            [...porFecha.entries()]
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([fecha, value]) => ({
-                label: dias[new Date(`${fecha}T12:00:00`).getDay()],
-                value,
-                predicted: true,
-              }))
-          );
-
+      const porFecha = new Map<string, number>();
+      for (const p of productos) {
+        if (!p.fecha) continue;
+        porFecha.set(p.fecha, (porFecha.get(p.fecha) ?? 0) + p.cantidad);
+      }
+      setBarsData(
+        [...porFecha.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([fecha, value]) => ({
+            label: DIAS_SEMANA[new Date(`${fecha}T12:00:00`).getDay()],
+            value,
+            predicted: true,
+          }))
+      );
     } catch (error) {
       console.error("Error al obtener predicciones:", error);
       setRecomendaciones([]);
@@ -179,43 +171,44 @@ export default function DemandaPage() {
     }
   }
 
-async function fetchClima() {
-  setClimaError("");
-  setClimaAviso(null);
-  try {
-    const response = await fetch(CLIMA_URL, { method: "GET" });
-    if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
-    const data = (await response.json()) as ClimaApiResponse;
-    setClima(data.dias ?? []);
-    setClimaCiudad(data.ubicacion?.ciudad ?? null);
-    setClimaOrigen(data.origen ?? null);
-    setClimaAviso(data.aviso ?? null);
-    if (data.disponible === false) {
-      setClimaError(data.aviso ?? "El pronóstico no está disponible en este momento.");
+  async function fetchClima() {
+    setClimaError("");
+    setClimaAviso(null);
+    try {
+      const response = await fetch(CLIMA_URL, { method: "GET" });
+      if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+      const data = (await response.json()) as ClimaApiResponse;
+      setClima(data.dias ?? []);
+      setClimaCiudad(data.ubicacion?.ciudad ?? null);
+      setClimaOrigen(data.origen ?? null);
+      setClimaAviso(data.aviso ?? null);
+      if (data.disponible === false) {
+        setClimaError(data.aviso ?? "El pronóstico no está disponible en este momento.");
+      }
+    } catch (error) {
+      console.error("Error al obtener el clima:", error);
+      setClima([]);
+      setClimaError("No se pudo cargar el pronóstico del clima.");
+    } finally {
+      setClimaLoading(false);
     }
-  } catch (error) {
-    console.error("Error al obtener el clima:", error);
-    setClima([]);
-    setClimaError("No se pudo cargar el pronóstico del clima.");
-  } finally {
-    setClimaLoading(false);
   }
-}
 
-useEffect(() => {
-  void fetchPrediccion();
-  void fetchClima();
-}, []);
+  useEffect(() => {
+    void fetchPrediccion();
+    void fetchClima();
+  }, []);
 
   const handleRecalculate = () => {
     setRecalculating(true);
     setIsLoading(true);
+    setClimaLoading(true);
     void fetchPrediccion();
+    void fetchClima();
   };
 
   const atRisk = recomendaciones.filter((r) => r.risk).length;
   const MAX_VAL = barsData.length > 0 ? Math.max(...barsData.map((b) => b.value)) : 100;
-     const HOY_IDX = -1; // sin histórico real, no hay marcador de "hoy"
 
   return (
     <AppLayout activeTab="demanda">
@@ -239,7 +232,7 @@ useEffect(() => {
             }}
           >
             <span style={{ ...icon, fontSize: 15, animation: recalculating ? "spin 1s linear infinite" : "none" }}>autorenew</span>
-            {recalculating ? "Calculando…" : "Recalcular con IA"}
+            {recalculating ? "Actualizando…" : "Actualizar"}
           </button>
         </div>
 
@@ -308,16 +301,11 @@ useEffect(() => {
           </EstadoApi>
         </div>
 
-
         {/* ── Gráfico de barras ─────────────────────────────────────────── */}
         <div style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "20px 24px", marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>Producción prevista por día</span>
             <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: "var(--color-bar-historic)" }} />
-                <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>Histórico</span>
-              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: "var(--color-bar-predicted)" }} />
                 <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>Predicción</span>
@@ -330,14 +318,10 @@ useEffect(() => {
               <div key={pct} style={{ position: "absolute", left: 0, right: 0, bottom: `${pct}%`, borderTop: "1px dashed #F0E4D4", zIndex: 0 }} />
             ))}
             {barsData.map((bar, idx) => {
-              const isToday = idx === HOY_IDX;
               const barHeight = Math.round((bar.value / MAX_VAL) * 140) || 4;
               return (
                 <div key={idx} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%", position: "relative", zIndex: 1 }}>
-                  {isToday && (
-                    <div style={{ position: "absolute", right: -1, top: -8, bottom: -24, width: 1, borderRight: "1px dashed var(--color-border-strong)", zIndex: 2 }} />
-                  )}
-                  <div style={{ width: "60%", height: barHeight, minHeight: 4, backgroundColor: bar.predicted ? "var(--color-bar-predicted)" : "var(--color-bar-historic)", borderRadius: "3px 3px 0 0", transition: "height 0.5s ease" }} />
+                  <div style={{ width: "60%", height: barHeight, minHeight: 4, backgroundColor: "var(--color-bar-predicted)", borderRadius: "3px 3px 0 0", transition: "height 0.5s ease" }} />
                 </div>
               );
             })}
@@ -345,9 +329,8 @@ useEffect(() => {
 
           <div style={{ display: "flex", gap: 0, marginTop: 6 }}>
             {barsData.map((bar, idx) => (
-              <div key={idx} style={{ flex: 1, textAlign: "center", fontSize: 10, color: idx === HOY_IDX ? "var(--color-accent)" : "var(--color-text-muted)", fontWeight: idx === HOY_IDX ? 500 : 400 }}>
+              <div key={idx} style={{ flex: 1, textAlign: "center", fontSize: 10, color: "var(--color-text-muted)", fontWeight: 400 }}>
                 {bar.label}
-                {idx === HOY_IDX && <div style={{ fontSize: 9, color: "var(--color-accent)" }}>hoy</div>}
               </div>
             ))}
           </div>
@@ -369,7 +352,7 @@ useEffect(() => {
               { label: "Cantidad sugerida", align: "right" },
               { label: "Confianza", align: "center" },
             ].map((h) => (
-              <span key={h.label} style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: h.align as any }}>{h.label}</span>
+              <span key={h.label} style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: h.align as React.CSSProperties["textAlign"] }}>{h.label}</span>
             ))}
           </div>
 
