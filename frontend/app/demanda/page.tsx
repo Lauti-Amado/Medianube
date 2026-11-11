@@ -51,6 +51,30 @@ interface DemandaApiResponse {
   precision?: number | null;
 }
 
+const CLIMA_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/clima?usuarioID=user_test_123";
+const DIAS_SEMANA = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+
+interface DiaClima {
+  fecha: string;
+  tempMax: number | null;
+  tempMin: number | null;
+  probLluvia: number | null;
+  precipitacionMm: number | null;
+  descripcion: string;
+}
+
+interface ClimaApiResponse {
+  origen?: string;
+  disponible?: boolean;
+  aviso?: string | null;
+  ubicacion?: { ciudad?: string | null };
+  dias?: DiaClima[];
+}
+
+function etiquetaDia(fecha: string): string {
+  return DIAS_SEMANA[new Date(`${fecha}T12:00:00`).getDay()] ?? fecha;
+}
+
 function asConfidence(valor: string | undefined): Confidence {
   if (valor === "alta" || valor === "media" || valor === "baja") return valor;
   return "media"; // Default seguro si la BD devuelve otra cosa
@@ -98,6 +122,13 @@ export default function DemandaPage() {
   
   // Estado para el gráfico dinámico
   const [barsData, setBarsData] = useState<DayBar[]>([]);
+
+  const [clima, setClima] = useState<DiaClima[]>([]);
+  const [climaCiudad, setClimaCiudad] = useState<string | null>(null);
+  const [climaLoading, setClimaLoading] = useState(true);
+  const [climaError, setClimaError] = useState("");
+  const [climaAviso, setClimaAviso] = useState<string | null>(null);
+  const [climaOrigen, setClimaOrigen] = useState<string | null>(null);
 
   async function fetchPrediccion() {
     setErrorMsg("");
@@ -148,9 +179,33 @@ export default function DemandaPage() {
     }
   }
 
-  useEffect(() => {
-    void fetchPrediccion();
-  }, []);
+async function fetchClima() {
+  setClimaError("");
+  setClimaAviso(null);
+  try {
+    const response = await fetch(CLIMA_URL, { method: "GET" });
+    if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+    const data = (await response.json()) as ClimaApiResponse;
+    setClima(data.dias ?? []);
+    setClimaCiudad(data.ubicacion?.ciudad ?? null);
+    setClimaOrigen(data.origen ?? null);
+    setClimaAviso(data.aviso ?? null);
+    if (data.disponible === false) {
+      setClimaError(data.aviso ?? "El pronóstico no está disponible en este momento.");
+    }
+  } catch (error) {
+    console.error("Error al obtener el clima:", error);
+    setClima([]);
+    setClimaError("No se pudo cargar el pronóstico del clima.");
+  } finally {
+    setClimaLoading(false);
+  }
+}
+
+useEffect(() => {
+  void fetchPrediccion();
+  void fetchClima();
+}, []);
 
   const handleRecalculate = () => {
     setRecalculating(true);
@@ -202,6 +257,57 @@ export default function DemandaPage() {
             </div>
           ))}
         </div>
+
+        {/* ── Pronóstico del clima ─────────────────────────────────────── */}
+        <div style={{ marginBottom: 16 }}>
+          <EstadoApi
+            loading={climaLoading}
+            loadingLabel="Cargando pronóstico…"
+            error={climaError || null}
+            errorTitle="No se pudo obtener el pronóstico del clima"
+            onRetry={() => { setClimaLoading(true); void fetchClima(); }}
+            origen={climaOrigen}
+          >
+            <div style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "16px 20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>
+                  Pronóstico{climaCiudad ? ` · ${climaCiudad}` : ""}
+                </span>
+                <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>
+                  Con lluvia (≥ 60 % o ≥ 2 mm) el modelo reduce la producción prevista
+                </span>
+              </div>
+              {climaAviso && (
+                <div style={{ fontSize: 11, color: "var(--color-warning-text)", marginBottom: 10 }}>{climaAviso}</div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+                {clima.map((d) => {
+                  const llueve = (d.probLluvia ?? 0) >= 60 || (d.precipitacionMm ?? 0) >= 2;
+                  return (
+                    <div
+                      key={d.fecha}
+                      style={{
+                        textAlign: "center", padding: "10px 4px", borderRadius: 8,
+                        border: "1px solid var(--color-border)",
+                        backgroundColor: llueve ? "var(--color-warning-bg)" : "transparent",
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", textTransform: "uppercase" }}>{etiquetaDia(d.fecha)}</div>
+                      <div style={{ fontSize: 10, color: "var(--color-text-muted)", marginBottom: 6 }}>{d.fecha.slice(8, 10)}/{d.fecha.slice(5, 7)}</div>
+                      <div style={{ fontSize: 15, fontWeight: 500, color: "var(--color-text-primary)" }}>{d.tempMax != null ? `${Math.round(d.tempMax)}°` : "-"}</div>
+                      <div style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{d.tempMin != null ? `${Math.round(d.tempMin)}°` : "-"}</div>
+                      <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 6 }}>{d.descripcion}</div>
+                      <div style={{ fontSize: 10, color: llueve ? "var(--color-warning-text)" : "var(--color-text-muted)" }}>
+                        {d.probLluvia != null ? `${d.probLluvia} % lluvia` : "-"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </EstadoApi>
+        </div>
+
 
         {/* ── Gráfico de barras ─────────────────────────────────────────── */}
         <div style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "20px 24px", marginBottom: 16 }}>
