@@ -160,6 +160,7 @@ export default function DemandaPage() {
 
   const atRisk = recomendaciones.filter((r) => r.risk).length;
   const MAX_VAL = barsData.length > 0 ? Math.max(...barsData.map((b) => b.value)) : 100;
+     const HOY_IDX = -1; // sin histórico real, no hay marcador de "hoy"
 
   return (
     <AppLayout activeTab="demanda">
@@ -191,7 +192,7 @@ export default function DemandaPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
           {[
             { label: "Producción total prevista", value: isLoading ? "..." : kpiDatos?.produccionTotal || "-", sub: "para los próximos 7 días", warn: false },
-            { label: "Precisión del modelo", value: isLoading ? "..." : kpiDatos?.precision || "-", sub: "sobre las últimas 4 semanas", warn: false },
+            { label: "Precisión del modelo", value: isLoading ? "..." : kpiDatos?.precision || "-", sub: "backtest de los últimos 7 días", warn: false },
             { label: "Productos en riesgo de faltante", value: isLoading ? "..." : String(atRisk), sub: "con baja confianza de predicción", warn: true },
           ].map((kpi) => (
             <div key={kpi.label} style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "14px 16px" }}>
@@ -205,7 +206,7 @@ export default function DemandaPage() {
         {/* ── Gráfico de barras ─────────────────────────────────────────── */}
         <div style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "20px 24px", marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>Producción diaria — histórico vs. predicción</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>Producción prevista por día</span>
             <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: "var(--color-bar-historic)" }} />
@@ -223,7 +224,7 @@ export default function DemandaPage() {
               <div key={pct} style={{ position: "absolute", left: 0, right: 0, bottom: `${pct}%`, borderTop: "1px dashed #F0E4D4", zIndex: 0 }} />
             ))}
             {barsData.map((bar, idx) => {
-              const isToday = idx === 6;
+              const isToday = idx === HOY_IDX;
               const barHeight = Math.round((bar.value / MAX_VAL) * 140) || 4;
               return (
                 <div key={idx} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%", position: "relative", zIndex: 1 }}>
@@ -238,9 +239,9 @@ export default function DemandaPage() {
 
           <div style={{ display: "flex", gap: 0, marginTop: 6 }}>
             {barsData.map((bar, idx) => (
-              <div key={idx} style={{ flex: 1, textAlign: "center", fontSize: 10, color: idx === 6 ? "var(--color-accent)" : "var(--color-text-muted)", fontWeight: idx === 6 ? 500 : 400 }}>
+              <div key={idx} style={{ flex: 1, textAlign: "center", fontSize: 10, color: idx === HOY_IDX ? "var(--color-accent)" : "var(--color-text-muted)", fontWeight: idx === HOY_IDX ? 500 : 400 }}>
                 {bar.label}
-                {idx === 6 && <div style={{ fontSize: 9, color: "var(--color-accent)" }}>hoy</div>}
+                {idx === HOY_IDX && <div style={{ fontSize: 9, color: "var(--color-accent)" }}>hoy</div>}
               </div>
             ))}
           </div>
