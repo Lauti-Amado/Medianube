@@ -2,26 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AppLayout from "../../../src/src/components/layout/AppLayout";
 import FileDropzone from "../../../src/src/components/invoices/FileDropzone";
 import IaBanner from "../../../src/src/components/invoices/IaBanner";
 import InvoiceTable, { InvoiceItem } from "../../../src/src/components/invoices/InvoiceTable";
 import { uploadInvoice } from "../../../lib/upload";
 import { validarArchivo } from "../../../lib/validarArchivo";
-
-// ── Mock data ─────────────────────────────────────────────────────────────
-
-const INITIAL_ITEMS: InvoiceItem[] = [
-  { id: "i1", product: "Harina 000 x 25 kg",       tags: ["Molino Cañuelas", "Bolsa papel"],    quantity: 4,  unitPrice: 8200,  confidence: "alta" },
-  { id: "i2", product: "Manteca x 5 kg",            tags: ["La Serenísima", "Bloque industrial"], quantity: 2,  unitPrice: 6450,  confidence: "alta" },
-  { id: "i3", product: "Levadura fresca x 500 g",   tags: ["Calsa prensada", "Panificación"],    quantity: 6,  unitPrice: 1070,  confidence: "verificado" },
-  { id: "i4", product: "Azúcar común x 50 kg",      tags: ["Ledesma", "Bolsa tela"],             quantity: 2,  unitPrice: 12400, confidence: "alta" },
-  { id: "i5", product: "Esencia de vainilla 500 ml", tags: ["Balbi", "Aromas naturales"],        quantity: 3,  unitPrice: 1850,  confidence: "media" },
-  { id: "i6", product: "Sal fina x 25 kg",          tags: ["Dos Anclas", "Yodada"],              quantity: 1,  unitPrice: 2900,  confidence: "alta" },
-  { id: "i7", product: "Dulce de leche repostero 4 kg", tags: ["La Serenísima", "Horneado"],    quantity: 4,  unitPrice: 4300,  confidence: "alta" },
-  { id: "i8", product: "Grasa refinada x 5 kg",     tags: ["Frigorífico regional", "Panadería"],quantity: 2,  unitPrice: 3200,  confidence: "baja" },
-];
 
 const iconStyle: React.CSSProperties = {
   fontFamily: "Material Symbols Outlined",
@@ -37,19 +24,20 @@ function formatSize(bytes: number) {
     : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────
-
 export default function SubirFacturaPage() {
   const router = useRouter();
-  const [items, setItems] = useState<InvoiceItem[]>(INITIAL_ITEMS);
+  // Se inicializa vacío. El deshardcodeo significa que no hay datos falsos.
+  const [items, setItems] = useState<InvoiceItem[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [proveedorDetectado, setProveedorDetectado] = useState<any>(null);
+
 
   async function handleConfirm() {
     if (!file) return;
-    // Se valida otra vez antes de pedir la presigned URL
     const validationError = await validarArchivo(file);
     if (validationError) {
       setUploadError(validationError);
@@ -57,12 +45,20 @@ export default function SubirFacturaPage() {
     }
     setUploadError(null);
     setProgress(0);
+    setIsProcessing(true);
+    
     try {
       await uploadInvoice(file, { onProgress: setProgress });
+      
+      // TODO: Aquí iría el polling al backend (GET /gastos?archivoS3=key)
+      // para esperar que la cola SQS y Gemini terminen de procesar.
+      // Por ahora, redirigimos a la vista general tras la subida exitosa.
       router.push(`/compras?subida=ok&archivo=${encodeURIComponent(file.name)}`);
+      
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Falló la subida.");
       setProgress(null);
+      setIsProcessing(false);
     }
   }
 
@@ -133,43 +129,49 @@ export default function SubirFacturaPage() {
               </button>
           </div>
 
-          {/* Supplier detected card */}
-          <div
-            style={{
-              padding: "10px 14px",
-              backgroundColor: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-lg)",
-              minWidth: "200px",
-            }}
-          >
-            <p style={{ fontSize: "10px", fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 4px" }}>
-              Distribuidora detectada
-            </p>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
-              <p style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>
-                Distribuidora Sur S.A.
+          {/* Supplier detected card (Solo se muestra si hay datos reales) */}
+          {proveedorDetectado && (
+            <div
+              style={{
+                padding: "10px 14px",
+                backgroundColor: "var(--color-surface)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-lg)",
+                minWidth: "200px",
+              }}
+            >
+              <p style={{ fontSize: "10px", fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 4px" }}>
+                Distribuidora detectada
               </p>
-              <span style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)", fontSize: "10px", fontWeight: 600, padding: "2px 7px", borderRadius: "var(--radius-full)", whiteSpace: "nowrap" }}>
-                99% coincidencia
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
+                <p style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>
+                  {proveedorDetectado.nombre}
+                </p>
+                <span style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)", fontSize: "10px", fontWeight: 600, padding: "2px 7px", borderRadius: "var(--radius-full)", whiteSpace: "nowrap" }}>
+                  {proveedorDetectado.coincidencia}% coincidencia
+                </span>
+              </div>
+              <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>
+                CUIT {proveedorDetectado.cuit}
+              </p>
             </div>
-            <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>
-              CUIT 30-71449821-4
-            </p>
-          </div>
+          )}
         </div>
 
-        {/* ── IA Banner ────────────────────────────────────────────────── */}
-        <IaBanner productCount={items.length} total={totalFormatted} confidence="alta" />
+        {/* ── IA Banner (Solo si hay items) ────────────────────────────────────────────────── */}
+        {items.length > 0 && (
+           <IaBanner productCount={items.length} total={totalFormatted} confidence="alta" />
+        )}
 
-        {/* ── Editable invoice table ───────────────────────────────────── */}
-        <InvoiceTable
-          items={items}
-          editingId={editingId}
-          onEdit={setEditingId}
-          onItemChange={handleItemChange}
-        />
+        {/* ── Editable invoice table (Solo si hay items) ───────────────────────────────────── */}
+        {items.length > 0 && (
+          <InvoiceTable
+            items={items}
+            editingId={editingId}
+            onEdit={setEditingId}
+            onItemChange={handleItemChange}
+          />
+        )}
         </>)}
 
         {/* ── Actions ─────────────────────────────────────────────────── */}
@@ -195,7 +197,7 @@ export default function SubirFacturaPage() {
           <button
             id="invoice-confirm"
             type="button"
-            disabled={!file || progress !== null}
+            disabled={!file || progress !== null || isProcessing}
             onClick={handleConfirm}
             style={{
               padding: "9px 20px", fontSize: "13px", fontWeight: 500,
@@ -203,12 +205,13 @@ export default function SubirFacturaPage() {
               borderRadius: "var(--radius-md)", color: "#FFFFFF", cursor: "pointer",
               transition: "background-color 0.15s",
               display: "inline-flex", alignItems: "center", gap: "7px",
+              opacity: (!file || progress !== null || isProcessing) ? 0.6 : 1
             }}
             onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent-dark)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent)"; }}
           >
-            <span style={{ ...iconStyle, fontSize: "15px" }}>check_circle</span>
-            {progress !== null ? `Subiendo… ${progress}%` : "Confirmar y guardar"}
+            <span style={{ ...iconStyle, fontSize: "15px" }}>{isProcessing ? "hourglass_empty" : "check_circle"}</span>
+            {progress !== null ? `Subiendo… ${progress}%` : isProcessing ? "Procesando en IA..." : "Confirmar y guardar"}
           </button>
         </div>
 
