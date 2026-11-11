@@ -1,3 +1,4 @@
+// backend/scripts/build.mjs
 // Empaqueta cada Lambda en un único archivo ESM en dist/<nombre>/index.mjs.
 // El AWS SDK v3 se marca como externo: ya viene incluido en el runtime de Lambda.
 // Para sumar una Lambda nueva, agregar su composition root a LAMBDAS.
@@ -9,6 +10,7 @@ const LAMBDAS = {
   obtenerClima: "src/composition/obtenerClima.ts",
   sugerirPrecios: "src/composition/sugerirPrecios.ts",
   predecirDemanda: "src/composition/predecirDemanda.ts",
+  leerDemanda: "src/adapters/in/lambdaDemandaHttp.ts"
 };
 
 rmSync("dist", { recursive: true, force: true });
