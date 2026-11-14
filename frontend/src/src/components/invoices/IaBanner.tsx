@@ -1,53 +1,29 @@
-// IaBanner — línea única compacta con badge de confianza
-// Wireframe: una sola línea de texto + badge a la derecha, fondo tintado
+// IaBanner — resumen de lo que leyó la IA en la factura
 
-import Badge, { type BadgeTone } from "../ui/Badge";
-
-const iconStyle: React.CSSProperties = {
-  fontFamily: "Material Symbols Outlined",
-  fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
-  fontSize: "15px",
-  lineHeight: 1,
-  userSelect: "none",
-  flexShrink: 0,
-};
+import Alert from "../ui/Alert";
 
 interface Props {
   productCount: number;
   total: string;
-  confidence: "alta" | "media" | "baja";
+  /** Ítems que la IA marcó con confianza baja. Solo cuando el backend informa la confianza. */
+  lowConfidence?: number;
 }
 
-const CONF: Record<Props["confidence"], { tone: BadgeTone; label: string }> = {
-  alta:  { tone: "success", label: "confianza alta" },
-  media: { tone: "neutral", label: "confianza media" },
-  baja:  { tone: "warning", label: "confianza baja" },
-};
-
-export default function IaBanner({ productCount, total, confidence }: Props) {
-  const conf = CONF[confidence];
-
+export default function IaBanner({ productCount, total, lowConfidence = 0 }: Props) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "10px",
-        backgroundColor: "var(--color-accent-tint)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "var(--radius-lg)",
-        padding: "11px 14px",
-        marginBottom: "16px",
-      }}
-    >
-      <span style={{ ...iconStyle, color: "var(--color-accent)" }}>auto_awesome</span>
-      <p style={{ flex: 1, fontSize: "13px", color: "var(--color-text-callout)", margin: 0 }}>
-        La IA detectó{" "}
-        <strong>{productCount} productos</strong> por un total de{" "}
-        <strong>{total}</strong>.{" "}
-        <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>Revisá antes de confirmar.</span>
-      </p>
-      <Badge tone={conf.tone}>{conf.label}</Badge>
-    </div>
+    <Alert id="invoice-ia-banner" tone="ia">
+      La IA leyó <strong>{productCount === 1 ? "1 producto" : `${productCount} productos`}</strong> por{" "}
+      <strong>{total}</strong>.{" "}
+      {lowConfidence > 0 ? (
+        <>
+          <strong style={{ color: "var(--color-warning-text)" }}>
+            {lowConfidence === 1 ? "1 producto tiene confianza baja" : `${lowConfidence} productos tienen confianza baja`}
+          </strong>
+          : compará esas filas con la factura.
+        </>
+      ) : (
+        "Compará los datos con la factura antes de darla por buena."
+      )}
+    </Alert>
   );
 }

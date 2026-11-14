@@ -1,350 +1,284 @@
 "use client";
 
-// InvoiceTable — tabla de ítems extraídos por IA, edición inline
-// Diseño según wireframe: ícono categoría + producto + tags, cantidad centrada,
-// badge Estado AI, lápiz edición, fila colapsada, IVA/total pie.
+// InvoiceTable — ítems que la IA leyó de la factura, con el resumen de totales al pie.
+// Muestra todos los ítems. La columna "confianza" y la edición aparecen solo cuando hay
+// datos o handlers para respaldarlas: no se inventa confianza ni se ofrece editar algo
+// que no se va a guardar.
 
 import { formatMoneda } from "../../../../lib/formato";
+import Badge, { type BadgeTone } from "../ui/Badge";
+import Icon from "../ui/Icon";
+
+export type Confianza = "alta" | "media" | "baja" | "verificado";
 
 export interface InvoiceItem {
   id: string;
   product: string;
-  tags: string[];           // subcategorías bajo el nombre
+  tags: string[]; // subcategorías bajo el nombre
   quantity: number;
   unitPrice: number;
-  confidence: "alta" | "media" | "baja" | "verificado";
+  /** Solo si el backend la informa. */
+  confidence?: Confianza;
 }
 
 interface Props {
   items: InvoiceItem[];
-  editingId: string | null;
-  onEdit: (id: string | null) => void;
-  onItemChange: (id: string, field: "product" | "quantity" | "unitPrice", value: string | number) => void;
+  /** Total que figura en la factura. Si no coincide con la suma de ítems, se muestra la diferencia. */
+  total?: number | null;
+  /** Edición en línea: se habilita solo si se pasan los tres. */
+  editingId?: string | null;
+  onEdit?: (id: string | null) => void;
+  onItemChange?: (id: string, field: "product" | "quantity" | "unitPrice", value: string | number) => void;
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────
-
-const iconStyle: React.CSSProperties = {
-  fontFamily: "Material Symbols Outlined",
-  fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
-  fontSize: "15px",
-  lineHeight: 1,
-  userSelect: "none",
+const CONF_TONE: Record<Confianza, BadgeTone> = {
+  alta: "success",
+  media: "neutral",
+  baja: "warning",
+  verificado: "neutral",
 };
 
-const CONF_BADGE: Record<
-  InvoiceItem["confidence"],
-  { bg: string; text: string; label: string }
-> = {
-  alta:       { bg: "var(--color-success-bg)",  text: "var(--color-success-text)", label: "alta" },
-  media:      { bg: "var(--color-neutral-bg)",  text: "var(--color-neutral-text)", label: "media" },
-  baja:       { bg: "var(--color-warning-bg)",  text: "var(--color-warning-text)", label: "baja" },
-  verificado: { bg: "var(--color-neutral-bg)",  text: "var(--color-neutral-text)", label: "verificado" },
-};
-
-const formatARS = formatMoneda;
-
-const thStyle: React.CSSProperties = {
-  fontSize: "12px",
+const th: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: "16px",
   fontWeight: 500,
   color: "var(--color-text-secondary)",
-  padding: "8px 10px",
-  textAlign: "left",
   whiteSpace: "nowrap",
 };
 
-const inputStyle: React.CSSProperties = {
-  fontSize: "13px",
-  color: "var(--color-text-primary)",
-  backgroundColor: "var(--color-surface-input)",
-  border: "1px solid var(--color-border-strong)",
-  borderRadius: "var(--radius-sm)",
-  padding: "3px 6px",
-  outline: "none",
+const cellInput: React.CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
+  padding: "4px 8px",
+  border: "1px solid var(--color-accent)",
+  borderRadius: "var(--radius-sm)",
+  backgroundColor: "var(--color-surface-input)",
+  color: "var(--color-text-primary)",
+  fontSize: 13,
+  lineHeight: "18px",
 };
 
-// ── Component ─────────────────────────────────────────────────────────────
+export default function InvoiceTable({ items, total, editingId, onEdit, onItemChange }: Props) {
+  const editable = Boolean(onEdit && onItemChange);
+  const conConfianza = items.some((i) => i.confidence);
 
-export default function InvoiceTable({ items, editingId, onEdit, onItemChange }: Props) {
-  // Show only first 3 rows collapsed, rest expanded on click
-  const PREVIEW_COUNT = 3;
-  const [expanded, setExpanded] = React.useState(false);
-  const visibleItems = expanded ? items : items.slice(0, PREVIEW_COUNT);
-  const hiddenCount = items.length - PREVIEW_COUNT;
+  const columns = ["minmax(0, 2.4fr)", "90px", "130px", "120px", conConfianza && "110px", editable && "32px"]
+    .filter(Boolean)
+    .join(" ");
+  const row: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: columns,
+    columnGap: 16,
+    alignItems: "center",
+    padding: "10px 16px",
+  };
 
-  const grandTotal = items.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
-  const iva = Math.round(grandTotal * 0.21);
-  const percepciones = Math.round(grandTotal * 0.03);
+  const subtotal = items.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
+  // Con menos de un peso de diferencia se considera que coinciden
+  const diferencia = total != null ? total - subtotal : 0;
+  const hayCargos = diferencia >= 1;
+  const noCoincide = diferencia <= -1;
 
   return (
-    <div
-      style={{
-        backgroundColor: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "var(--radius-lg)",
-        overflow: "hidden",
-        marginBottom: "20px",
-      }}
-    >
-      {/* ── Table header bar ─────────────────────────────────────────── */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "12px 14px",
-          borderBottom: "1px solid var(--color-border)",
-          backgroundColor: "var(--color-bg)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ fontSize: "13px", fontWeight: 500, color: "var(--color-text-primary)" }}>
-            Líneas de factura desglosadas
-          </span>
-          <span
-            style={{
-              backgroundColor: "var(--color-neutral-bg)",
-              color: "var(--color-neutral-text)",
-              fontSize: "11px",
-              fontWeight: 500,
-              padding: "1px 7px",
-              borderRadius: "var(--radius-full)",
-            }}
-          >
-            {items.length} ítems
-          </span>
-        </div>
-      </div>
+    <section id="invoice-items" className="card" style={{ marginBottom: 16, overflow: "hidden" }}>
+      <header className="card-header">
+        <h2 className="card-title">
+          Ítems de la factura
+          <Badge>{items.length === 1 ? "1 ítem" : `${items.length} ítems`}</Badge>
+        </h2>
+      </header>
 
-      {/* ── Column headers ───────────────────────────────────────────── */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "2.5fr 70px 120px 110px 95px 40px",
-          backgroundColor: "var(--color-bg)",
-          borderBottom: "1px solid var(--color-border-subtle)",
-        }}
-      >
-        <span style={thStyle}>Producto / Insumo</span>
-        <span style={{ ...thStyle, textAlign: "center" }}>Cantidad</span>
-        <span style={{ ...thStyle, textAlign: "right" }}>Precio unitario</span>
-        <span style={{ ...thStyle, textAlign: "right" }}>Subtotal</span>
-        <span style={{ ...thStyle, textAlign: "center" }}>Estado AI</span>
-        <span style={{ ...thStyle }}></span>
-      </div>
+      <div style={{ overflowX: "auto" }}>
+        <div role="table" aria-label="Ítems de la factura" style={{ minWidth: 620 }}>
+          <div role="row" style={{ ...row, backgroundColor: "var(--color-bg)" }}>
+            <span role="columnheader" style={th}>Producto</span>
+            <span role="columnheader" style={{ ...th, textAlign: "center" }}>Cantidad</span>
+            <span role="columnheader" style={{ ...th, textAlign: "right" }}>Precio unitario</span>
+            <span role="columnheader" style={{ ...th, textAlign: "right" }}>Subtotal</span>
+            {conConfianza && <span role="columnheader" style={{ ...th, textAlign: "center" }}>Confianza</span>}
+            {editable && <span role="columnheader" className="sr-only">Editar</span>}
+          </div>
 
-      {/* ── Rows ─────────────────────────────────────────────────────── */}
-      {visibleItems.map((item) => {
-        const isEditing = editingId === item.id;
-        const conf = CONF_BADGE[item.confidence];
-        const subtotal = item.quantity * item.unitPrice;
+          {items.map((item) => {
+            const isEditing = editable && editingId === item.id;
+            const revisar = item.confidence === "baja";
 
-        return (
-          <div
-            key={item.id}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "2.5fr 70px 120px 110px 95px 40px",
-              alignItems: "center",
-              borderTop: "1px solid var(--color-border-subtle)",
-              backgroundColor: isEditing ? "var(--color-surface-input)" : "var(--color-surface)",
-              transition: "background-color 0.12s",
-            }}
-          >
-            {/* Product column: name + tags */}
-            <div style={{ padding: "10px 10px" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                {isEditing ? (
-                  <input
-                    type="text"
-                    value={item.product}
-                    onChange={(e) => onItemChange(item.id, "product", e.target.value)}
-                    style={inputStyle}
-                  />
-                ) : (
-                  <p style={{ fontSize: "13px", color: "var(--color-text-primary)", margin: "0 0 2px", fontWeight: 400 }}>
-                    {item.product}
-                  </p>
+            return (
+              <div
+                key={item.id}
+                role="row"
+                style={{
+                  ...row,
+                  borderTop: "1px solid var(--color-border-subtle)",
+                  backgroundColor: revisar ? "var(--color-surface-flag)" : undefined,
+                }}
+              >
+                <div role="cell" style={{ minWidth: 0 }}>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      aria-label="producto"
+                      value={item.product}
+                      onChange={(e) => onItemChange?.(item.id, "product", e.target.value)}
+                      style={cellInput}
+                    />
+                  ) : (
+                    <p style={{ fontSize: 13, lineHeight: "18px", color: "var(--color-text-primary)", margin: 0, overflowWrap: "anywhere" }}>
+                      {item.product}
+                    </p>
+                  )}
+                  {revisar ? (
+                    <p style={{ fontSize: 12, lineHeight: "16px", color: "var(--color-warning-text)", margin: "2px 0 0" }}>
+                      la IA no está segura de esta fila: comparala con la factura
+                    </p>
+                  ) : (
+                    !isEditing &&
+                    item.tags.length > 0 && (
+                      <p style={{ fontSize: 12, lineHeight: "16px", color: "var(--color-text-secondary)", margin: "2px 0 0" }}>
+                        {item.tags.join(", ")}
+                      </p>
+                    )
+                  )}
+                </div>
+
+                <div role="cell" style={{ textAlign: "center" }}>
+                  {isEditing ? (
+                    <input
+                      type="number"
+                      aria-label="cantidad"
+                      value={item.quantity}
+                      min={1}
+                      onChange={(e) => onItemChange?.(item.id, "quantity", Number(e.target.value))}
+                      style={{ ...cellInput, textAlign: "center" }}
+                    />
+                  ) : (
+                    <span
+                      className="num"
+                      style={{
+                        display: "inline-block",
+                        minWidth: 30,
+                        padding: "2px 8px",
+                        border: "1px solid var(--color-border)",
+                        borderRadius: "var(--radius-sm)",
+                        backgroundColor: "var(--color-bg)",
+                        fontSize: 13,
+                        lineHeight: "18px",
+                        fontWeight: 500,
+                        color: "var(--color-text-primary)",
+                      }}
+                    >
+                      {item.quantity}
+                    </span>
+                  )}
+                </div>
+
+                <div role="cell" className="num" style={{ textAlign: "right", fontSize: 13, color: "var(--color-text-primary)" }}>
+                  {isEditing ? (
+                    <input
+                      type="number"
+                      aria-label="precio unitario"
+                      value={item.unitPrice}
+                      min={0}
+                      onChange={(e) => onItemChange?.(item.id, "unitPrice", Number(e.target.value))}
+                      style={{ ...cellInput, textAlign: "right" }}
+                    />
+                  ) : (
+                    formatMoneda(item.unitPrice)
+                  )}
+                </div>
+
+                <div role="cell" className="num" style={{ textAlign: "right", fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>
+                  {formatMoneda(item.quantity * item.unitPrice)}
+                </div>
+
+                {conConfianza && (
+                  <div role="cell" style={{ textAlign: "center" }}>
+                    {item.confidence && <Badge tone={CONF_TONE[item.confidence]}>{item.confidence}</Badge>}
+                  </div>
                 )}
-                {!isEditing && item.tags.length > 0 && (
-                  <p style={{ fontSize: "11px", color: "var(--color-text-secondary)", margin: 0 }}>
-                    {item.tags.join(" • ")}
-                  </p>
+
+                {editable && (
+                  <div role="cell" style={{ display: "flex", justifyContent: "center" }}>
+                    <button
+                      type="button"
+                      id={"invoice-edit-" + item.id}
+                      aria-label={isEditing ? `terminar de editar ${item.product}` : `editar ${item.product}`}
+                      onClick={() => onEdit?.(isEditing ? null : item.id)}
+                      style={{
+                        display: "inline-flex",
+                        padding: 4,
+                        border: "none",
+                        borderRadius: "var(--radius-sm)",
+                        background: "none",
+                        color: isEditing ? "var(--color-accent-dark)" : "var(--color-text-secondary)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Icon name={isEditing ? "check" : "edit"} size={16} />
+                    </button>
+                  </div>
                 )}
               </div>
-            </div>
-
-            {/* Quantity */}
-            <div style={{ padding: "10px 6px", textAlign: "center" }}>
-              {isEditing ? (
-                <input
-                  type="number"
-                  value={item.quantity}
-                  min={1}
-                  onChange={(e) => onItemChange(item.id, "quantity", Number(e.target.value))}
-                  style={{ ...inputStyle, textAlign: "center", width: "50px" }}
-                />
-              ) : (
-                <span
-                  style={{
-                    display: "inline-block",
-                    minWidth: "28px",
-                    padding: "2px 8px",
-                    backgroundColor: "var(--color-bg)",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-sm)",
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    color: "var(--color-text-primary)",
-                    textAlign: "center",
-                  }}
-                >
-                  {item.quantity}
-                </span>
-              )}
-            </div>
-
-            {/* Unit price */}
-            <div style={{ padding: "10px 10px", textAlign: "right" }}>
-              {isEditing ? (
-                <input
-                  type="number"
-                  value={item.unitPrice}
-                  min={0}
-                  onChange={(e) => onItemChange(item.id, "unitPrice", Number(e.target.value))}
-                  style={{ ...inputStyle, textAlign: "right", width: "90px" }}
-                />
-              ) : (
-                <span style={{ fontSize: "13px", color: "var(--color-text-primary)" }}>
-                  {formatARS(item.unitPrice)}
-                </span>
-              )}
-            </div>
-
-            {/* Subtotal — always computed */}
-            <div style={{ padding: "10px 10px", textAlign: "right" }}>
-              <span style={{ fontSize: "13px", fontWeight: 500, color: "var(--color-text-primary)" }}>
-                {formatARS(subtotal)}
-              </span>
-            </div>
-
-            {/* Confidence badge */}
-            <div style={{ padding: "10px 6px", textAlign: "center" }}>
-              <span
-                style={{
-                  display: "inline-block",
-                  backgroundColor: conf.bg,
-                  color: conf.text,
-                  fontSize: "11px",
-                  fontWeight: 500,
-                  padding: "2px 7px",
-                  borderRadius: "var(--radius-full)",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {conf.label}
-              </span>
-            </div>
-
-            {/* Edit action */}
-            <div style={{ padding: "10px 8px", textAlign: "center" }}>
-              <button
-                type="button"
-                id={"invoice-edit-" + item.id}
-                title={isEditing ? "Guardar cambios" : "Editar fila"}
-                onClick={() => onEdit(isEditing ? null : item.id)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: "2px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  color: isEditing ? "var(--color-accent)" : "var(--color-text-secondary)",
-                  transition: "color 0.15s",
-                }}
-                onMouseEnter={(e) => { if (!isEditing) e.currentTarget.style.color = "var(--color-text-primary)"; }}
-                onMouseLeave={(e) => { if (!isEditing) e.currentTarget.style.color = "var(--color-text-secondary)"; }}
-              >
-                <span style={iconStyle}>{isEditing ? "check" : "edit"}</span>
-              </button>
-            </div>
-          </div>
-        );
-      })}
-
-      {/* ── Collapsed row ─────────────────────────────────────────────── */}
-      {!expanded && hiddenCount > 0 && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            padding: "10px 14px",
-            borderTop: "1px solid var(--color-border-subtle)",
-            backgroundColor: "var(--color-surface)",
-          }}
-        >
-          <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "var(--color-accent)", flexShrink: 0, display: "inline-block" }} />
-          <span style={{ fontSize: "12px", color: "var(--color-text-secondary)" }}>
-            +{hiddenCount} productos más
-          </span>
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            style={{
-              marginLeft: "auto",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              fontSize: "12px",
-              color: "var(--color-accent-dark)",
-              fontWeight: 500,
-              padding: 0,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "3px",
-            }}
-          >
-            Desplegar todos
-            <span style={{ ...iconStyle, fontSize: "13px" }}>expand_more</span>
-          </button>
+            );
+          })}
         </div>
-      )}
+      </div>
 
-      {/* ── IVA / Percepciones row ───────────────────────────────────── */}
+      {/* Totales a la derecha, como en una factura en papel */}
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          gap: "20px",
-          padding: "10px 14px",
+          flexWrap: "wrap",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          gap: "12px 24px",
+          padding: "14px 16px",
           borderTop: "1px solid var(--color-border)",
           backgroundColor: "var(--color-bg)",
         }}
       >
-        <span style={{ fontSize: "12px", color: "var(--color-text-secondary)" }}>
-          IVA (21%): <strong style={{ fontWeight: 500, color: "var(--color-text-primary)" }}>{formatARS(iva)}</strong>
-        </span>
-        <span style={{ fontSize: "12px", color: "var(--color-text-secondary)" }}>
-          Percepciones: <strong style={{ fontWeight: 500, color: "var(--color-text-primary)" }}>{formatARS(percepciones)}</strong>
-        </span>
-        <span style={{ fontSize: "12px", color: "var(--color-text-secondary)" }}>
-          Condición: <strong style={{ fontWeight: 500, color: "var(--color-text-primary)" }}>Cuenta Corriente 15d</strong>
-        </span>
-        <div style={{ flex: 1 }} />
-        <span style={{ fontSize: "12px", fontWeight: 500, color: "var(--color-text-secondary)" }}>
-          Total factura
-        </span>
-        <span style={{ fontSize: "20px", fontWeight: 500, color: "var(--color-text-primary)", letterSpacing: "-0.01em" }}>
-          {formatARS(grandTotal)}
-        </span>
+        <p style={{ flex: "1 1 240px", fontSize: 12, lineHeight: "17px", margin: 0, color: noCoincide ? "var(--color-warning-text)" : "var(--color-text-secondary)" }}>
+          {noCoincide
+            ? `Los ítems suman más que el total de la factura (${formatMoneda(total ?? 0)}): revisá cantidades y precios.`
+            : hayCargos
+              ? "La diferencia suele ser impuestos y otros cargos. Si no coincide con la factura, revisá los ítems."
+              : ""}
+        </p>
+        <dl
+          className="num"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr auto",
+            gap: "6px 24px",
+            width: 300,
+            maxWidth: "100%",
+            margin: 0,
+            fontSize: 13,
+            lineHeight: "18px",
+            color: "var(--color-text-primary)",
+          }}
+        >
+          {(hayCargos || noCoincide) && (
+            <>
+              <dt style={{ color: "var(--color-text-secondary)" }}>Suma de ítems</dt>
+              <dd style={{ margin: 0, textAlign: "right" }}>{formatMoneda(subtotal)}</dd>
+            </>
+          )}
+          {hayCargos && (
+            <>
+              <dt style={{ color: "var(--color-text-secondary)" }}>Diferencia con el total</dt>
+              <dd style={{ margin: 0, textAlign: "right" }}>{formatMoneda(diferencia)}</dd>
+            </>
+          )}
+          <dt style={{ fontWeight: 500, paddingTop: 8, borderTop: "1px solid var(--color-border)", alignSelf: "end" }}>Total</dt>
+          <dd
+            id="invoice-total"
+            style={{ margin: 0, textAlign: "right", fontSize: 18, lineHeight: "24px", fontWeight: 500, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}
+          >
+            {formatMoneda(total ?? subtotal)}
+          </dd>
+        </dl>
       </div>
-    </div>
+    </section>
   );
 }
-
-// React needs to be in scope for useState
-import React from "react";

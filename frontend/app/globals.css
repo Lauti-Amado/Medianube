@@ -877,9 +877,112 @@ button.kpi.is-attention:hover {
   outline-color: var(--color-sidebar-active-text);
 }
 
+/* --- Pasos de un flujo: "1 subir — 2 lectura — 3 revisar" --- */
+
+.steps {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--color-text-secondary);
+}
+.steps li + li::before {
+  content: "";
+  width: 40px;
+  height: 1px;
+  margin-right: 2px;
+  background-color: var(--color-border);
+}
+.step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background-color: var(--color-surface);
+  font-size: 12px;
+  font-weight: 500;
+}
+.steps li[aria-current="step"] {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+.steps li[aria-current="step"] .step-num {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent);
+  color: #fff;
+}
+.steps li.is-done .step-num {
+  border-color: var(--color-success-line);
+  background-color: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+/* --- Barra de progreso: con ancho fijo (subida) o indeterminada (lectura de la IA) --- */
+
+.progress {
+  height: 4px;
+  margin-top: 12px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-border);
+  overflow: hidden;
+}
+.progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background-color: var(--color-accent);
+  transition: width 0.2s;
+}
+.progress.is-indeterminate > span {
+  width: 38%;
+  animation: progress-slide 1.6s ease-in-out infinite;
+}
+@keyframes progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(265%);
+  }
+}
+
+/* Link "volver a …" arriba del título */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  margin-bottom: 14px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.back-link:hover {
+  color: var(--color-accent-dark);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .skeleton,
   .toast {
+    animation: none;
+  }
+  .progress.is-indeterminate > span {
+    margin-left: 31%;
     animation: none;
   }
 }

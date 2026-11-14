@@ -1,80 +1,30 @@
-// StepIndicator — breadcrumb de pasos 1 → 2 → 3 para el flujo de subir factura
+// StepIndicator — pasos numerados de un flujo: hecho · actual · pendiente
 
 import Icon from "../ui/Icon";
 
 interface Props {
-  currentStep: 1 | 2 | 3;
+  /** Nombres de los pasos, en orden. */
+  steps: string[];
+  /** Paso actual, empezando en 1. */
+  current: number;
+  /** Nombre del flujo para lectores de pantalla. */
+  label: string;
 }
 
-const STEPS = [
-  { num: 1, label: "subir" },
-  { num: 2, label: "revisar" },
-  { num: 3, label: "confirmar" },
-];
-
-export default function StepIndicator({ currentStep }: Props) {
+export default function StepIndicator({ steps, current, label }: Props) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
-        marginBottom: "20px",
-      }}
-    >
-      {STEPS.map(({ num, label }, i) => {
-        const isActive = num === currentStep;
-        const isPast = num < currentStep;
-
+    <ol className="steps" aria-label={label}>
+      {steps.map((step, i) => {
+        const num = i + 1;
+        const done = num < current;
         return (
-          <div key={num} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            {/* Step pill */}
-            <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: "18px",
-                  height: "18px",
-                  borderRadius: "9999px",
-                  fontSize: "11px",
-                  fontWeight: 500,
-                  flexShrink: 0,
-                  backgroundColor: isActive
-                    ? "var(--color-accent)"
-                    : isPast
-                    ? "var(--color-success-bg)"
-                    : "var(--color-neutral-bg)",
-                  color: isActive
-                    ? "#FFFFFF"
-                    : isPast
-                    ? "var(--color-success-text)"
-                    : "var(--color-text-secondary)",
-                }}
-              >
-                {isPast ? <Icon name="check" size={12} /> : num}
-              </span>
-              <span
-                style={{
-                  fontSize: "12px",
-                  fontWeight: isActive ? 500 : 400,
-                  color: isActive ? "var(--color-accent-dark)" : "var(--color-text-secondary)",
-                }}
-              >
-                {label}
-              </span>
-            </div>
-
-            {/* Separator arrow */}
-            {i < STEPS.length - 1 && (
-              <span style={{ color: "var(--color-border-strong)", display: "flex" }}>
-                <Icon name="chevron_right" size={14} />
-              </span>
-            )}
-          </div>
+          <li key={step} className={done ? "is-done" : undefined} aria-current={num === current ? "step" : undefined}>
+            <span className="step-num">{done ? <Icon name="check" size={14} /> : num}</span>
+            {step}
+            {done && <span className="sr-only">(listo)</span>}
+          </li>
         );
       })}
-    </div>
+    </ol>
   );
 }
