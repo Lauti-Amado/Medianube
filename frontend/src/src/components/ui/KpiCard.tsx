@@ -13,11 +13,14 @@ interface KpiTrend {
 interface KpiCardProps {
   id?: string;
   label: string;
+  /** Valor principal. Un `<small>` adentro queda como unidad o contexto: `3 <small>de 32</small>`. */
   value: ReactNode;
   /** Pinta el valor en color de advertencia cuando el KPI representa un riesgo. */
   isAlert?: boolean;
   /** Ícono decorativo a la derecha del label. */
   icon?: string;
+  /** Marca de IA junto al label: el dato lo calculó la IA. */
+  ia?: boolean;
   trend?: KpiTrend;
   /** Pie libre (badge + texto). Tiene prioridad sobre `trend`. */
   footer?: ReactNode;
@@ -29,7 +32,7 @@ interface KpiCardProps {
 
 const TREND_ICON = { up: "arrow_upward", down: "arrow_downward", stable: "remove" } as const;
 
-export default function KpiCard({ id, label, value, isAlert, icon, trend, footer, loading, href }: KpiCardProps) {
+export default function KpiCard({ id, label, value, isAlert, icon, ia, trend, footer, loading, href }: KpiCardProps) {
   const trendColor = !trend || trend.direction === "stable"
     ? undefined
     : trend.positive
@@ -39,7 +42,14 @@ export default function KpiCard({ id, label, value, isAlert, icon, trend, footer
   const body = (
     <>
       <p className="kpi-label">
-        {label}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          {ia && (
+            <span style={{ display: "inline-flex", color: "var(--color-accent)" }} title="calculado por IA">
+              <Icon name="auto_awesome" size={14} />
+            </span>
+          )}
+          {label}
+        </span>
         {icon && <Icon name={icon} size={16} />}
       </p>
       <p className={`kpi-value${isAlert && !loading ? " is-warning" : ""}`}>
@@ -63,7 +73,7 @@ export default function KpiCard({ id, label, value, isAlert, icon, trend, footer
 
   if (href) {
     return (
-      <Link id={id} href={href} className="kpi">
+      <Link id={id} href={href} className={`kpi${isAlert ? " is-attention" : ""}`}>
         {body}
       </Link>
     );

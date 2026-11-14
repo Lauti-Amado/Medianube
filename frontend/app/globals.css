@@ -454,6 +454,20 @@ button.kpi:hover {
 .kpi-value.is-warning {
   color: var(--color-warning-text);
 }
+.kpi-value small {
+  margin-left: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--color-text-secondary);
+}
+/* KPI clickeable que pide atención: el borde avisa, sin relleno */
+.kpi.is-attention {
+  border-color: var(--color-warning-line);
+}
+a.kpi.is-attention:hover {
+  border-color: var(--color-warning-text);
+}
 .kpi-foot {
   display: flex;
   align-items: center;
@@ -556,7 +570,7 @@ button.kpi:hover {
   opacity: 0.6;
 }
 
-.alert a {
+.alert a:not(.btn) {
   color: inherit;
   font-weight: 500;
   text-decoration: underline;

@@ -151,6 +151,14 @@ export default function ComprasPage() {
     fetchHistorial();
   }, [fetchHistorial]);
 
+  // Efecto A2: si se llega con ?estado=revisar (atajo del dashboard), aplicar ese filtro
+  useEffect(() => {
+    const estado = new URLSearchParams(window.location.search).get("estado");
+    if (estado === "revisar" || estado === "procesada" || estado === "procesando") {
+      setStatusFilter(estado);
+    }
+  }, []);
+
   // Efecto B: Manejar el cartel de éxito si venimos de subir una factura
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
