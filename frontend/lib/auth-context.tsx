@@ -22,6 +22,7 @@ interface AuthContextType {
     attributes?: Record<string, string>
   ) => Promise<{ userConfirmed: boolean }>;
   confirmSignUp: (email: string, code: string) => Promise<void>;
+  resendSignUpCode: (email: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   confirmForgotPassword: (
     email: string,
@@ -160,6 +161,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  // ── Resend Sign Up Code ──────────────────────────────────────────────────
+
+  const resendSignUpCode = useCallback(
+    (email: string): Promise<void> =>
+      new Promise((resolve, reject) => {
+        const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
+        cognitoUser.resendConfirmationCode((err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      }),
+    []
+  );
+
    // ── Forgot Password ──────────────────────────────────────────────────────
 
   const forgotPassword = useCallback(
@@ -214,6 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signUp,
         confirmSignUp,
+        resendSignUpCode,
         forgotPassword,
         confirmForgotPassword,
         signOut,

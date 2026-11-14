@@ -563,6 +563,70 @@ button.kpi:hover {
   text-underline-offset: 3px;
 }
 
+/* --- Stepper: control "− 1 +" para números chicos --- */
+
+.stepper {
+  display: inline-flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-input);
+}
+.stepper button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.stepper button:hover:not(:disabled) {
+  background-color: var(--color-accent-tint);
+  color: var(--color-accent-dark);
+}
+.stepper button:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+.stepper button:focus-visible {
+  outline-offset: -2px;
+}
+.stepper output {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  border-left: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* --- Ayuda y error bajo un campo --- */
+
+.field-help {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-text-secondary);
+}
+.field-error {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-warning-text);
+}
+
 /* --- Skeleton (0.10) --- */
 
 .skeleton {
