@@ -28,20 +28,23 @@ interface KpiCardProps {
   loading?: boolean;
   /** Si se pasa, toda la tarjeta es un link (atajo a la tarea). */
   href?: string;
+  /** Si se pasa, toda la tarjeta es un botón (atajo dentro de la misma pantalla). */
+  onClick?: () => void;
 }
 
 const TREND_ICON = { up: "arrow_upward", down: "arrow_downward", stable: "remove" } as const;
 
-export default function KpiCard({ id, label, value, isAlert, icon, ia, trend, footer, loading, href }: KpiCardProps) {
+export default function KpiCard({ id, label, value, isAlert, icon, ia, trend, footer, loading, href, onClick }: KpiCardProps) {
   const trendColor = !trend || trend.direction === "stable"
     ? undefined
     : trend.positive
       ? "var(--color-success-text)"
       : "var(--color-warning-text)";
 
+  // `span` en lugar de `p`/`div`: la tarjeta puede ser un <button>, que solo admite contenido de frase
   const body = (
     <>
-      <p className="kpi-label">
+      <span className="kpi-label">
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           {ia && (
             <span style={{ display: "inline-flex", color: "var(--color-accent)" }} title="calculado por IA">
@@ -51,11 +54,11 @@ export default function KpiCard({ id, label, value, isAlert, icon, ia, trend, fo
           {label}
         </span>
         {icon && <Icon name={icon} size={16} />}
-      </p>
-      <p className={`kpi-value${isAlert && !loading ? " is-warning" : ""}`}>
+      </span>
+      <span className={`kpi-value${isAlert && !loading ? " is-warning" : ""}`}>
         {loading ? <Skeleton width={96} height={18} /> : value}
-      </p>
-      <div className="kpi-foot" style={{ color: loading ? undefined : trendColor }}>
+      </span>
+      <span className="kpi-foot" style={{ color: loading ? undefined : trendColor }}>
         {loading ? (
           <Skeleton width={140} />
         ) : (
@@ -67,7 +70,7 @@ export default function KpiCard({ id, label, value, isAlert, icon, ia, trend, fo
             </>
           ))
         )}
-      </div>
+      </span>
     </>
   );
 
@@ -76,6 +79,13 @@ export default function KpiCard({ id, label, value, isAlert, icon, ia, trend, fo
       <Link id={id} href={href} className={`kpi${isAlert ? " is-attention" : ""}`}>
         {body}
       </Link>
+    );
+  }
+  if (onClick && !loading) {
+    return (
+      <button id={id} type="button" onClick={onClick} className={`kpi${isAlert ? " is-attention" : ""}`}>
+        {body}
+      </button>
     );
   }
   return (

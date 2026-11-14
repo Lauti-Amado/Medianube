@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import Button from "../../src/src/components/ui/Button";
+import { useEffect, useRef, useState } from "react";
+import Icon from "../../src/src/components/ui/Icon";
 
 export interface FiltrosGastos {
   proveedor: string;
@@ -12,70 +12,106 @@ export interface FiltrosGastos {
 export const FILTROS_VACIOS: FiltrosGastos = { proveedor: "", desde: "", hasta: "" };
 
 interface Props {
-  isLoading: boolean;
+  /** Filtros vigentes. El componente es controlado: "limpiar filtros" los resetea desde afuera. */
+  filtros: FiltrosGastos;
+  onChange: (filtros: FiltrosGastos) => void;
+  /** Se llama cuando hay que volver a consultar: al dejar de escribir o al cambiar una fecha. */
   onBuscar: (filtros: FiltrosGastos) => void;
 }
 
-const icon: React.CSSProperties = { fontFamily: "Material Symbols Outlined", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20", fontSize: "14px", lineHeight: 1, userSelect: "none" };
+const DEBOUNCE_MS = 350;
 
-const label: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)" };
+const dateInput: React.CSSProperties = {
+  border: "none",
+  background: "none",
+  outline: "none",
+  padding: 0,
+  fontSize: 13,
+  color: "var(--color-text-primary)",
+  width: 118,
+};
 
-const input: React.CSSProperties = { fontSize: 13, border: "1px solid var(--color-border)", borderRadius: 8, backgroundColor: "var(--color-surface-input)", color: "var(--color-text-primary)", padding: "8px 10px", outline: "none", boxSizing: "border-box", fontWeight: 400 };
-
-export default function FiltrosHistorial({ isLoading, onBuscar }: Props) {
-  const [filtros, setFiltros] = useState<FiltrosGastos>(FILTROS_VACIOS);
+/**
+ * Buscador de proveedor y rango de fechas del historial. Filtra solo: mientras se
+ * escribe (con debounce) y al elegir una fecha, sin botón "buscar".
+ */
+export default function FiltrosHistorial({ filtros, onChange, onBuscar }: Props) {
   const [errorFechas, setErrorFechas] = useState<string | null>(null);
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const actualizar = (campo: keyof FiltrosGastos, valor: string) => {
-    setFiltros((prev) => ({ ...prev, [campo]: valor }));
-    setErrorFechas(null);
-  };
+  useEffect(() => () => {
+    if (debounce.current) clearTimeout(debounce.current);
+  }, []);
 
-  const buscar = () => {
+  function rangoValido(f: FiltrosGastos) {
     // Las fechas AAAA-MM-DD se pueden comparar como texto
-    if (filtros.desde && filtros.hasta && filtros.desde > filtros.hasta) {
-      setErrorFechas("La fecha \"Desde\" no puede ser posterior a \"Hasta\".");
+    return !(f.desde && f.hasta && f.desde > f.hasta);
+  }
+
+  function cambiarProveedor(valor: string) {
+    const next = { ...filtros, proveedor: valor };
+    onChange(next);
+    if (debounce.current) clearTimeout(debounce.current);
+    if (!rangoValido(next)) return;
+    debounce.current = setTimeout(() => onBuscar({ ...next, proveedor: valor.trim() }), DEBOUNCE_MS);
+  }
+
+  function cambiarFecha(campo: "desde" | "hasta", valor: string) {
+    const next = { ...filtros, [campo]: valor };
+    onChange(next);
+    if (debounce.current) clearTimeout(debounce.current);
+    if (!rangoValido(next)) {
+      setErrorFechas("la fecha «desde» no puede ser posterior a «hasta».");
       return;
     }
-    onBuscar({ ...filtros, proveedor: filtros.proveedor.trim() });
-  };
-
-  const limpiar = () => {
-    setFiltros(FILTROS_VACIOS);
     setErrorFechas(null);
-    onBuscar(FILTROS_VACIOS);
-  };
+    onBuscar({ ...next, proveedor: next.proveedor.trim() });
+  }
 
   return (
-    <div style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-xl)", padding: "14px 16px", marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
-        <label style={{ ...label, flex: 1, minWidth: 220 }}>
-          Proveedor
-          <input id="filtro-proveedor" type="text" placeholder="Ej: Molino San Justo" value={filtros.proveedor}
-            onChange={(e) => actualizar("proveedor", e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") buscar(); }}
-            style={{ ...input, width: "100%" }} />
-        </label>
-        <label style={label}>
-          Desde
-          <input id="filtro-desde" type="date" value={filtros.desde} max={filtros.hasta || undefined} onChange={(e) => actualizar("desde", e.target.value)} style={input} />
-        </label>
-        <label style={label}>
-          Hasta
-          <input id="filtro-hasta" type="date" value={filtros.hasta} min={filtros.desde || undefined} onChange={(e) => actualizar("hasta", e.target.value)} style={input} />
-        </label>
-        <Button id="btn-buscar-compras" variant="primary" icon="search" onClick={buscar} disabled={isLoading}>
-          {isLoading ? "buscando…" : "buscar"}
-        </Button>
-        <Button id="btn-limpiar-filtros" icon="filter_alt_off" onClick={limpiar} disabled={isLoading}>
-          limpiar
-        </Button>
+    <>
+      <div style={{ position: "relative", width: 220 }}>
+        <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", display: "flex", color: "var(--color-text-secondary)", pointerEvents: "none" }}>
+          <Icon name="search" size={16} />
+        </span>
+        <input
+          id="filtro-proveedor"
+          type="text"
+          role="searchbox"
+          aria-label="buscar proveedor"
+          placeholder="buscar proveedor"
+          value={filtros.proveedor}
+          onChange={(e) => cambiarProveedor(e.target.value)}
+          className="input"
+          style={{ padding: "7px 10px 7px 32px" }}
+        />
       </div>
+
+      <div
+        role="group"
+        aria-label="rango de fechas"
+        aria-describedby={errorFechas ? "filtro-fechas-error" : undefined}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "7px 10px",
+          border: `1px solid ${errorFechas ? "var(--color-warning-text)" : "var(--color-border)"}`,
+          borderRadius: "var(--radius-md)",
+          backgroundColor: "var(--color-surface-input)",
+        }}
+      >
+        <input id="filtro-desde" type="date" aria-label="desde" value={filtros.desde} max={filtros.hasta || undefined} onChange={(e) => cambiarFecha("desde", e.target.value)} style={dateInput} />
+        <span aria-hidden="true" style={{ color: "var(--color-text-secondary)" }}>–</span>
+        <input id="filtro-hasta" type="date" aria-label="hasta" value={filtros.hasta} min={filtros.desde || undefined} onChange={(e) => cambiarFecha("hasta", e.target.value)} style={dateInput} />
+      </div>
+
       {errorFechas && (
-        <div role="alert" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-warning-text)", marginTop: 10 }}>
-          <span style={{ ...icon, fontSize: 14 }}>error</span>{errorFechas}
-        </div>
+        <p id="filtro-fechas-error" role="alert" className="field-error" style={{ margin: 0, flexBasis: "100%", order: 10 }}>
+          <Icon name="error" size={14} />
+          {errorFechas}
+        </p>
       )}
-    </div>
+    </>
   );
 }
