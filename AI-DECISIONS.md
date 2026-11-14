@@ -456,3 +456,42 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Prompt / Herramienta utilizada:** Asistencia de Gemini (Chat) para reescribir la firma del handler de S3 a SQS, desempaquetar el payload anidado y generar un script de prueba de estrés local (`stress-test-sqs.mjs`).
 - **Código / Arquitectura generada:** Se desarrolló el código para interponer una cola SQS estándar (`medianube-facturas-queue`) como destino de eventos de S3. El código de la Lambda se modificó para iterar sobre `event.Records` de SQS, haciendo un `JSON.parse(sqsRecord.body)` para recuperar el evento S3 subyacente. Se generó el script `backend/scripts/stress-test-sqs.mjs` para validar la implementación.
 - **Validación y Corrección Humana:** Se preparó la configuración de políticas de IAM (`sqs:SendMessage` para S3 y `sqs:ReceiveMessage` para Lambda) y el ajuste crítico del *Visibility Timeout* de la cola a 90 segundos. **Nota de despliegue:** La ejecución de la prueba de estrés y la configuración final en la consola de AWS quedaron bloqueadas temporalmente debido a restricciones de la cuenta de AWS. El código modificado de la Lambda y el script de estrés quedan registrados en el repositorio a la espera de la habilitación del entorno.
+
+## 11/11/2026 - Ejecución de la prueba de estrés del Load Leveling con SQS
+
+**Problema abordado:** El código de Load Leveling (S3 → SQS → `procesarFactura`) ya estaba implementado, pero la prueba de estrés no se había podido ejecutar. Al correr `stress-test-sqs.mjs` desde Git Bash, las 15 subidas fallaban con `Could not load credentials from any providers`, y AWS CloudShell no estaba disponible porque la cuenta mostraba "La verificación de su cuenta está en curso".
+
+**Prompt / Herramienta utilizada:** Gemini (generó el script y sugirió ejecutarlo en CloudShell) y Claude (Anthropic) para diagnosticar el error.
+*Prompt:* se pegó la salida completa del script y los mensajes de la consola de AWS, preguntando cómo ejecutar la prueba sin CloudShell.
+
+**Código / Arquitectura generada:** El script sube 15 facturas ficticias en paralelo a `facturas/test-stress-user/` con `PutObject`, generando 15 eventos de S3 en pocos segundos. Para ejecutarlo localmente se creó un usuario IAM temporal con una política mínima (`s3:PutObject` solo sobre `arn:aws:s3:::medianube-s3-bucket/facturas/*`), y sus claves se exportaron como variables de entorno de la sesión de terminal, sin escribirlas en el código.
+
+**Validación y Corrección Humana:**
+- **Diagnóstico:** el error no era del script sino de credenciales ausentes en el entorno local. La IA asumió primero un entorno AWS Academy (credenciales temporales con session token); se corrigió porque la cuenta es una cuenta AWS normal, con claves de IAM sin token.
+- **Mínimo privilegio:** se descartó adjuntar `AmazonS3FullAccess` y se creó una política propia de solo escritura sobre el prefijo de facturas.
+- **Resultado:** las 15 subidas se completaron en 0,701 segundos.
+- **Riesgo detectado:** el script sube texto plano con extensión `.jpg`, por lo que Gemini falla al leerlo y SQS reintenta cada mensaje, y la cola no tiene cola de mensajes fallidos (DLQ). Se purga la cola al terminar la prueba y queda pendiente configurar una DLQ con `maxReceiveCount` = 3.
+- **Limpieza:** el usuario IAM y sus claves se eliminaron al finalizar la prueba.
+
+## 11/11/2026 - Conexión real de la predicción de demanda (`GET /demanda`)
+
+**Problema abordado:** La pantalla `app/demanda/page.tsx` mostraba arrays estáticos (barras del gráfico y productos de prueba) y no existía un endpoint que leyera `Medianube-Predicciones`. Además, `deploy.sh` no se pudo usar porque CloudShell estaba bloqueado, y la infraestructura del equipo en AWS se creó a mano desde la consola.
+
+**Prompt / Herramienta utilizada:** Gemini y Claude (Anthropic).
+*Prompt (Gemini):* la tarea de la planificación ("Conexión Real de Predicción de Demanda: exponer la lectura de la tabla Medianube-Predicciones mediante un endpoint GET /demanda... borrando todos los mocks"), pidiendo qué archivos del repo o de AWS necesitaba.
+*Prompt (Claude):* se le pasó el chat exportado de Gemini, `deploy.sh`, `template.yaml` y el código del backend (dominio, casos de uso, adaptadores y puertos), pidiendo guiar el cierre de la tarea sin CloudShell.
+
+**Código / Arquitectura generada:**
+- **Lambda `leerDemanda`** (adaptador de entrada `lambdaDemandaHttp.ts`): consulta `Medianube-Predicciones` por `usuarioID` y `fechaProducto >= hoy` (fecha en zona horaria de Argentina) y responde `{ produccion, precision, origen }`, donde `precision` es el promedio de la precisión (backtest) de cada producto. Reutiliza los helpers compartidos `respuesta`, `respuestaError` y `resolverUsuarioID`.
+- **Infraestructura:** la Lambda, la integración, la ruta `GET /demanda` y el permiso de API Gateway se definieron en `template.yaml` para mantener la trazabilidad como código. En AWS se crearon a mano: la tabla, la Lambda y la ruta en la HTTP API existente.
+- **Frontend:** `fetch` a la API real, mapeo a recomendaciones, KPIs y gráfico calculados desde la respuesta, y `EstadoApi` para los estados de carga, error y vacío.
+
+**Validación y Corrección Humana:**
+- **Tabla incorrecta:** la tabla creada a mano `Prediccion-demanda` tenía clave simple (`prediccion-demnadaID`) y no coincidía con la clave compuesta que usa el backend. Se descartó y se creó `Medianube-Predicciones` con `usuarioID` + `fechaProducto`, igual que en `template.yaml`.
+- **Atributo inexistente:** la Lambda propuesta por Gemini leía `cantidadPrevista`, pero `predecirDemanda` guarda `cantidad`. Se detectó contrastando con `servicioDemanda.ts` y se corrigió; de lo contrario la pantalla habría mostrado cantidades vacías.
+- **Usuario de prueba:** el front usaba `test-user`, inventado por la IA; se cambió a `user_test_123`, la convención del equipo y de los seeds.
+- **Permisos en IaC:** `leerDemanda` usaba el rol de `predecirDemanda`, que solo podía escribir en Predicciones. Habría fallado con `AccessDenied` al desplegar; se agregó `dynamodb:Query` y las variables `ZONA_HORARIA` y `PERMITIR_USUARIO_QUERY`.
+- **Mocks residuales:** la versión de Gemini seguía armando el histórico del gráfico con `Math.random()` y dejaba la precisión fija en `91.4 %`, aunque afirmaba haber deshardcodeado la pantalla. Se eliminaron: el gráfico muestra solo datos de la API y la precisión sale del backtest.
+- **Criterio de tarea terminada:** Gemini propuso dar la tarea por cumplida mostrando la pantalla de error. Se rechazó, porque eso prueba el manejo de errores pero no la conexión real. Se creó la Lambda y la ruta a mano y se verificó que la API devuelve datos reales (`GET /demanda?usuarioID=user_test_123` → JSON con `produccion` y `precision: 0.87`).
+- **Datos de prueba:** se cargaron a mano en DynamoDB, porque `predecirDemanda` y sus tablas de entrada (Ventas, Clima) todavía no están desplegadas.
+- **Deuda técnica y pendientes:** el adaptador de entrada consulta DynamoDB directamente; para respetar la arquitectura hexagonal habría que extraer un puerto de lectura y un caso de uso, como en `servicioClima`. Falta conectar `GET /clima` (hoy responde `Not Found`) y activar la autenticación JWT cuando esté lista.

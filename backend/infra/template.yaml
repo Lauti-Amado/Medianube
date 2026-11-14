@@ -261,7 +261,7 @@ Resources:
                   - !GetAtt TablaProductos.Arn
                   - !GetAtt TablaClima.Arn
               - Effect: Allow
-                Action: dynamodb:BatchWriteItem
+                Action: [dynamodb:BatchWriteItem, dynamodb:Query]
                 Resource: !GetAtt TablaPredicciones.Arn
               - Effect: Allow
                 Action: dynamodb:Scan   # listar usuarios para la corrida nocturna
@@ -502,6 +502,59 @@ Resources:
           TTL_PREDICCION_DIAS: "30"
       Tags:
         - { Key: Proyecto, Value: Medianube }
+
+# ── API Gateway: ruta GET /demanda ─────────────────────────────────────────
+  LogsLeerDemanda:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/leerDemanda-${Entorno}
+      RetentionInDays: 14
+
+  FuncionLeerDemanda:
+    Type: AWS::Lambda::Function
+    DependsOn: LogsLeerDemanda
+    Properties:
+      FunctionName: !Sub leerDemanda-${Entorno}
+      Description: Endpoint HTTP para leer las predicciones de demanda del usuario.
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Code: ../dist/leerDemanda
+      MemorySize: 256
+      Timeout: 10
+      Role: !If [CrearRol, !GetAtt RolPredecirDemanda.Arn, !Ref RolLambdaArn]
+      Environment:
+        Variables:
+          TABLA_PREDICCIONES: !Ref TablaPredicciones
+          ZONA_HORARIA: America/Argentina/Buenos_Aires
+          PERMITIR_USUARIO_QUERY: !If [UsarJwt, "false", "true"]
+      Tags:
+        - { Key: Proyecto, Value: Medianube }
+
+  IntegracionDemanda:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiId
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt FuncionLeerDemanda.Arn
+      PayloadFormatVersion: "2.0"
+      TimeoutInMillis: 10000
+
+  RutaDemanda:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiId
+      RouteKey: GET /demanda
+      Target: !Sub integrations/${IntegracionDemanda}
+      AuthorizationType: NONE # Ajustar a JWT cuando la auth esté lista
+
+  PermisoApiGatewayDemanda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FuncionLeerDemanda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*/GET/demanda
 
   # EventBridge invoca en forma asíncrona: si la corrida falla entera (ej. no se pudo listar
   # usuarios), Lambda reintenta una vez. Es seguro porque la escritura es idempotente (misma SK).
