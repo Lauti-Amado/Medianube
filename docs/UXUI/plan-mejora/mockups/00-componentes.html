@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Componentes compartidos · mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+  .sheet { max-width: 1320px; margin: 0 auto; padding: 36px 40px; }
+  .cols { display: grid; grid-template-columns: 1fr 1.1fr 1.1fr; gap: 16px; align-items: start; }
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+  .spec { font-size: 11px; color: var(--muted); }
+  .ty { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--subtle); }
+  .ty:first-child { border-top: none; padding-top: 0; }
+  .wrapb { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .sw { border-radius: 10px; padding: 12px; background: var(--bg); border: 1px solid var(--subtle); }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="ph">
+    <div>
+      <h1>Componentes compartidos</h1>
+      <p>Etapa 0: la base común que usan todas las pantallas. Misma paleta, misma tipografía, sin sombras.</p>
+    </div>
+  </div>
+
+  <div class="cols">
+    <!-- Columna 1 -->
+    <div class="stack">
+      <div class="card anchor"><span class="pin">0.1</span>
+        <div class="card-h"><h2>Tipografía · Work Sans 400 y 500</h2></div>
+        <div class="card-b">
+          <div class="ty"><span style="font-size:20px;line-height:26px;font-weight:500;letter-spacing:-0.01em">Título de pantalla</span><span class="spec">20 / 500</span></div>
+          <div class="ty"><span class="f14 fw5">Título de tarjeta</span><span class="spec">14 / 500</span></div>
+          <div class="ty"><span>Cuerpo y valores de tabla</span><span class="spec">13 / 400</span></div>
+          <div class="ty"><span class="f12 t2">Labels, ayudas y metadatos</span><span class="spec">12 / 400</span></div>
+          <div class="ty"><span style="font-size:24px;line-height:30px;font-weight:500">$1.284.600</span><span class="spec">KPI 24 / 500 · cifras tabulares</span></div>
+          <p class="help" style="margin-top:12px">Sin 600 ni 700: hoy el navegador los simula porque la fuente solo carga 400 y 500. Todo en sentence case.</p>
+        </div>
+      </div>
+
+      <div class="card anchor"><span class="pin">0.8</span>
+        <div class="card-h"><h2>Contraste del texto secundario</h2></div>
+        <div class="card-b col gap10">
+          <div class="sw"><p style="color:#8C7361">Proyección para los próximos 7 días</p><p class="spec" style="margin-top:4px">actual #8C7361 · 3,98:1 sobre crema · no cumple AA</p></div>
+          <div class="sw"><p style="color:#7D6453">Proyección para los próximos 7 días</p><p class="spec" style="margin-top:4px">propuesto #7D6453 · 4,94:1 sobre crema · cumple AA</p></div>
+          <p class="help">El tono casi no cambia. <span class="fw5">text-muted</span> (#B08D6F, 2,74:1) queda solo para placeholders y deshabilitados.</p>
+        </div>
+      </div>
+
+      <div class="card anchor"><span class="pin">0.15</span>
+        <div class="card-h"><h2>Acento · confirmado</h2></div>
+        <div class="card-b col gap12">
+          <div class="row gap12"><span class="btn" style="background:#B5722E;color:#fff">guardar cambios</span><p class="spec">antes #B5722E · 3,9:1 con blanco · no cumple AA</p></div>
+          <div class="row gap12"><span class="btn btn-primary">guardar cambios</span><p class="spec">ahora #A4651F · 4,7:1 con blanco · cumple AA</p></div>
+          <div class="row gap12"><span class="link" style="font-size:13px;white-space:nowrap;flex-shrink:0">ver todas</span><p class="spec">links de texto chico en accent-dark #8A5423 · 6,2:1</p></div>
+          <p class="help">Mismo matiz caramelo, un tono más profundo. El hover sigue siendo accent-dark.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Columna 2 -->
+    <div class="stack">
+      <div class="card anchor"><span class="pin">0.3</span>
+        <div class="card-h"><h2>Botones · una acción primaria por pantalla</h2></div>
+        <div class="card-b col gap12">
+          <div class="wrapb"><span class="btn btn-primary">recalcular con IA</span><span class="spec">primario</span></div>
+          <div class="wrapb"><span class="btn btn-secondary">cancelar</span><span class="btn btn-secondary btn-sm apply" style="border-color:var(--accent);color:var(--accent-dark)">aplicar</span><span class="spec">secundario</span></div>
+          <div class="wrapb"><span class="btn btn-text">ver todas</span><span class="spec">texto</span><span class="f12 t2" style="margin-left:16px">al día</span><span class="spec">informativo, sin cursor</span></div>
+          <div class="wrapb"><span class="btn btn-disabled">verificar</span><span class="spec">deshabilitado</span></div>
+        </div>
+      </div>
+
+      <div class="card anchor"><span class="pin">0.4</span>
+        <div class="card-h"><h2>Badges · siempre con texto</h2></div>
+        <div class="card-b col gap10">
+          <div class="wrapb"><span class="badge b-ok">procesada</span><span class="badge b-warn">revisar</span><span class="badge b-neu">procesando</span></div>
+          <div class="wrapb"><span class="badge b-ok">alta</span><span class="badge b-neu">media</span><span class="badge b-warn">baja</span><span class="badge b-neu">sin dato</span><span class="badge b-neu">estable</span></div>
+          <div class="wrapb anchor"><span class="badge b-ia"><span class="ms">auto_awesome</span>IA</span><span class="spec">reemplaza "Gemini", "modelo v2.4" y "Datos con IA… Lambda"</span><span class="pin out-r" style="right:-14px">0.6</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Campos</h2></div>
+        <div class="card-b col gap12">
+          <div class="field"><label class="label">nombre del negocio</label><div class="in focus">Panadería Central</div></div>
+          <div class="field"><label class="label">email</label><div class="in err">rodrigo@panaderia</div><span class="err-text"><span class="ms s14">error</span>falta el dominio, por ejemplo: @gmail.com</span></div>
+          <div class="field"><label class="label">contraseña</label><div class="in">••••••••••<span class="ms end">visibility</span></div>
+            <div class="reqs"><div class="ok"><span class="ms">check_circle</span>8 caracteres o más</div><div class="ok"><span class="ms">check_circle</span>una mayúscula</div><div class="ok"><span class="ms">check_circle</span>una minúscula</div><div class="ok"><span class="ms">check_circle</span>un número</div><div><span class="ms">radio_button_unchecked</span>un símbolo (!@#$)</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Columna 3 -->
+    <div class="stack">
+      <div class="card anchor"><span class="pin">0.10</span>
+        <div class="card-h"><h2>Feedback</h2></div>
+        <div class="card-b col gap12">
+          <p class="label">toast con deshacer</p>
+          <div><span class="toast"><span class="ms s18">check_circle</span><span>Precio de <b>medialunas de manteca</b> actualizado a $970</span><a>deshacer</a></span></div>
+          <p class="label" style="margin-top:6px">carga (skeleton en vez de "...")</p>
+          <div class="card" style="padding:12px 14px">
+            <div class="row gap12" style="padding:6px 0"><span class="sk" style="width:38%"></span><span class="sk" style="width:16%;margin-left:auto"></span><span class="sk" style="width:14%"></span></div>
+            <div class="row gap12" style="padding:6px 0"><span class="sk" style="width:30%"></span><span class="sk" style="width:18%;margin-left:auto"></span><span class="sk" style="width:14%"></span></div>
+            <div class="row gap12" style="padding:6px 0"><span class="sk" style="width:44%"></span><span class="sk" style="width:12%;margin-left:auto"></span><span class="sk" style="width:14%"></span></div>
+          </div>
+          <p class="label" style="margin-top:6px">avisos (borde de 1px, sin barra lateral)</p>
+          <div class="alert alert-warn"><span class="ms s18">warning</span><span class="grow">2 productos quedan por debajo de tu margen objetivo.</span></div>
+          <div class="alert alert-ia"><span class="ms s18 ia-mark">auto_awesome</span><span class="grow">El sábado se espera el pico de la semana.</span></div>
+          <div class="alert alert-warn" style="align-items:flex-start"><span class="ms s18">wifi_off</span><span class="grow">No pudimos cargar tus compras. Revisá tu conexión y probá de nuevo.</span><span class="btn btn-warn btn-sm">reintentar</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Popup de confirmación</h2></div>
+        <div class="card-b" style="background:rgba(44,26,14,0.38);border-radius:0 0 12px 12px;padding:20px">
+          <div class="dialog" style="width:auto;padding:20px">
+            <h3 style="font-size:16px">¿Descartar esta factura?</h3>
+            <p class="t2">Se pierden los cambios que hiciste en la revisión.</p>
+            <div class="row gap10" style="justify-content:flex-end;margin-top:16px">
+              <span class="btn btn-secondary btn-sm">seguir revisando</span>
+              <span class="btn btn-sm" style="background:var(--warn);color:#fff">descartar</span>
+            </div>
+          </div>
+          <p class="f12" style="color:#F6E4D3;margin-top:10px">Solo para acciones irreversibles o con plata: aplicar precio, descartar factura, salir sin guardar.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="shell.js"></script>
+</body>
+</html>

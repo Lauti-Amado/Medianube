@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Predicción de demanda · mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+  .rec .tr { grid-template-columns: 1fr 160px 140px; }
+  .rec .tr > :nth-child(2) { text-align: right; }
+  .rec .tr > :nth-child(3) { text-align: center; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" data-active="demanda"></aside>
+  <main class="main">
+    <div class="wrap">
+
+      <div class="ph">
+        <div>
+          <h1>Predicción de demanda</h1>
+          <p>Cuánto producir en los próximos 7 días, según tu historial de ventas.</p>
+        </div>
+        <span class="btn btn-primary"><span class="ms">autorenew</span>recalcular con IA</span>
+      </div>
+
+      <div class="alert alert-ia anchor" style="margin-bottom:16px">
+        <span class="pin">2</span>
+        <span class="ms s18 ia-mark">auto_awesome</span>
+        <p class="grow"><span class="fw5">El sábado se espera el pico de la semana: +35% sobre el promedio.</span> Conviene reforzar medialunas de manteca y pan francés.</p>
+      </div>
+
+      <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+        <div class="kpi anchor">
+          <span class="pin">4</span>
+          <div class="kpi-l">Producción para mañana</div>
+          <div class="kpi-v">315 <small>unidades</small></div>
+          <div class="kpi-s">sábado 14/11</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-l">Próximos 7 días</div>
+          <div class="kpi-v">1.633 <small>unidades</small></div>
+          <div class="kpi-s"><span class="ms s14">arrow_upward</span>+11% vs los últimos 7 días</div>
+        </div>
+        <div class="kpi anchor">
+          <span class="pin">8</span>
+          <div class="kpi-l">Precisión de la predicción</div>
+          <div class="kpi-v">±9%</div>
+          <div class="kpi-s">desvío promedio de las últimas 4 semanas</div>
+        </div>
+      </div>
+
+      <div class="card anchor" style="margin-bottom:16px">
+        <span class="pin">3</span>
+        <div class="card-h">
+          <h2><span class="ms">bar_chart</span>Producción diaria</h2>
+          <div class="legend"><span><i style="background:var(--bar-hist)"></i>últimos 7 días</span><span><i style="background:var(--bar-pred)"></i>predicción</span></div>
+        </div>
+        <div class="card-b" style="padding-top:20px">
+          <div class="chart" data-h="170" data-vals="all"
+               data-hist="296,118,186,172,228,214,262" data-pred="315,130,200,190,250,240,308"
+               data-labels="sá 7,do 8,lu 9,ma 10,mi 11,ju 12,vi 13,sá 14,do 15,lu 16,ma 17,mi 18,ju 19,vi 20"></div>
+        </div>
+      </div>
+
+      <div class="card rec">
+        <div class="card-h anchor">
+          <span class="pin">5</span>
+          <h2>Producción sugerida para mañana <span class="f13 t2" style="font-weight:400">· sábado 14/11</span>
+            <span class="badge b-ia anchor"><span class="ms">auto_awesome</span>IA<span class="pin out-r">1</span></span></h2>
+          <span class="btn btn-secondary btn-sm anchor"><span class="ms s14">print</span>imprimir lista<span class="pin r">7</span></span>
+        </div>
+        <div class="tr th"><span>Producto</span><span>Cantidad</span><span>Confianza</span></div>
+        <div class="tr"><span class="fw5">Medialunas de manteca</span><span>100 <span class="f12 t2">unidades</span></span><span><span class="badge b-ok">alta</span></span></div>
+        <div class="tr"><span class="fw5">Alfajor de maicena</span><span>80 <span class="f12 t2">unidades</span></span><span><span class="badge b-ok">alta</span></span></div>
+        <div class="tr"><span class="fw5">Medialuna de jamón y queso</span><span>60 <span class="f12 t2">unidades</span></span><span><span class="badge b-ok">alta</span></span></div>
+        <div class="tr"><span class="fw5">Tarta de ricota</span><span>40 <span class="f12 t2">porciones</span></span><span><span class="badge b-neu">media</span></span></div>
+        <div class="tr"><span class="fw5">Café con leche</span><span>20 <span class="f12 t2">vasos</span></span><span><span class="badge b-neu">media</span></span></div>
+        <div class="tr"><span class="fw5">Té con leche</span><span>15 <span class="f12 t2">vasos</span></span><span><span class="badge b-neu">media</span></span></div>
+        <div class="row gap6 f12 t2" style="padding:12px 16px;border-top:1px solid var(--border)">
+          <span class="ms s14">info</span>La confianza baja cuando hay pocos datos de un producto. Si la IA no la informa, se muestra «sin dato».
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+<script src="shell.js"></script>
+</body>
+</html>

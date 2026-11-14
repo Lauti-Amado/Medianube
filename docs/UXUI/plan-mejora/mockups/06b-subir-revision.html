@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Subir factura (revisión) · mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+  .items .tr { grid-template-columns: 2.4fr 90px 130px 120px 110px 32px; padding-top: 10px; padding-bottom: 10px; }
+  .items .tr > :nth-child(2) { text-align: center; }
+  .items .tr > :nth-child(5) { text-align: center; }
+  .qty { display: inline-block; min-width: 30px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font-weight: 500; }
+  .edit { color: var(--muted); }
+  .cell-in { border: 1px solid var(--accent); background: var(--surface-input); border-radius: 6px; padding: 4px 8px; font-size: 13px; }
+  .tot { display: grid; grid-template-columns: 1fr auto; gap: 6px 24px; width: 300px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" data-active="compras"></aside>
+  <main class="main">
+    <div class="wrap">
+
+      <p class="row gap4 f12 t2" style="margin-bottom:14px"><span class="ms s14">arrow_back</span>volver a compras</p>
+      <div class="ph" style="margin-bottom:14px"><h1>Subir factura</h1></div>
+
+      <div class="steps">
+        <span class="st done"><i><span class="ms s14">check</span></i>subir</span><span class="ln"></span>
+        <span class="st on"><i>2</i>revisar</span><span class="ln"></span>
+        <span class="st"><i>3</i>confirmar</span>
+      </div>
+
+      <div class="card row gap16 anchor" style="padding:12px 16px;margin-bottom:12px">
+        <span class="pin">7</span>
+        <span class="ms s24 tacc">description</span>
+        <div><p class="fw5">factura-distribuidora-sur-0012.pdf</p><p class="f12 t2">412 KB</p></div>
+        <span class="vdiv"></span>
+        <div><p class="fw5">Distribuidora Sur S.A.</p><p class="f12 t2">CUIT 30-71449821-4</p></div>
+        <span class="badge b-ok">coincide 99% con un proveedor tuyo</span>
+        <span class="grow"></span>
+        <span class="btn btn-text btn-sm" style="color:var(--text-2)"><span class="ms s14">close</span>quitar</span>
+      </div>
+
+      <div class="alert alert-ia anchor" style="margin-bottom:12px">
+        <span class="pin">5</span>
+        <span class="ms s18 ia-mark">auto_awesome</span>
+        <p class="grow">La IA leyó <span class="fw5">8 productos</span> por <span class="fw5">$108.970</span> más impuestos. <span class="twarn fw5">1 producto tiene confianza baja</span>: revisalo antes de guardar.</p>
+        <span class="link">ver solo ese</span>
+      </div>
+
+      <div class="card items anchor" style="margin-bottom:16px">
+        <span class="pin">6</span>
+        <div class="card-h"><h2>Ítems de la factura<span class="badge b-neu">8 ítems</span></h2></div>
+        <div class="tr th"><span>Producto</span><span>Cantidad</span><span class="num">Precio unitario</span><span class="num">Subtotal</span><span class="anchor" style="text-align:center">Confianza<span class="pin out-r" style="right:-22px">8</span></span><span></span></div>
+
+        <div class="tr"><div><p>Harina 000 x 25 kg</p><p class="sub">Molino Cañuelas · bolsa de papel</p></div><span><span class="qty">4</span></span><span class="num">$8.200</span><span class="num fw5">$32.800</span><span><span class="badge b-ok">alta</span></span><span class="ms edit">edit</span></div>
+        <div class="tr"><div><p>Manteca x 5 kg</p><p class="sub">La Serenísima · bloque industrial</p></div><span><span class="qty">2</span></span><span class="num">$6.450</span><span class="num fw5">$12.900</span><span><span class="badge b-ok">alta</span></span><span class="ms edit">edit</span></div>
+        <div class="tr"><div><p>Levadura fresca x 500 g</p><p class="sub">Calsa · prensada</p></div><span><span class="qty">6</span></span><span class="num">$1.070</span><span class="num fw5">$6.420</span><span><span class="badge b-neu">verificado</span></span><span class="ms edit">edit</span></div>
+        <div class="tr"><div><p>Azúcar común x 50 kg</p><p class="sub">Ledesma · bolsa de tela</p></div><span><span class="qty">2</span></span><span class="num">$12.400</span><span class="num fw5">$24.800</span><span><span class="badge b-ok">alta</span></span><span class="ms edit">edit</span></div>
+        <div class="tr"><div><p>Esencia de vainilla 500 ml</p><p class="sub">Balbi · aroma natural</p></div><span><span class="qty">3</span></span><span class="num">$1.850</span><span class="num fw5">$5.550</span><span><span class="badge b-neu">media</span></span><span class="ms edit">edit</span></div>
+        <div class="tr"><div><p>Sal fina x 25 kg</p><p class="sub">Dos Anclas · yodada</p></div><span><span class="qty">1</span></span><span class="num">$2.900</span><span class="num fw5">$2.900</span><span><span class="badge b-ok">alta</span></span><span class="ms edit">edit</span></div>
+        <div class="tr"><div><p>Dulce de leche repostero 4 kg</p><p class="sub">La Serenísima · horneable</p></div><span><span class="qty">4</span></span><span class="num">$4.300</span><span class="num fw5">$17.200</span><span><span class="badge b-ok">alta</span></span><span class="ms edit">edit</span></div>
+        <div class="tr flag">
+          <div><span class="cell-in" style="display:inline-block;width:240px">Grasa refinada x 5 kg</span><p class="sub twarn" style="margin-top:4px">no reconocimos bien la marca: confirmá el producto</p></div>
+          <span><span class="cell-in" style="display:inline-block;width:44px;text-align:center">2</span></span>
+          <span class="num"><span class="cell-in" style="display:inline-block;width:90px;text-align:right">$3.200</span></span>
+          <span class="num fw5">$6.400</span>
+          <span><span class="badge b-warn">baja</span></span>
+          <span class="ms tacc">check</span>
+        </div>
+
+        <div class="row between anchor" style="padding:14px 16px;border-top:1px solid var(--border);background:#FDF8F2;border-radius:0 0 12px 12px;align-items:flex-end">
+          <span class="pin" style="left:auto;right:316px">9</span>
+          <p class="f12 t2">Condición de pago: cuenta corriente a 15 días</p>
+          <div class="tot f13">
+            <span class="t2">Subtotal</span><span class="num">$108.970</span>
+            <span class="t2">IVA 21%</span><span class="num">$22.884</span>
+            <span class="t2">Percepciones 3%</span><span class="num">$3.269</span>
+            <span class="fw5" style="padding-top:8px;border-top:1px solid var(--border)">Total</span><span class="num fw5" style="padding-top:8px;border-top:1px solid var(--border);font-size:18px">$135.123</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="row gap10" style="justify-content:flex-end">
+        <span class="btn btn-secondary">cancelar</span>
+        <span class="btn btn-primary"><span class="ms">check_circle</span>confirmar y guardar</span>
+      </div>
+
+    </div>
+  </main>
+</div>
+<script src="shell.js"></script>
+</body>
+</html>

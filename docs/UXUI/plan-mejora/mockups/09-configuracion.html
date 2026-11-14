@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Configuración · mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+  .cfg { display: grid; grid-template-columns: 200px 1fr; align-items: center; column-gap: 16px; padding: 12px 0; border-top: 1px solid var(--subtle); }
+  .cfg:first-child { border-top: none; padding-top: 0; }
+  .cfg:last-child { padding-bottom: 0; }
+  .cfg > :first-child { color: var(--text-2); }
+  .pct { width: 96px; justify-content: flex-end; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--tint); border: 1px solid var(--border-strong); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; color: var(--accent-dark); flex-shrink: 0; }
+  .mem { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--subtle); }
+  .mem:first-child { border-top: none; padding-top: 0; }
+  .nt { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--subtle); }
+  .nt:first-child { border-top: none; padding-top: 0; }
+  .nt:last-child { padding-bottom: 0; }
+  .savebar { position: fixed; bottom: 20px; left: calc(224px + (100vw - 224px) / 2); transform: translateX(-50%); width: 760px; background: var(--sb-bg); color: var(--sb-text); border-radius: 12px; padding: 10px 12px 10px 16px; display: flex; align-items: center; gap: 12px; z-index: 20; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" data-active="configuracion" data-pin-config="1"></aside>
+  <main class="main" style="padding-bottom:96px">
+    <div class="wrap" style="max-width:760px">
+
+      <div class="ph">
+        <div>
+          <h1>Configuración</h1>
+          <p>Datos del negocio, márgenes, equipo y avisos.</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-h"><h2>Datos del negocio</h2></div>
+        <div class="card-b">
+          <div class="cfg"><span>Nombre del negocio</span><div class="in in-sm anchor" style="width:320px">Panadería Central<span class="pin out-r">2</span></div></div>
+          <div class="cfg"><span>Tipo de negocio</span><div class="anchor" style="justify-self:start"><p>Panadería</p><p class="help">se define al crear la cuenta</p><span class="pin out-r">3</span></div></div>
+          <div class="cfg"><span>Sucursales</span><div class="stepper sm" style="justify-self:start"><span class="ms">remove</span><b>1</b><span class="ms">add</span></div></div>
+          <div class="cfg"><span>Moneda</span><div class="row gap8">$ ARS · peso argentino<span class="badge b-neu">predeterminada</span></div></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-h"><h2>Márgenes objetivo por categoría</h2></div>
+        <div class="card-b">
+          <p class="help anchor" style="margin-bottom:12px;display:inline-block">La IA usa estos márgenes para sugerir tus precios.<span class="pin out-r">4</span></p>
+          <div class="cfg" style="border-top:1px solid var(--subtle);padding-top:12px"><span>Panadería</span><div class="in in-sm pct">40<span class="t2">%</span></div></div>
+          <div class="cfg"><span>Pastelería</span><div class="in in-sm pct focus">48<span class="t2">%</span></div></div>
+          <div class="cfg"><span>Bebidas</span><div class="in in-sm pct">60<span class="t2">%</span></div></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-h"><h2>Equipo</h2><span class="btn btn-text btn-sm"><span class="ms s14">person_add</span>invitar miembro</span></div>
+        <div class="card-b">
+          <div class="mem"><span class="avatar">RG</span><div class="grow"><p>Rodrigo García</p><p class="f12 t2">rodrigo@panaderiacentral.com</p></div><span class="badge b-neu">dueño</span></div>
+          <div class="mem"><span class="avatar">VL</span><div class="grow"><p>Valentina López</p><p class="f12 t2">valentina@panaderiacentral.com</p></div><span class="badge b-neu">administración</span></div>
+          <div class="mem"><span class="avatar">MI</span><div class="grow"><p>Marcos Ibáñez</p><p class="f12 t2">marcos@panaderiacentral.com</p></div><span class="badge b-neu">producción</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Notificaciones</h2><span class="f12 t2 anchor">por email a rodrigo@panaderiacentral.com<span class="pin out-l">8</span></span></div>
+        <div class="card-b">
+          <div class="nt"><div><p>Alertas de precio</p><p class="help">cuando un producto queda debajo de su margen objetivo</p></div><span class="toggle on"></span></div>
+          <div class="nt"><div><p>Riesgo de faltante</p><p class="help">cuando la predicción anticipa que puede faltar un producto</p></div><span class="toggle on"></span></div>
+          <div class="nt"><div><p>Picos de demanda</p><p class="help">cuando se espera un día de producción alta</p></div><span class="toggle"></span></div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<div class="savebar">
+  <span class="pin">5</span>
+  <span class="ms s18" style="color:var(--sb-active-text)">edit</span>
+  <span class="grow">Tenés cambios sin guardar</span>
+  <span class="btn btn-sm" style="color:var(--sb-active-text);background:none">descartar</span>
+  <span class="btn btn-primary btn-sm">guardar cambios</span>
+</div>
+
+<script src="shell.js"></script>
+</body>
+</html>
