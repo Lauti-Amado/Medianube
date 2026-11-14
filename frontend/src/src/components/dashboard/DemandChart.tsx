@@ -74,7 +74,7 @@ export default function DemandChart() {
                   y={CHART_HEIGHT + 14}
                   textAnchor="middle"
                   fontSize="10"
-                  fill="var(--color-text-muted)"
+                  fill="var(--color-text-secondary)"
                 >
                   {DAY_LABELS[i]}
                 </text>

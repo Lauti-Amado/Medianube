@@ -120,7 +120,7 @@ function LoginForm() {
             <p
               className="text-caption"
               style={{
-                color: "var(--color-text-muted)",
+                color: "var(--color-text-secondary)",
                 letterSpacing: "0.14em",
                 margin: "3px 0 0",
               }}
@@ -256,7 +256,7 @@ function LoginForm() {
                   border: "none",
                   padding: 0,
                   cursor: "pointer",
-                  color: "var(--color-text-muted)",
+                  color: "var(--color-text-secondary)",
                   display: "flex",
                   alignItems: "center",
                 }}
@@ -271,7 +271,7 @@ function LoginForm() {
                 href="/recuperar-password"
                 className="text-caption"
                 style={{
-                  color: "var(--color-text-muted)",
+                  color: "var(--color-text-secondary)",
                   textDecoration: "underline",
                 }}
               >
@@ -348,7 +348,7 @@ function LoginForm() {
             id="login-register"
             href="/onboarding"
             style={{
-              color: "var(--color-accent)",
+              color: "var(--color-accent-dark)",
               fontWeight: 500,
               textDecoration: "none",
             }}

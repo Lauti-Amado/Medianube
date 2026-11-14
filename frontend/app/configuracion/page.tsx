@@ -1,8 +1,11 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
+import Badge from "../../src/src/components/ui/Badge";
+import Button from "../../src/src/components/ui/Button";
+import { useNombreNegocio } from "../../lib/negocio";
 
 // ── Types & mock data ──────────────────────────────────────────────────────────
 
@@ -70,7 +73,7 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
         justifyContent: "space-between",
         paddingTop: 10,
         paddingBottom: 10,
-        borderBottom: "1px solid #F5EBDF",
+        borderBottom: "1px solid var(--color-border-subtle)",
       }}
     >
       <span style={{ fontSize: 13, color: "var(--color-text-secondary)", minWidth: 180 }}>
@@ -117,7 +120,12 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 
 export default function ConfiguracionPage() {
   // Datos del negocio
-  const [businessName, setBusinessName] = useState("Panadería Central");
+  // El nombre sale de la cuenta (por ahora, de lo guardado en este navegador)
+  const [nombreGuardado, guardarNombre] = useNombreNegocio();
+  const [businessName, setBusinessName] = useState("");
+  useEffect(() => {
+    if (nombreGuardado) setBusinessName(nombreGuardado);
+  }, [nombreGuardado]);
   const [branches, setBranches] = useState("1");
 
   // Márgenes
@@ -155,6 +163,8 @@ export default function ConfiguracionPage() {
       });
 
       if (!response.ok) throw new Error("Error en AWS");
+
+      guardarNombre(businessName);
       
       setMensaje("¡Configuración guardada exitosamente en DynamoDB!");
     } catch (error) {
@@ -190,7 +200,7 @@ export default function ConfiguracionPage() {
               alignItems: "center",
               gap: 4,
               fontSize: 12,
-              color: "var(--color-text-muted)",
+              color: "var(--color-text-secondary)",
               textDecoration: "none",
               marginBottom: 12,
             }}
@@ -198,14 +208,7 @@ export default function ConfiguracionPage() {
             <span style={{ ...icon, fontSize: 13 }}>arrow_back</span>
             Volver al dashboard
           </Link>
-          <h1
-            style={{
-              fontSize: 18,
-              fontWeight: 500,
-              color: "var(--color-text-primary)",
-              margin: 0,
-            }}
-          >
+          <h1 className="text-headline-screen" style={{ color: "var(--color-text-primary)", margin: 0 }}>
             Configuración
           </h1>
         </div>
@@ -217,12 +220,13 @@ export default function ConfiguracionPage() {
               id="input-nombre-negocio"
               type="text"
               value={businessName}
+              placeholder="ej.: Panadería Central"
               onChange={(e) => setBusinessName(e.target.value)}
               style={inputStyle}
             />
           </FieldRow>
           <FieldRow label="Tipo de negocio">
-            <span style={{ fontSize: 13, color: "var(--color-text-muted)" }}>
+            <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
               Panadería
             </span>
           </FieldRow>
@@ -259,7 +263,7 @@ export default function ConfiguracionPage() {
                 justifyContent: "space-between",
                 paddingTop: 10,
                 paddingBottom: 10,
-                borderBottom: idx < arr.length - 1 ? "1px solid #F5EBDF" : "none",
+                borderBottom: idx < arr.length - 1 ? "1px solid var(--color-border-subtle)" : "none",
               }}
             >
               <span style={{ fontSize: 13, color: "var(--color-text-secondary)", textTransform: "capitalize" }}>
@@ -277,7 +281,7 @@ export default function ConfiguracionPage() {
                   }
                   style={{ ...inputStyle, width: 70 }}
                 />
-                <span style={{ fontSize: 13, color: "var(--color-text-muted)" }}>%</span>
+                <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>%</span>
               </div>
             </div>
           ))}
@@ -294,7 +298,7 @@ export default function ConfiguracionPage() {
                 gap: 10,
                 paddingTop: 10,
                 paddingBottom: 10,
-                borderBottom: idx < MEMBERS.length - 1 ? "1px solid #F5EBDF" : "none",
+                borderBottom: idx < MEMBERS.length - 1 ? "1px solid var(--color-border-subtle)" : "none",
               }}
             >
               {/* Avatar */}
@@ -319,38 +323,13 @@ export default function ConfiguracionPage() {
               <span style={{ fontSize: 13, color: "var(--color-text-primary)", flex: 1 }}>
                 {m.name}
               </span>
-              <span
-                style={{
-                  fontSize: 11,
-                  padding: "2px 8px",
-                  borderRadius: 6,
-                  backgroundColor: "var(--color-neutral-bg)",
-                  color: "var(--color-neutral-text)",
-                }}
-              >
-                {m.role}
-              </span>
+              <Badge>{m.role}</Badge>
             </div>
           ))}
           <div style={{ paddingTop: 12 }}>
-            <button
-              id="btn-invitar-miembro"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                fontSize: 13,
-                color: "var(--color-accent)",
-                backgroundColor: "transparent",
-                border: "none",
-                cursor: "pointer",
-                padding: 0,
-                fontWeight: 500,
-              }}
-            >
-              <span style={{ ...icon, fontSize: 15 }}>person_add</span>
-              Invitar miembro
-            </button>
+            <Button id="btn-invitar-miembro" variant="text" icon="person_add">
+              invitar miembro
+            </Button>
           </div>
         </SectionCard>
 
@@ -370,14 +349,14 @@ export default function ConfiguracionPage() {
                 gap: 16,
                 paddingTop: 10,
                 paddingBottom: 10,
-                borderBottom: idx < arr.length - 1 ? "1px solid #F5EBDF" : "none",
+                borderBottom: idx < arr.length - 1 ? "1px solid var(--color-border-subtle)" : "none",
               }}
             >
               <div>
                 <div style={{ fontSize: 13, color: "var(--color-text-primary)", marginBottom: 2 }}>
                   {n.label}
                 </div>
-                <div style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{n.sub}</div>
+                <div style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{n.sub}</div>
               </div>
               <Toggle
                 value={notifs[n.key]}
@@ -391,28 +370,14 @@ export default function ConfiguracionPage() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 16, paddingBottom: 32 }}>
           {/* Mensaje de respuesta de AWS */}
           {mensaje && (
-            <span style={{ fontSize: 13, fontWeight: 500, color: mensaje.includes("problema") ? "var(--color-warning-text)" : "var(--color-accent)" }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: mensaje.includes("problema") ? "var(--color-warning-text)" : "var(--color-success-text)" }}>
               {mensaje}
             </span>
           )}
           
-          <button
-            id="btn-guardar-config"
-            onClick={guardarDatosAWS}
-            disabled={isLoading}
-            style={{
-              backgroundColor: isLoading ? "var(--color-border-strong)" : "var(--color-accent)",
-              color: "#fff",
-              fontSize: 13,
-              fontWeight: 500,
-              padding: "9px 20px",
-              borderRadius: 8,
-              border: "none",
-              cursor: isLoading ? "not-allowed" : "pointer",
-            }}
-          >
-            {isLoading ? "Guardando en la nube..." : "Guardar cambios"}
-          </button>
+          <Button id="btn-guardar-config" variant="primary" onClick={guardarDatosAWS} disabled={isLoading}>
+            {isLoading ? "guardando…" : "guardar cambios"}
+          </Button>
         </div>
 
       </div>

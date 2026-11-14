@@ -48,7 +48,7 @@ export default function FileCard({ fileName, fileSize, onRemove }: Props) {
         >
           {fileName}
         </p>
-        <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>
+        <p style={{ fontSize: "11px", color: "var(--color-text-secondary)", margin: 0 }}>
           {fileSize}
         </p>
       </div>
@@ -62,7 +62,7 @@ export default function FileCard({ fileName, fileSize, onRemove }: Props) {
           border: "none",
           cursor: "pointer",
           fontSize: "12px",
-          color: "var(--color-text-muted)",
+          color: "var(--color-text-secondary)",
           padding: "4px 0",
           flexShrink: 0,
           transition: "color 0.15s",
@@ -71,7 +71,7 @@ export default function FileCard({ fileName, fileSize, onRemove }: Props) {
           e.currentTarget.style.color = "var(--color-warning-text)";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.color = "var(--color-text-muted)";
+          e.currentTarget.style.color = "var(--color-text-secondary)";
         }}
       >
         quitar

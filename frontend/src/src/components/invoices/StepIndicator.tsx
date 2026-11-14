@@ -1,5 +1,7 @@
 // StepIndicator — breadcrumb de pasos 1 → 2 → 3 para el flujo de subir factura
 
+import Icon from "../ui/Icon";
+
 interface Props {
   currentStep: 1 | 2 | 3;
 }
@@ -36,8 +38,8 @@ export default function StepIndicator({ currentStep }: Props) {
                   width: "18px",
                   height: "18px",
                   borderRadius: "9999px",
-                  fontSize: "10px",
-                  fontWeight: 600,
+                  fontSize: "11px",
+                  fontWeight: 500,
                   flexShrink: 0,
                   backgroundColor: isActive
                     ? "var(--color-accent)"
@@ -48,20 +50,16 @@ export default function StepIndicator({ currentStep }: Props) {
                     ? "#FFFFFF"
                     : isPast
                     ? "var(--color-success-text)"
-                    : "var(--color-text-muted)",
+                    : "var(--color-text-secondary)",
                 }}
               >
-                {isPast ? "✓" : num}
+                {isPast ? <Icon name="check" size={12} /> : num}
               </span>
               <span
                 style={{
                   fontSize: "12px",
-                  fontWeight: isActive ? 600 : 400,
-                  color: isActive
-                    ? "var(--color-accent)"
-                    : isPast
-                    ? "var(--color-text-secondary)"
-                    : "var(--color-text-muted)",
+                  fontWeight: isActive ? 500 : 400,
+                  color: isActive ? "var(--color-accent-dark)" : "var(--color-text-secondary)",
                 }}
               >
                 {label}
@@ -70,14 +68,8 @@ export default function StepIndicator({ currentStep }: Props) {
 
             {/* Separator arrow */}
             {i < STEPS.length - 1 && (
-              <span
-                style={{
-                  fontSize: "12px",
-                  color: "var(--color-border-strong)",
-                  userSelect: "none",
-                }}
-              >
-                →
+              <span style={{ color: "var(--color-border-strong)", display: "flex" }}>
+                <Icon name="chevron_right" size={14} />
               </span>
             )}
           </div>

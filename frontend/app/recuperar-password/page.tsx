@@ -359,7 +359,7 @@ export default function RecuperarPasswordPage() {
                     border: "none",
                     padding: 0,
                     cursor: "pointer",
-                    color: "var(--color-text-muted)",
+                    color: "var(--color-text-secondary)",
                     display: "flex",
                     alignItems: "center",
                   }}
@@ -399,7 +399,7 @@ export default function RecuperarPasswordPage() {
                   border: "none",
                   padding: 0,
                   cursor: isSubmitting ? "not-allowed" : "pointer",
-                  color: "var(--color-text-muted)",
+                  color: "var(--color-text-secondary)",
                   textDecoration: "underline",
                 }}
               >
@@ -441,7 +441,7 @@ export default function RecuperarPasswordPage() {
             <Link
               id="recover-back-login"
               href="/login"
-              style={{ color: "var(--color-accent)", fontWeight: 500, textDecoration: "none" }}
+              style={{ color: "var(--color-accent-dark)", fontWeight: 500, textDecoration: "none" }}
             >
               ← volver a iniciar sesión
             </Link>

@@ -71,7 +71,7 @@ export default function FileDropzone({ onFileSelected }: Props) {
         <p style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>
           Arrastrá la factura acá o hacé click para elegirla
         </p>
-        <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }}>
+        <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: 0 }}>
           PDF, PNG, JPG o WEBP · hasta 10 MB
         </p>
         <input

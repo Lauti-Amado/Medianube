@@ -11,7 +11,11 @@ import {
   type SugerenciaPrecio,
   type ResultadoAplicarPrecio,
 } from "../../lib/precios";
-import EstadoApi from "../../src/src/components/ui/EstadoApi";
+import PageHeader from "../../src/src/components/ui/PageHeader";
+import Badge, { type BadgeTone } from "../../src/src/components/ui/Badge";
+import Button from "../../src/src/components/ui/Button";
+import Alert from "../../src/src/components/ui/Alert";
+import { formatMoneda as formatARS } from "../../lib/formato";
 
 // ── Estilos compartidos ──────────────────────────────────────────────────────
 
@@ -23,40 +27,15 @@ const iconStyle: React.CSSProperties = {
   userSelect: "none",
 };
 
-const badgeStyle = (bg: string, text: string): React.CSSProperties => ({
-  backgroundColor: bg,
-  color: text,
-  fontSize: "11px",
-  fontWeight: 600,
-  padding: "3px 8px",
-  borderRadius: "var(--radius-full)",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "4px",
-  whiteSpace: "nowrap",
-});
-
 const sectionCard: React.CSSProperties = {
   backgroundColor: "var(--color-surface)",
   border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
+  borderRadius: "var(--radius-xl)",
   padding: "18px 20px",
   boxSizing: "border-box",
 };
 
 // ── Funciones auxiliares ─────────────────────────────────────────────────────
-
-function formatARS(val: number | null | undefined): string {
-  if (val === null || val === undefined || !Number.isFinite(val)) {
-    return "-";
-  }
-
-  return new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    maximumFractionDigits: 0,
-  }).format(val);
-}
 
 function formatPct(val: number | null | undefined): string {
   if (val === null || val === undefined || !Number.isFinite(val)) {
@@ -89,29 +68,10 @@ function esAjusteRecomendado(item: SugerenciaPrecio): boolean {
   );
 }
 
-function colorConfianza(confianza: string): {
-  background: string;
-  text: string;
-} {
-  switch (confianza) {
-    case "alta":
-      return {
-        background: "var(--color-success-bg)",
-        text: "var(--color-success-text)",
-      };
-
-    case "media":
-      return {
-        background: "var(--color-neutral-bg)",
-        text: "var(--color-neutral-text)",
-      };
-
-    default:
-      return {
-        background: "var(--color-warning-bg)",
-        text: "var(--color-warning-text)",
-      };
-  }
+function tonoConfianza(confianza: string): BadgeTone {
+  if (confianza === "alta") return "success";
+  if (confianza === "media") return "neutral";
+  return "warning";
 }
 
 // ── Página de sugerencias de precios ─────────────────────────────────────────
@@ -307,6 +267,26 @@ export default function PreciosPage() {
 
   return (
     <AppLayout activeTab="precios">
+      <div style={{ maxWidth: "1200px" }}>
+        {/* ── 1. Encabezado ──────────────────────────────────────────────── */}
+
+        <PageHeader
+          title="Precios sugeridos"
+          badge={<Badge tone="ia">IA</Badge>}
+          subtitle="Según tus recetas, el costo de los ingredientes y tu margen objetivo."
+          action={
+            <Button
+              variant="primary"
+              icon="refresh"
+              disabled={loading}
+              onClick={() => void consultarSugerencias()}
+            >
+              {loading ? "calculando…" : "recalcular con IA"}
+            </Button>
+          }
+        />
+      </div>
+
       <div
         style={{
           display: "flex",
@@ -315,106 +295,17 @@ export default function PreciosPage() {
           maxWidth: "1200px",
         }}
       >
-        {/* ── 1. Encabezado ──────────────────────────────────────────────── */}
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            flexWrap: "wrap",
-            gap: "12px",
-          }}
-        >
-          <div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                flexWrap: "wrap",
-              }}
-            >
-              <h1
-                style={{
-                  fontSize: "22px",
-                  fontWeight: 600,
-                  color: "var(--color-text-primary)",
-                  margin: 0,
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                Sugerencias de Precios con IA
-              </h1>
-
-              <span
-                style={badgeStyle(
-                  "var(--color-accent-tint)",
-                  "var(--color-accent-dark)"
-                )}
-              >
-                <span style={{ ...iconStyle, fontSize: "13px" }}>
-                  auto_awesome
-                </span>
-                Gemini
-              </span>
-            </div>
-
-            <p
-              style={{
-                fontSize: "13px",
-                color: "var(--color-text-secondary)",
-                margin: "4px 0 0",
-              }}
-            >
-              Precios sugeridos según recetas, costos de ingredientes y
-              márgenes de rentabilidad.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => void consultarSugerencias()}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-              padding: "8px 16px",
-              backgroundColor: "var(--color-accent)",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              color: "#FFFFFF",
-              fontSize: "13px",
-              fontWeight: 500,
-              cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading ? 0.7 : 1,
-            }}
-          >
-            <span style={{ ...iconStyle, fontSize: "15px" }}>
-              refresh
-            </span>
-
-            {loading ? "Calculando sugerencias..." : "Recalcular con IA"}
-          </button>
-        </div>
 
         {/* ── 2. Información de la última generación ─────────────────────── */}
 
         {resultado && (
           <div
+            className="alert alert-success"
             style={{
-              display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
               flexWrap: "wrap",
               gap: "8px",
-              padding: "10px 14px",
-              backgroundColor: "var(--color-success-bg)",
-              borderLeft: "4px solid var(--color-success-text)",
-              borderRadius: "var(--radius-md)",
-              fontSize: "12px",
-              color: "var(--color-success-text)",
             }}
           >
             <div
@@ -448,10 +339,7 @@ export default function PreciosPage() {
 
               {resultado.sugerenciaPrecioID && (
                 <span
-                  style={{
-                    fontSize: "10px",
-                    opacity: 0.8,
-                  }}
+                  style={{ fontSize: "11px" }}
                   title={resultado.sugerenciaPrecioID}
                 >
                   ID: {resultado.sugerenciaPrecioID.slice(0, 18)}...
@@ -484,10 +372,8 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "11px",
-                  fontWeight: 700,
+                  fontWeight: 500,
                   color: "var(--color-text-secondary)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
                 }}
               >
                 Requieren revisión
@@ -516,7 +402,7 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "24px",
-                  fontWeight: 700,
+                  fontWeight: 500,
                   color: "var(--color-text-primary)",
                 }}
               >
@@ -526,7 +412,7 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "12px",
-                  color: "var(--color-text-muted)",
+                  color: "var(--color-text-secondary)",
                 }}
               >
                 productos
@@ -558,10 +444,8 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "11px",
-                  fontWeight: 700,
+                  fontWeight: 500,
                   color: "var(--color-text-secondary)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
                 }}
               >
                 Precios estables
@@ -587,7 +471,7 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "24px",
-                  fontWeight: 700,
+                  fontWeight: 500,
                   color: "var(--color-text-primary)",
                 }}
               >
@@ -597,7 +481,7 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "12px",
-                  color: "var(--color-text-muted)",
+                  color: "var(--color-text-secondary)",
                 }}
               >
                 productos
@@ -629,10 +513,8 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "11px",
-                  fontWeight: 700,
+                  fontWeight: 500,
                   color: "var(--color-text-secondary)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
                 }}
               >
                 Aumento promedio
@@ -658,7 +540,7 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "24px",
-                  fontWeight: 700,
+                  fontWeight: 500,
                   color: "var(--color-text-primary)",
                 }}
               >
@@ -695,10 +577,8 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "11px",
-                  fontWeight: 700,
+                  fontWeight: 500,
                   color: "var(--color-text-secondary)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
                 }}
               >
                 Sin costo calculable
@@ -710,7 +590,7 @@ export default function PreciosPage() {
                   color:
                     productosSinCosto.length > 0
                       ? "var(--color-warning-text)"
-                      : "var(--color-text-muted)",
+                      : "var(--color-text-secondary)",
                 }}
               >
                 inventory_2
@@ -727,7 +607,7 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "24px",
-                  fontWeight: 700,
+                  fontWeight: 500,
                   color: "var(--color-text-primary)",
                 }}
               >
@@ -737,7 +617,7 @@ export default function PreciosPage() {
               <span
                 style={{
                   fontSize: "12px",
-                  color: "var(--color-text-muted)",
+                  color: "var(--color-text-secondary)",
                 }}
               >
                 productos
@@ -759,102 +639,31 @@ export default function PreciosPage() {
         {/* ── 4. Error de conexión ───────────────────────────────────────── */}
 
         {error && (
-          <div
-            style={{
-              ...sectionCard,
-              backgroundColor: "var(--color-warning-bg)",
-              borderColor: "var(--color-warning-text)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-start",
-                gap: "10px",
-              }}
-            >
-              <span
-                style={{
-                  ...iconStyle,
-                  color: "var(--color-warning-text)",
-                  fontSize: "20px",
-                }}
+          <Alert
+            tone="warning"
+            icon="error"
+            action={
+              <Button
+                variant="warning"
+                size="sm"
+                disabled={loading}
+                onClick={() => void consultarSugerencias()}
               >
-                error
-              </span>
-
-              <div style={{ flex: 1 }}>
-                <h3
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: 600,
-                    color: "var(--color-warning-text)",
-                    margin: "0 0 4px",
-                  }}
-                >
-                  Error al obtener las sugerencias
-                </h3>
-
-                <p
-                  style={{
-                    fontSize: "12px",
-                    color: "var(--color-warning-text)",
-                    margin: 0,
-                  }}
-                >
-                  {error}
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => void consultarSugerencias()}
-                  disabled={loading}
-                  style={{
-                    marginTop: "10px",
-                    padding: "6px 12px",
-                    backgroundColor: "var(--color-warning-text)",
-                    color: "#FFFFFF",
-                    border: "none",
-                    borderRadius: "var(--radius-sm)",
-                    fontSize: "12px",
-                    fontWeight: 500,
-                    cursor: "pointer",
-                  }}
-                >
-                  Reintentar consulta
-                </button>
-              </div>
-            </div>
-          </div>
+                reintentar
+              </Button>
+            }
+          >
+            <strong>No pudimos obtener las sugerencias.</strong> {error}
+          </Alert>
         )}
 
         {mensajeAplicacion && (
-          <div
-            style={{
-              padding: "12px 16px",
-              borderRadius: "var(--radius-md)",
-              backgroundColor:
-                mensajeAplicacion.tipo === "success"
-                  ? "var(--color-success-bg)"
-                  : "var(--color-warning-bg)",
-              color:
-                mensajeAplicacion.tipo === "success"
-                  ? "var(--color-success-text)"
-                  : "var(--color-warning-text)",
-              fontSize: "13px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px"
-            }}
+          <Alert
+            tone={mensajeAplicacion.tipo === "success" ? "success" : "warning"}
+            icon={mensajeAplicacion.tipo === "success" ? "check_circle" : "error"}
           >
-            <span style={iconStyle}>
-              {mensajeAplicacion.tipo === "success"
-                ? "check_circle"
-                : "error"}
-            </span>
-
             {mensajeAplicacion.texto}
-          </div>
+          </Alert>
         )}
 
         {/* ── 5. Filtros y búsqueda ──────────────────────────────────────── */}
@@ -903,7 +712,7 @@ export default function PreciosPage() {
                   style={{
                     padding: "6px 12px",
                     fontSize: "12px",
-                    fontWeight: activo ? 600 : 400,
+                    fontWeight: activo ? 500 : 400,
                     backgroundColor: activo
                       ? "var(--color-surface)"
                       : "transparent",
@@ -955,7 +764,7 @@ export default function PreciosPage() {
                 left: "8px",
                 top: "50%",
                 transform: "translateY(-50%)",
-                color: "var(--color-text-muted)",
+                color: "var(--color-text-secondary)",
                 fontSize: "15px",
               }}
             >
@@ -992,13 +801,13 @@ export default function PreciosPage() {
                 marginTop: "12px",
               }}
             >
-              Analizando productos con Gemini...
+              Calculando precios sugeridos…
             </p>
 
             <p
               style={{
                 fontSize: "12px",
-                color: "var(--color-text-muted)",
+                color: "var(--color-text-secondary)",
                 margin: "4px 0 0",
               }}
             >
@@ -1022,7 +831,7 @@ export default function PreciosPage() {
               style={{
                 ...iconStyle,
                 fontSize: "32px",
-                color: "var(--color-text-muted)",
+                color: "var(--color-text-secondary)",
               }}
             >
               sell
@@ -1042,31 +851,22 @@ export default function PreciosPage() {
             <p
               style={{
                 fontSize: "12px",
-                color: "var(--color-text-muted)",
+                color: "var(--color-text-secondary)",
                 margin: "4px 0 12px",
               }}
             >
               Probá restableciendo los filtros o generando un nuevo análisis.
             </p>
 
-            <button
-              type="button"
+            <Button
+              size="sm"
               onClick={() => {
                 setFiltroEstado("todos");
                 setBusqueda("");
               }}
-              style={{
-                padding: "6px 14px",
-                backgroundColor: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-sm)",
-                fontSize: "12px",
-                color: "var(--color-text-primary)",
-                cursor: "pointer",
-              }}
             >
-              Restablecer filtros
-            </button>
+              limpiar filtros
+            </Button>
           </div>
         )}
 
@@ -1083,18 +883,6 @@ export default function PreciosPage() {
             {sugerenciasFiltradas.map((item) => {
               const requiereAjuste = esAjusteRecomendado(item);
 
-              const colorEstado = requiereAjuste
-                ? {
-                    background: "var(--color-warning-bg)",
-                    text: "var(--color-warning-text)",
-                  }
-                : {
-                    background: "var(--color-success-bg)",
-                    text: "var(--color-success-text)",
-                  };
-
-              const colorNivel = colorConfianza(item.confianza);
-
               return (
                 <div
                   key={item.productoID}
@@ -1104,9 +892,9 @@ export default function PreciosPage() {
                     flexDirection: "column",
                     justifyContent: "space-between",
                     gap: "14px",
-                    borderLeft: requiereAjuste
-                      ? "4px solid var(--color-warning-text)"
-                      : "4px solid var(--color-success-text)",
+                    borderColor: requiereAjuste
+                      ? "var(--color-warning-line)"
+                      : "var(--color-border)",
                   }}
                 >
                   {/* Encabezado de la tarjeta */}
@@ -1123,11 +911,9 @@ export default function PreciosPage() {
                     >
                       <span
                         style={{
-                          fontSize: "10px",
-                          fontWeight: 700,
-                          color: "var(--color-text-muted)",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.08em",
+                          fontSize: "11px",
+                          fontWeight: 500,
+                          color: "var(--color-text-secondary)",
                         }}
                       >
                         {item.unidadProducto || "Producto"}
@@ -1141,31 +927,20 @@ export default function PreciosPage() {
                           gap: "5px",
                         }}
                       >
-                        <span
-                          style={badgeStyle(
-                            colorEstado.background,
-                            colorEstado.text
-                          )}
-                        >
-                          {requiereAjuste ? "Revisar precio" : "Estable"}
-                        </span>
+                        <Badge tone={requiereAjuste ? "warning" : "neutral"}>
+                          {requiereAjuste ? "revisar precio" : "estable"}
+                        </Badge>
 
-                        <span
-                          style={badgeStyle(
-                            colorNivel.background,
-                            colorNivel.text
-                          )}
-                          title={`Confianza del análisis: ${item.confianza}`}
-                        >
-                          Confianza {item.confianza}
-                        </span>
+                        <Badge tone={tonoConfianza(item.confianza)}>
+                          confianza {item.confianza}
+                        </Badge>
                       </div>
                     </div>
 
                     <h2
                       style={{
                         fontSize: "16px",
-                        fontWeight: 600,
+                        fontWeight: 500,
                         color: "var(--color-text-primary)",
                         margin: "0 0 4px",
                       }}
@@ -1175,8 +950,8 @@ export default function PreciosPage() {
 
                     <p
                       style={{
-                        fontSize: "10px",
-                        color: "var(--color-text-muted)",
+                        fontSize: "11px",
+                        color: "var(--color-text-secondary)",
                         margin: 0,
                       }}
                     >
@@ -1203,10 +978,9 @@ export default function PreciosPage() {
                     <div>
                       <p
                         style={{
-                          fontSize: "10px",
-                          fontWeight: 600,
-                          color: "var(--color-text-muted)",
-                          textTransform: "uppercase",
+                          fontSize: "11px",
+                          fontWeight: 500,
+                          color: "var(--color-text-secondary)",
                           margin: "0 0 4px",
                         }}
                       >
@@ -1216,7 +990,7 @@ export default function PreciosPage() {
                       <p
                         style={{
                           fontSize: "13px",
-                          fontWeight: 600,
+                          fontWeight: 500,
                           color: "var(--color-text-primary)",
                           margin: 0,
                           overflowWrap: "anywhere",
@@ -1228,7 +1002,7 @@ export default function PreciosPage() {
                       {item.variacionCosto !== null && (
                         <p
                           style={{
-                            fontSize: "10px",
+                            fontSize: "11px",
                             color:
                               item.variacionCosto > 0
                                 ? "var(--color-warning-text)"
@@ -1246,10 +1020,9 @@ export default function PreciosPage() {
                     <div>
                       <p
                         style={{
-                          fontSize: "10px",
-                          fontWeight: 600,
-                          color: "var(--color-text-muted)",
-                          textTransform: "uppercase",
+                          fontSize: "11px",
+                          fontWeight: 500,
+                          color: "var(--color-text-secondary)",
                           margin: "0 0 4px",
                         }}
                       >
@@ -1259,7 +1032,7 @@ export default function PreciosPage() {
                       <p
                         style={{
                           fontSize: "13px",
-                          fontWeight: 600,
+                          fontWeight: 500,
                           color: "var(--color-text-secondary)",
                           margin: 0,
                           overflowWrap: "anywhere",
@@ -1270,8 +1043,8 @@ export default function PreciosPage() {
 
                       <p
                         style={{
-                          fontSize: "10px",
-                          color: "var(--color-text-muted)",
+                          fontSize: "11px",
+                          color: "var(--color-text-secondary)",
                           margin: "3px 0 0",
                         }}
                       >
@@ -1284,10 +1057,9 @@ export default function PreciosPage() {
                     <div>
                       <p
                         style={{
-                          fontSize: "10px",
-                          fontWeight: 600,
+                          fontSize: "11px",
+                          fontWeight: 500,
                           color: "var(--color-accent-dark)",
-                          textTransform: "uppercase",
                           margin: "0 0 4px",
                         }}
                       >
@@ -1297,7 +1069,7 @@ export default function PreciosPage() {
                       <p
                         style={{
                           fontSize: "15px",
-                          fontWeight: 700,
+                          fontWeight: 500,
                           color: requiereAjuste
                             ? "var(--color-warning-text)"
                             : "var(--color-success-text)",
@@ -1310,8 +1082,8 @@ export default function PreciosPage() {
 
                       <p
                         style={{
-                          fontSize: "10px",
-                          fontWeight: 600,
+                          fontSize: "11px",
+                          fontWeight: 500,
                           color:
                             item.variacionPrecio > 0
                               ? "var(--color-warning-text)"
@@ -1355,7 +1127,7 @@ export default function PreciosPage() {
                     </strong>
                   </div>
 
-                  {/* Razonamiento de Gemini */}
+                  {/* Razonamiento de la IA */}
 
                   <div
                     style={{
@@ -1388,11 +1160,11 @@ export default function PreciosPage() {
                       <strong
                         style={{
                           fontSize: "11px",
-                          fontWeight: 600,
+                          fontWeight: 500,
                           color: "var(--color-accent-dark)",
                         }}
                       >
-                        Análisis de Gemini
+                        Análisis de la IA
                       </strong>
                     </div>
 
@@ -1405,7 +1177,7 @@ export default function PreciosPage() {
                       <p
                         style={{
                           fontSize: "11px",
-                          fontWeight: 600,
+                          fontWeight: 500,
                           color: "var(--color-warning-text)",
                           marginTop: "7px",
                           marginBottom: 0,
@@ -1437,7 +1209,7 @@ export default function PreciosPage() {
                         fontSize: "11px",
                         color: productosAplicados.has(item.productoID)
                           ? "var(--color-success-text)"
-                          : "var(--color-text-muted)",
+                          : "var(--color-text-secondary)",
                       }}
                     >
                       {productosAplicados.has(item.productoID)
@@ -1445,50 +1217,22 @@ export default function PreciosPage() {
                         : "Pendiente de aprobación"}
                     </span>
 
-                    <button
-                      type="button"
+                    <Button
+                      variant={requiereAjuste ? "accent" : "secondary"}
+                      size="sm"
+                      icon={productosAplicados.has(item.productoID) ? "check_circle" : "check"}
                       disabled={
                         productosAplicados.has(item.productoID) ||
                         productosAplicando.has(item.productoID)
                       }
                       onClick={() => void handleAplicarPrecio(item.productoID)}
-                      style={{
-                        padding: "7px 14px",
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        backgroundColor: productosAplicados.has(item.productoID)
-                          ? "var(--color-success-bg)"
-                          : "var(--color-accent)",
-                        color: productosAplicados.has(item.productoID)
-                          ? "var(--color-success-text)"
-                          : "#FFFFFF",
-                        border: "none",
-                        borderRadius: "var(--radius-sm)",
-                        cursor:
-                          productosAplicados.has(item.productoID) ||
-                          productosAplicando.has(item.productoID)
-                            ? "not-allowed"
-                            : "pointer",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "5px",
-                        opacity: productosAplicando.has(item.productoID) ? 0.7 : 1,
-                      }}
                     >
-                      <span style={{ ...iconStyle, fontSize: "14px" }}>
-                        {productosAplicados.has(item.productoID)
-                          ? "check_circle"
-                          : productosAplicando.has(item.productoID)
-                            ? "progress_activity"
-                            : "check"}
-                      </span>
-
                       {productosAplicados.has(item.productoID)
-                        ? "Aplicado"
+                        ? "aplicado"
                         : productosAplicando.has(item.productoID)
-                          ? "Aplicando..."
-                          : "Aplicar precio"}
-                    </button>
+                          ? "aplicando…"
+                          : "aplicar precio"}
+                    </Button>
                   </div>
 
                   
@@ -1504,7 +1248,7 @@ export default function PreciosPage() {
           <div
             style={{
               ...sectionCard,
-              borderColor: "var(--color-warning-text)",
+              borderColor: "var(--color-warning-line)",
             }}
           >
             <div
@@ -1528,7 +1272,7 @@ export default function PreciosPage() {
               <h3
                 style={{
                   fontSize: "14px",
-                  fontWeight: 600,
+                  fontWeight: 500,
                   color: "var(--color-text-primary)",
                   margin: 0,
                 }}
@@ -1592,14 +1336,7 @@ export default function PreciosPage() {
                     </p>
                   </div>
 
-                  <span
-                    style={badgeStyle(
-                      "var(--color-warning-bg)",
-                      "var(--color-warning-text)"
-                    )}
-                  >
-                    Sin analizar
-                  </span>
+                  <Badge tone="warning">sin analizar</Badge>
                 </div>
               ))}
             </div>
@@ -1612,7 +1349,7 @@ export default function PreciosPage() {
           <div
             style={{
               fontSize: "11px",
-              color: "var(--color-text-muted)",
+              color: "var(--color-text-secondary)",
               textAlign: "right",
               paddingBottom: "8px",
             }}

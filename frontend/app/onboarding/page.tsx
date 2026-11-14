@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import Icon from "../../src/src/components/ui/Icon";
 import { useAuth } from "../../lib/auth-context";
+import { guardarNombreNegocio } from "../../lib/negocio";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -317,7 +318,7 @@ function Step1({
                 top: "50%",
                 transform: "translateY(-50%)",
                 pointerEvents: "none",
-                color: "var(--color-text-muted)",
+                color: "var(--color-text-secondary)",
                 fontSize: "18px",
                 fontFamily: "Material Symbols Outlined",
                 fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
@@ -341,9 +342,9 @@ function Step1({
           }}
         >
           <span style={{ color: "var(--color-accent-dark)", flexShrink: 0, marginTop: "1px", display: "flex" }}>
-            <Icon name="auto_awesome" size={16} />
+            <Icon name="info" size={16} />
           </span>
-          <p style={{ fontSize: "11px", color: "var(--color-text-callout)", margin: 0, lineHeight: "1.5" }}>
+          <p style={{ fontSize: "12px", color: "var(--color-text-callout)", margin: 0, lineHeight: "1.5" }}>
             ajustaremos los algoritmos de costos e inflación según los índices del sector en Argentina.
           </p>
         </div>
@@ -454,7 +455,7 @@ function Step2({
               type="button"
               id="ob-toggle-password"
               onClick={() => setShowPassword((v) => !v)}
-              style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--color-text-muted)", display: "flex", alignItems: "center" }}
+              style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--color-text-secondary)", display: "flex", alignItems: "center" }}
               aria-label={showPassword ? "ocultar contraseña" : "mostrar contraseña"}
             >
               <Icon name={showPassword ? "visibility_off" : "visibility"} size={16} />
@@ -489,7 +490,7 @@ function Step2({
               type="button"
               id="ob-toggle-confirm-password"
               onClick={() => setShowConfirm((v) => !v)}
-              style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--color-text-muted)", display: "flex", alignItems: "center" }}
+              style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--color-text-secondary)", display: "flex", alignItems: "center" }}
               aria-label={showConfirm ? "ocultar contraseña" : "mostrar contraseña"}
             >
               <Icon name={showConfirm ? "visibility_off" : "visibility"} size={16} />
@@ -585,7 +586,7 @@ function StepConfirmation({
               ...inputStyle,
               textAlign: "center",
               fontSize: "20px",
-              fontWeight: 600,
+              fontWeight: 500,
               letterSpacing: "0.3em",
               opacity: loading ? 0.6 : 1,
             }}
@@ -594,7 +595,7 @@ function StepConfirmation({
           />
         </div>
 
-        <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0, textAlign: "center" }}>
+        <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: 0, textAlign: "center" }}>
           ¿no recibiste el código? revisá tu carpeta de spam
         </p>
 
@@ -762,6 +763,9 @@ export default function OnboardingPage() {
         // to Cognito because they're not defined in the User Pool schema.
         // They will be stored in the app's own database once the backend is available.
         const result = await signUp(formData.email, formData.password);
+        // El nombre del negocio todavía no viaja a Cognito: queda en este navegador
+        // para que el Dashboard y Configuración muestren el mismo (plan 0.14).
+        guardarNombreNegocio(formData.businessName);
         if (result.userConfirmed) {
           // No confirmation needed — skip to summary
           setStep(4);
@@ -886,7 +890,7 @@ export default function OnboardingPage() {
               id="onboarding-login-link"
               href="/login"
               style={{
-                color: "var(--color-accent)",
+                color: "var(--color-accent-dark)",
                 fontWeight: 500,
                 textDecoration: "none",
               }}

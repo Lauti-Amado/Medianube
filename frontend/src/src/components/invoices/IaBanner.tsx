@@ -1,6 +1,8 @@
 // IaBanner — línea única compacta con badge de confianza
 // Wireframe: una sola línea de texto + badge a la derecha, fondo tintado
 
+import Badge, { type BadgeTone } from "../ui/Badge";
+
 const iconStyle: React.CSSProperties = {
   fontFamily: "Material Symbols Outlined",
   fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
@@ -16,10 +18,10 @@ interface Props {
   confidence: "alta" | "media" | "baja";
 }
 
-const CONF = {
-  alta:  { bg: "var(--color-success-bg)",  text: "var(--color-success-text)", icon: "verified", label: "Confianza alta" },
-  media: { bg: "var(--color-neutral-bg)",  text: "var(--color-neutral-text)", icon: "info",     label: "Confianza media" },
-  baja:  { bg: "var(--color-warning-bg)",  text: "var(--color-warning-text)", icon: "warning",  label: "Confianza baja" },
+const CONF: Record<Props["confidence"], { tone: BadgeTone; label: string }> = {
+  alta:  { tone: "success", label: "confianza alta" },
+  media: { tone: "neutral", label: "confianza media" },
+  baja:  { tone: "warning", label: "confianza baja" },
 };
 
 export default function IaBanner({ productCount, total, confidence }: Props) {
@@ -41,28 +43,11 @@ export default function IaBanner({ productCount, total, confidence }: Props) {
       <span style={{ ...iconStyle, color: "var(--color-accent)" }}>auto_awesome</span>
       <p style={{ flex: 1, fontSize: "13px", color: "var(--color-text-callout)", margin: 0 }}>
         La IA detectó{" "}
-        <strong style={{ fontWeight: 600 }}>{productCount} productos</strong> por un total de{" "}
-        <strong style={{ fontWeight: 600 }}>{total}</strong>.{" "}
+        <strong>{productCount} productos</strong> por un total de{" "}
+        <strong>{total}</strong>.{" "}
         <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>Revisá antes de confirmar.</span>
       </p>
-      <span
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "4px",
-          backgroundColor: conf.bg,
-          color: conf.text,
-          fontSize: "11px",
-          fontWeight: 500,
-          padding: "3px 9px",
-          borderRadius: "var(--radius-full)",
-          whiteSpace: "nowrap",
-          flexShrink: 0,
-        }}
-      >
-        <span style={{ ...iconStyle, fontSize: "12px" }}>{conf.icon}</span>
-        {conf.label}
-      </span>
+      <Badge tone={conf.tone}>{conf.label}</Badge>
     </div>
   );
 }

@@ -1,8 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useState, useEffect, useCallback, useRef } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
+import PageHeader from "../../src/src/components/ui/PageHeader";
+import KpiCard from "../../src/src/components/ui/KpiCard";
+import Badge, { type BadgeTone } from "../../src/src/components/ui/Badge";
+import Button from "../../src/src/components/ui/Button";
+import { SkeletonRows } from "../../src/src/components/ui/Skeleton";
+import { formatMoneda } from "../../lib/formato";
 import FiltrosHistorial, { FILTROS_VACIOS, type FiltrosGastos } from "./FiltrosHistorial";
 
 type InvoiceStatus = "procesada" | "revisar" | "procesando";
@@ -33,15 +38,9 @@ interface GastoApi {
   alerta?: string;
 }
 
-const fmt = (n: number) => "$" + n.toLocaleString("es-AR", { maximumFractionDigits: 0 });
+const STATUS_TONE: Record<InvoiceStatus, BadgeTone> = { procesada: "success", revisar: "warning", procesando: "neutral" };
 
-const STATUS_LABEL: Record<InvoiceStatus, string> = { procesada: "Procesada", revisar: "Revisar", procesando: "Procesando" };
-
-const STATUS_STYLE: Record<InvoiceStatus, React.CSSProperties> = {
-  procesada: { backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)" },
-  revisar: { backgroundColor: "var(--color-warning-bg)", color: "var(--color-warning-text)" },
-  procesando: { backgroundColor: "var(--color-neutral-bg)", color: "var(--color-neutral-text)" },
-};
+const tableHeader: React.CSSProperties = { fontSize: 12, lineHeight: "16px", fontWeight: 500, color: "var(--color-text-secondary)" };
 
 const icon: React.CSSProperties = { fontFamily: "Material Symbols Outlined", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20", fontSize: "14px", lineHeight: 1, userSelect: "none" };
 
@@ -188,30 +187,18 @@ export default function ComprasPage() {
           </div>
         )}
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 18, fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>Historial de compras</h1>
-            <p style={{ fontSize: 12, color: "var(--color-text-muted)", margin: "4px 0 0" }}>Facturas procesadas y auditadas por IA</p>
-          </div>
-          <Link href="/compras/subir" style={{ display: "inline-flex", alignItems: "center", gap: 6, backgroundColor: "var(--color-accent)", color: "#fff", fontSize: 13, fontWeight: 500, padding: "9px 16px", borderRadius: 8, textDecoration: "none" }}>
-            <span style={{ ...icon, fontSize: 15 }}>upload_file</span>
-            Subir factura
-          </Link>
-        </div>
+        <PageHeader title="Historial de compras" subtitle="Facturas procesadas y auditadas por IA" />
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
           {KPIS.map((kpi) => (
-            <div key={kpi.label} style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{kpi.label}</span>
-                <span style={{ ...icon, fontSize: 16, color: "var(--color-text-muted)" }}>{kpi.icon}</span>
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 500, color: kpi.badge.warning ? "var(--color-warning-text)" : "var(--color-text-primary)", marginBottom: 6 }}>{kpi.value}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 6, backgroundColor: kpi.badge.warning ? "var(--color-warning-bg)" : "var(--color-success-bg)", color: kpi.badge.warning ? "var(--color-warning-text)" : "var(--color-success-text)" }}>{kpi.badge.text}</span>
-                <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{kpi.meta}</span>
-              </div>
-            </div>
+            <KpiCard
+              key={kpi.label}
+              label={kpi.label}
+              value={kpi.value}
+              icon={kpi.icon}
+              isAlert={kpi.badge.warning}
+              footer={<><Badge tone={kpi.badge.warning ? "warning" : "success"}>{kpi.badge.text}</Badge>{kpi.meta}</>}
+            />
           ))}
         </div>
 
@@ -226,34 +213,29 @@ export default function ComprasPage() {
               <option value="revisar">Revisar</option>
               <option value="procesando">Procesando</option>
             </select>
-            <button id="btn-exportar-csv" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: "var(--color-text-secondary)", backgroundColor: "transparent", border: "1px solid var(--color-border)", borderRadius: 8, padding: "7px 12px", cursor: "pointer" }}>
-              <span style={{ ...icon }}>download</span>
-              Exportar CSV
-            </button>
-            <span style={{ fontSize: 12, color: "var(--color-text-muted)", marginLeft: "auto" }}>Mostrando {filtered.length} facturas</span>
+            <Button id="btn-exportar-csv" icon="download">exportar CSV</Button>
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)", marginLeft: "auto" }}>Mostrando {filtered.length} facturas</span>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2.5fr 1fr 120px 90px", columnGap: 16, padding: "10px 16px", borderBottom: "1px solid var(--color-border)" }}>
             {["Proveedor", "Emisión", "Detalle insumos", "Monto total", "Estado", ""].map((h) => (
-              <span key={h} style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: h === "Monto total" ? "right" : "left" }}>{h}</span>
+              <span key={h} style={{ ...tableHeader, textAlign: h === "Monto total" ? "right" : "left" }}>{h}</span>
             ))}
           </div>
 
           {isLoading ? (
-             <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
-               Cargando datos desde la nube...
-             </div>
+            <SkeletonRows rows={4} label="Cargando compras" />
           ) : fetchError ? (
             <div role="alert" style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-warning-text)" }}>
               No se pudieron cargar las compras: {fetchError}
             </div>
           ) : filtered.length === 0 ? (
-            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
+            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-secondary)" }}>
               {hayFiltrosAplicados && invoices.length === 0 ? "No se encontraron compras con esos filtros" : "No hay facturas que coincidan."}
             </div>
           ) : (
             filtered.map((inv, idx) => (
-              <div key={inv.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2.5fr 1fr 120px 90px", columnGap: 16, padding: "12px 16px", alignItems: "center", borderBottom: idx < filtered.length - 1 ? "1px solid #F5EBDF" : "none", backgroundColor: inv.status === "revisar" ? "rgba(247,227,221,0.25)" : "transparent" }}>
+              <div key={inv.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2.5fr 1fr 120px 90px", columnGap: 16, padding: "12px 16px", alignItems: "center", borderBottom: idx < filtered.length - 1 ? "1px solid var(--color-border-subtle)" : "none", backgroundColor: inv.status === "revisar" ? "var(--color-surface-flag)" : "transparent" }}>
                 <div style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>{inv.provider}</div>
                 <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{inv.date}</div>
                 <div>
@@ -264,19 +246,15 @@ export default function ComprasPage() {
                     </div>
                   )}
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)", textAlign: "right" }}>{fmt(inv.total)}</div>
-                <div><span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, fontWeight: 500, ...STATUS_STYLE[inv.status] }}>{STATUS_LABEL[inv.status]}</span></div>
+                <div className="num" style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>{formatMoneda(inv.total)}</div>
+                <div><Badge tone={STATUS_TONE[inv.status] ?? "neutral"}>{inv.status}</Badge></div>
                 <div style={{ textAlign: "right" }}>
                   {inv.status === "procesando" ? (
-                    <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>Extrayendo…</span>
+                    <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Extrayendo…</span>
                   ) : inv.status === "revisar" ? (
-                    <button id={"btn-auditar-" + inv.id} style={{ fontSize: 12, fontWeight: 500, color: "var(--color-warning-text)", backgroundColor: "transparent", border: "1px solid var(--color-warning-text)", borderRadius: 6, padding: "4px 10px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <span style={{ ...icon, fontSize: 12 }}>edit_note</span>Auditar
-                    </button>
+                    <Button id={"btn-auditar-" + inv.id} variant="warning" size="sm" icon="edit_note">Auditar</Button>
                   ) : (
-                    <button id={"btn-desglose-" + inv.id} style={{ fontSize: 12, color: "var(--color-text-secondary)", backgroundColor: "transparent", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, padding: 0 }}>
-                      Ver desglose<span style={{ ...icon, fontSize: 12 }}>chevron_right</span>
-                    </button>
+                    <Button id={"btn-desglose-" + inv.id} variant="text" size="sm" iconEnd="chevron_right">Ver desglose</Button>
                   )}
                 </div>
               </div>
@@ -284,7 +262,7 @@ export default function ComprasPage() {
           )}
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderTop: "1px solid var(--color-border)" }}>
-            <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>Página 1 de 4 · Actualizado hace 4 min</span>
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Página 1 de 4 · Actualizado hace 4 min</span>
             <div style={{ display: "flex", gap: 4 }}>
               {["Anterior", "1", "2", "3", "4", "Siguiente"].map((p) => (
                 <button key={p} style={{ fontSize: 12, padding: "4px 9px", borderRadius: 6, border: "1px solid var(--color-border)", backgroundColor: p === "1" ? "var(--color-accent)" : "transparent", color: p === "1" ? "#fff" : "var(--color-text-secondary)", cursor: "pointer", fontWeight: p === "1" ? 500 : 400 }}>{p}</button>

@@ -4,6 +4,8 @@
 // Diseño según wireframe: ícono categoría + producto + tags, cantidad centrada,
 // badge Estado AI, lápiz edición, fila colapsada, IVA/total pie.
 
+import { formatMoneda } from "../../../../lib/formato";
+
 export interface InvoiceItem {
   id: string;
   product: string;
@@ -34,22 +36,18 @@ const CONF_BADGE: Record<
   InvoiceItem["confidence"],
   { bg: string; text: string; label: string }
 > = {
-  alta:       { bg: "var(--color-success-bg)",  text: "var(--color-success-text)", label: "✓ Alta" },
-  media:      { bg: "var(--color-neutral-bg)",  text: "var(--color-neutral-text)", label: "✓ Media" },
-  baja:       { bg: "var(--color-warning-bg)",  text: "var(--color-warning-text)", label: "⚠ Baja" },
-  verificado: { bg: "var(--color-neutral-bg)",  text: "var(--color-neutral-text)", label: "✓ Verificado" },
+  alta:       { bg: "var(--color-success-bg)",  text: "var(--color-success-text)", label: "alta" },
+  media:      { bg: "var(--color-neutral-bg)",  text: "var(--color-neutral-text)", label: "media" },
+  baja:       { bg: "var(--color-warning-bg)",  text: "var(--color-warning-text)", label: "baja" },
+  verificado: { bg: "var(--color-neutral-bg)",  text: "var(--color-neutral-text)", label: "verificado" },
 };
 
-function formatARS(value: number) {
-  return "$" + value.toLocaleString("es-AR");
-}
+const formatARS = formatMoneda;
 
 const thStyle: React.CSSProperties = {
-  fontSize: "10px",
-  fontWeight: 600,
+  fontSize: "12px",
+  fontWeight: 500,
   color: "var(--color-text-secondary)",
-  textTransform: "uppercase",
-  letterSpacing: "0.06em",
   padding: "8px 10px",
   textAlign: "left",
   whiteSpace: "nowrap",
@@ -151,7 +149,7 @@ export default function InvoiceTable({ items, editingId, onEdit, onItemChange }:
               gridTemplateColumns: "2.5fr 70px 120px 110px 95px 40px",
               alignItems: "center",
               borderTop: "1px solid var(--color-border-subtle)",
-              backgroundColor: isEditing ? "#FFFAF6" : "var(--color-surface)",
+              backgroundColor: isEditing ? "var(--color-surface-input)" : "var(--color-surface)",
               transition: "background-color 0.12s",
             }}
           >
@@ -171,7 +169,7 @@ export default function InvoiceTable({ items, editingId, onEdit, onItemChange }:
                   </p>
                 )}
                 {!isEditing && item.tags.length > 0 && (
-                  <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>
+                  <p style={{ fontSize: "11px", color: "var(--color-text-secondary)", margin: 0 }}>
                     {item.tags.join(" • ")}
                   </p>
                 )}
@@ -239,7 +237,7 @@ export default function InvoiceTable({ items, editingId, onEdit, onItemChange }:
                   display: "inline-block",
                   backgroundColor: conf.bg,
                   color: conf.text,
-                  fontSize: "10px",
+                  fontSize: "11px",
                   fontWeight: 500,
                   padding: "2px 7px",
                   borderRadius: "var(--radius-full)",
@@ -264,11 +262,11 @@ export default function InvoiceTable({ items, editingId, onEdit, onItemChange }:
                   padding: "2px",
                   display: "inline-flex",
                   alignItems: "center",
-                  color: isEditing ? "var(--color-accent)" : "var(--color-text-muted)",
+                  color: isEditing ? "var(--color-accent)" : "var(--color-text-secondary)",
                   transition: "color 0.15s",
                 }}
                 onMouseEnter={(e) => { if (!isEditing) e.currentTarget.style.color = "var(--color-text-primary)"; }}
-                onMouseLeave={(e) => { if (!isEditing) e.currentTarget.style.color = "var(--color-text-muted)"; }}
+                onMouseLeave={(e) => { if (!isEditing) e.currentTarget.style.color = "var(--color-text-secondary)"; }}
               >
                 <span style={iconStyle}>{isEditing ? "check" : "edit"}</span>
               </button>
@@ -302,7 +300,7 @@ export default function InvoiceTable({ items, editingId, onEdit, onItemChange }:
               border: "none",
               cursor: "pointer",
               fontSize: "12px",
-              color: "var(--color-accent)",
+              color: "var(--color-accent-dark)",
               fontWeight: 500,
               padding: 0,
               display: "inline-flex",
@@ -337,10 +335,10 @@ export default function InvoiceTable({ items, editingId, onEdit, onItemChange }:
           Condición: <strong style={{ fontWeight: 500, color: "var(--color-text-primary)" }}>Cuenta Corriente 15d</strong>
         </span>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+        <span style={{ fontSize: "12px", fontWeight: 500, color: "var(--color-text-secondary)" }}>
           Total factura
         </span>
-        <span style={{ fontSize: "20px", fontWeight: 600, color: "var(--color-text-primary)", letterSpacing: "-0.01em" }}>
+        <span style={{ fontSize: "20px", fontWeight: 500, color: "var(--color-text-primary)", letterSpacing: "-0.01em" }}>
           {formatARS(grandTotal)}
         </span>
       </div>
