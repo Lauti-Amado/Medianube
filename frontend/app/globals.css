@@ -977,6 +977,26 @@ button.kpi.is-attention:hover {
   color: var(--color-accent-dark);
 }
 
+/* --- Impresión: solo sale el bloque marcado con .print-area (la lista para el obrador) --- */
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0 0 auto 0;
+    border: none;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .skeleton,
   .toast {

@@ -1,43 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
-import EstadoApi from "../../src/src/components/ui/EstadoApi";
 import PageHeader from "../../src/src/components/ui/PageHeader";
 import KpiCard from "../../src/src/components/ui/KpiCard";
+import Alert from "../../src/src/components/ui/Alert";
 import Badge, { type BadgeTone } from "../../src/src/components/ui/Badge";
 import Button from "../../src/src/components/ui/Button";
+import Icon from "../../src/src/components/ui/Icon";
+import Segmented from "../../src/src/components/ui/Segmented";
+import Skeleton, { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── API ───────────────────────────────────────────────────────────────────────
 
-type Confidence = "alta" | "media" | "baja";
-
-interface DayBar {
-  label: string;
-  value: number;
-  predicted: boolean;
-}
-
-interface Recommendation {
-  id: string;
-  product: string;
-  qty: number;
-  unit: string;
-  confidence: Confidence;
-  risk?: boolean;
-}
-
-// ── Endpoints ─────────────────────────────────────────────────────────────────
 const API_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/demanda?usuarioID=user_test_123";
 const CLIMA_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/clima?usuarioID=user_test_123";
-const DIAS_SEMANA = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
-
-const UNIT_LABEL: Record<string, string> = {
-  unidad: "u.",
-  kg: "kg",
-  porcion: "porciones",
-  vaso: "u.",
-};
 
 interface ProductoApi {
   productoID: string;
@@ -60,308 +37,538 @@ interface DiaClima {
   tempMin: number | null;
   probLluvia: number | null;
   precipitacionMm: number | null;
+  codigoClima?: number | null;
   descripcion: string;
 }
 
 interface ClimaApiResponse {
-  origen?: string;
   disponible?: boolean;
-  aviso?: string | null;
   ubicacion?: { ciudad?: string | null };
   dias?: DiaClima[];
 }
 
-function etiquetaDia(fecha: string): string {
-  return DIAS_SEMANA[new Date(`${fecha}T12:00:00`).getDay()] ?? fecha;
-}
-
-function asConfidence(valor: string | undefined): Confidence {
-  if (valor === "alta" || valor === "media" || valor === "baja") return valor;
-  return "media";
-}
-
-function mapProduccion(items: ProductoApi[]): Recommendation[] {
-  return items.map((item) => {
-    const confidence = asConfidence(item.confianza);
-    return {
-      id: item.productoID + (item.fecha ? `-${item.fecha}` : ""),
-      product: item.nombre,
-      qty: item.cantidad,
-      unit: item.unidadProducto ? (UNIT_LABEL[item.unidadProducto] ?? item.unidadProducto) : "u.",
-      confidence,
-      risk: confidence === "baja",
-    };
-  });
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const CONF_TONE: Record<Confidence, BadgeTone> = { alta: "success", media: "neutral", baja: "warning" };
+type Confianza = "alta" | "media" | "baja";
 
-const icon: React.CSSProperties = {
-  fontFamily: "Material Symbols Outlined",
-  fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
-  fontSize: "14px",
-  lineHeight: 1,
-  userSelect: "none",
+const CONF_TONE: Record<Confianza, BadgeTone> = { alta: "success", media: "neutral", baja: "warning" };
+
+const DIA_CORTO = ["do", "lu", "ma", "mi", "ju", "vi", "sá"];
+const DIA_LARGO = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+const UNIDAD_PLURAL: Record<string, string> = {
+  unidad: "unidades",
+  porcion: "porciones",
+  vaso: "vasos",
+  kg: "kg",
 };
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+/** La API manda la confianza como texto libre: si no es un valor conocido, no hay dato. */
+function asConfianza(valor: string | undefined): Confianza | null {
+  return valor === "alta" || valor === "media" || valor === "baja" ? valor : null;
+}
+
+function aFecha(iso: string): Date {
+  return new Date(`${iso}T12:00:00`);
+}
+
+function isoLocal(date: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
+}
+
+/** "sá 14" */
+function diaCorto(iso: string): string {
+  const d = aFecha(iso);
+  return `${DIA_CORTO[d.getDay()]} ${d.getDate()}`;
+}
+
+/** "sábado 14" */
+function diaLargo(iso: string): string {
+  const d = aFecha(iso);
+  return `${DIA_LARGO[d.getDay()]} ${d.getDate()}`;
+}
+
+/** "sábado 14/11" */
+function diaConMes(iso: string): string {
+  return `${diaLargo(iso)}/${iso.slice(5, 7)}`;
+}
+
+function llueve(d: DiaClima): boolean {
+  return (d.probLluvia ?? 0) >= 60 || (d.precipitacionMm ?? 0) >= 2;
+}
+
+/** Ícono según el código de clima WMO que devuelve el pronóstico. */
+function iconoClima(d: DiaClima): string {
+  const c = d.codigoClima;
+  if (c == null) return llueve(d) ? "rainy" : "thermostat";
+  if (c === 0) return "sunny";
+  if (c <= 2) return "partly_cloudy_day";
+  if (c === 3) return "cloud";
+  if (c === 45 || c === 48) return "foggy";
+  if (c >= 95) return "thunderstorm";
+  if ((c >= 71 && c <= 77) || c === 85 || c === 86) return "weather_snowy";
+  return "rainy";
+}
+
+function lista(nombres: string[]): string {
+  return nombres.length <= 1 ? nombres.join("") : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+}
+
+const ALTO_BARRAS = 150;
+
+// ── Página ────────────────────────────────────────────────────────────────────
 
 export default function DemandaPage() {
-  const [recalculating, setRecalculating] = useState(false);
-  const [recomendaciones, setRecomendaciones] = useState<Recommendation[]>([]);
-  const [kpiDatos, setKpiDatos] = useState<{ produccionTotal: string; precision: string } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [productos, setProductos] = useState<ProductoApi[]>([]);
+  const [precision, setPrecision] = useState<number | null>(null);
   const [origen, setOrigen] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  const [barsData, setBarsData] = useState<DayBar[]>([]);
-
+  // El clima acompaña al gráfico: si no está disponible, su fila no se muestra
   const [clima, setClima] = useState<DiaClima[]>([]);
   const [climaCiudad, setClimaCiudad] = useState<string | null>(null);
   const [climaLoading, setClimaLoading] = useState(true);
-  const [climaError, setClimaError] = useState("");
-  const [climaAviso, setClimaAviso] = useState<string | null>(null);
-  const [climaOrigen, setClimaOrigen] = useState<string | null>(null);
 
-  async function fetchPrediccion() {
-    setErrorMsg("");
-    setOrigen(null);
-    try {
-      const response = await fetch(API_URL, {
-        method: "GET",
-      });
-      if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+  const [diaElegido, setDiaElegido] = useState<string | null>(null);
 
-      const data = (await response.json()) as DemandaApiResponse;
-      setOrigen(data.origen ?? null);
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    setClimaLoading(true);
+    setError(false);
 
-      const productos = data.produccion ?? [];
-      const mapped = mapProduccion(productos);
-      setRecomendaciones(mapped);
-
-      const totalUnidades = mapped.reduce((acc, r) => acc + r.qty, 0);
-      setKpiDatos({
-        produccionTotal: `${totalUnidades.toLocaleString("es-AR")} u.`,
-        precision: data.precision != null ? `${(data.precision * 100).toFixed(1).replace(".", ",")}%` : "—",
-      });
-
-      const porFecha = new Map<string, number>();
-      for (const p of productos) {
-        if (!p.fecha) continue;
-        porFecha.set(p.fecha, (porFecha.get(p.fecha) ?? 0) + p.cantidad);
+    const prediccion = (async () => {
+      try {
+        const response = await fetch(API_URL);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = (await response.json()) as DemandaApiResponse;
+        setProductos((data.produccion ?? []).filter((p) => p.fecha));
+        setPrecision(data.precision ?? null);
+        setOrigen(data.origen ?? null);
+      } catch {
+        setProductos([]);
+        setError(true);
+      } finally {
+        setLoading(false);
       }
-      setBarsData(
-        [...porFecha.entries()]
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([fecha, value]) => ({
-            label: DIAS_SEMANA[new Date(`${fecha}T12:00:00`).getDay()],
-            value,
-            predicted: true,
-          }))
-      );
-    } catch (error) {
-      console.error("Error al obtener predicciones:", error);
-      setRecomendaciones([]);
-      setErrorMsg("No se pudo cargar la predicción de demanda desde la base de datos.");
-    } finally {
-      setIsLoading(false);
-      setRecalculating(false);
-    }
-  }
+    })();
 
-  async function fetchClima() {
-    setClimaError("");
-    setClimaAviso(null);
-    try {
-      const response = await fetch(CLIMA_URL, { method: "GET" });
-      if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
-      const data = (await response.json()) as ClimaApiResponse;
-      setClima(data.dias ?? []);
-      setClimaCiudad(data.ubicacion?.ciudad ?? null);
-      setClimaOrigen(data.origen ?? null);
-      setClimaAviso(data.aviso ?? null);
-      if (data.disponible === false) {
-        setClimaError(data.aviso ?? "El pronóstico no está disponible en este momento.");
+    const pronostico = (async () => {
+      try {
+        const response = await fetch(CLIMA_URL);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = (await response.json()) as ClimaApiResponse;
+        setClima(data.disponible === false ? [] : (data.dias ?? []));
+        setClimaCiudad(data.ubicacion?.ciudad ?? null);
+      } catch {
+        setClima([]);
+      } finally {
+        setClimaLoading(false);
       }
-    } catch (error) {
-      console.error("Error al obtener el clima:", error);
-      setClima([]);
-      setClimaError("No se pudo cargar el pronóstico del clima.");
-    } finally {
-      setClimaLoading(false);
-    }
-  }
+    })();
 
-  useEffect(() => {
-    void fetchPrediccion();
-    void fetchClima();
+    await Promise.all([prediccion, pronostico]);
   }, []);
 
-  const handleRecalculate = () => {
-    setRecalculating(true);
-    setIsLoading(true);
-    setClimaLoading(true);
-    void fetchPrediccion();
-    void fetchClima();
-  };
+  useEffect(() => {
+    void cargar();
+  }, [cargar]);
 
-  const atRisk = recomendaciones.filter((r) => r.risk).length;
-  const MAX_VAL = barsData.length > 0 ? Math.max(...barsData.map((b) => b.value)) : 100;
+  // ── Datos derivados ────────────────────────────────────────────────────────
+
+  const dias = useMemo(() => {
+    const porFecha = new Map<string, ProductoApi[]>();
+    for (const p of productos) {
+      if (!p.fecha) continue;
+      porFecha.set(p.fecha, [...(porFecha.get(p.fecha) ?? []), p]);
+    }
+    return [...porFecha.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([fecha, items]) => ({
+        fecha,
+        total: items.reduce((acc, p) => acc + p.cantidad, 0),
+        items: [...items].sort((a, b) => b.cantidad - a.cantidad),
+      }));
+  }, [productos]);
+
+  const manana = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return isoLocal(d);
+  }, []);
+
+  // Por defecto, mañana; si la predicción no lo incluye, el primer día que haya
+  const dia = dias.find((d) => d.fecha === diaElegido) ?? dias.find((d) => d.fecha === manana) ?? dias[0];
+
+  const total = dias.reduce((acc, d) => acc + d.total, 0);
+  const maximo = Math.max(1, ...dias.map((d) => d.total));
+  const promedio = dias.length > 0 ? total / dias.length : 0;
+  const pico = dias.reduce<(typeof dias)[number] | null>((max, d) => (!max || d.total > max.total ? d : max), null);
+  const picoPct = pico && promedio > 0 ? Math.round((pico.total / promedio - 1) * 100) : 0;
+
+  const enRiesgo = new Set(productos.filter((p) => asConfianza(p.confianza) === "baja").map((p) => p.productoID)).size;
+  const climaPorFecha = new Map(clima.map((d) => [d.fecha, d]));
+  const hayClima = dias.some((d) => climaPorFecha.has(d.fecha));
+  const sinIa = origen?.trim().toLowerCase() === "reglas";
+  const hayDatos = !loading && !error && dias.length > 0;
+
+  const columnas: React.CSSProperties = { display: "grid", gridTemplateColumns: `repeat(${dias.length || 7}, minmax(0, 1fr))` };
 
   return (
     <AppLayout activeTab="demanda">
       <div style={{ maxWidth: 1080, margin: "0 auto" }}>
+        <div className="no-print">
+          <PageHeader
+            title="Predicción de demanda"
+            subtitle="Cuánto producir en los próximos días, según tu historial de ventas y el clima."
+            action={
+              <Button id="btn-recalcular-demanda" variant="primary" icon="autorenew" disabled={loading} onClick={() => void cargar()}>
+                {loading ? "actualizando…" : "actualizar"}
+              </Button>
+            }
+          />
 
-        {/* ── Header ─────────────────────────────────────────────────────── */}
-        <PageHeader
-          title="Predicción de demanda"
-          subtitle="Proyección para los próximos 7 días, basada en tu historial de ventas"
-          action={
-            <Button id="btn-recalcular-demanda" variant="primary" icon="autorenew" disabled={recalculating} onClick={handleRecalculate}>
-              {recalculating ? "actualizando…" : "actualizar"}
-            </Button>
-          }
-        />
-
-        {/* ── KPIs ────────────────────────────────────────────────────────── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
-          {[
-            { label: "Producción total prevista", value: kpiDatos?.produccionTotal || "—", sub: "para los próximos 7 días", warn: false },
-            { label: "Precisión del modelo", value: kpiDatos?.precision || "—", sub: "backtest de los últimos 7 días", warn: false },
-            { label: "Productos en riesgo de faltante", value: String(atRisk), sub: "con baja confianza de predicción", warn: atRisk > 0 },
-          ].map((kpi) => (
-            <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} isAlert={kpi.warn} loading={isLoading} footer={kpi.sub} />
-          ))}
-        </div>
-
-        {/* ── Pronóstico del clima ─────────────────────────────────────── */}
-        <div style={{ marginBottom: 16 }}>
-          <EstadoApi
-            loading={climaLoading}
-            loadingLabel="Cargando pronóstico…"
-            error={climaError || null}
-            errorTitle="No se pudo obtener el pronóstico del clima"
-            onRetry={() => { setClimaLoading(true); void fetchClima(); }}
-            origen={climaOrigen}
-          >
-            <div style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "16px 20px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
-                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>
-                  Pronóstico{climaCiudad ? ` · ${climaCiudad}` : ""}
-                </span>
-                <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>
-                  Con lluvia (≥ 60 % o ≥ 2 mm) el modelo reduce la producción prevista
-                </span>
-              </div>
-              {climaAviso && (
-                <div style={{ fontSize: 11, color: "var(--color-warning-text)", marginBottom: 10 }}>{climaAviso}</div>
-              )}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
-                {clima.map((d) => {
-                  const llueve = (d.probLluvia ?? 0) >= 60 || (d.precipitacionMm ?? 0) >= 2;
-                  return (
-                    <div
-                      key={d.fecha}
-                      style={{
-                        textAlign: "center", padding: "10px 4px", borderRadius: 8,
-                        border: "1px solid var(--color-border)",
-                        backgroundColor: llueve ? "var(--color-warning-bg)" : "transparent",
-                      }}
-                    >
-                      <div style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)" }}>{etiquetaDia(d.fecha)}</div>
-                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 6 }}>{d.fecha.slice(8, 10)}/{d.fecha.slice(5, 7)}</div>
-                      <div style={{ fontSize: 15, fontWeight: 500, color: "var(--color-text-primary)" }}>{d.tempMax != null ? `${Math.round(d.tempMax)}°` : "-"}</div>
-                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{d.tempMin != null ? `${Math.round(d.tempMin)}°` : "-"}</div>
-                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 6 }}>{d.descripcion}</div>
-                      <div style={{ fontSize: 11, color: llueve ? "var(--color-warning-text)" : "var(--color-text-secondary)" }}>
-                        {d.probLluvia != null ? `${d.probLluvia} % lluvia` : "-"}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+          {/* ── Error ──────────────────────────────────────────────────────── */}
+          {error && (
+            <div style={{ marginBottom: 16 }}>
+              <Alert
+                id="demanda-error"
+                tone="warning"
+                icon="error"
+                action={
+                  <Button variant="warning" size="sm" icon="refresh" onClick={() => void cargar()}>
+                    reintentar
+                  </Button>
+                }
+              >
+                No pudimos cargar la predicción. Probá de nuevo en unos segundos.
+              </Alert>
             </div>
-          </EstadoApi>
-        </div>
+          )}
 
-        {/* ── Gráfico de barras ─────────────────────────────────────────── */}
-        <div style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "20px 24px", marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>Producción prevista por día</span>
-            <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: "var(--color-bar-predicted)" }} />
-                <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>Predicción</span>
-              </div>
+          {/* ── Caso excepcional: la predicción no la hizo la IA ───────────── */}
+          {hayDatos && sinIa && (
+            <div style={{ marginBottom: 16 }}>
+              <Alert tone="warning" icon="info">
+                <strong>Calculado sin IA.</strong> La IA no respondió, así que estos números salen de un cálculo automático más simple.
+              </Alert>
             </div>
-          </div>
+          )}
 
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 0, height: 140, position: "relative", borderBottom: "1px solid var(--color-border)" }}>
-            {[25, 50, 75].map((pct) => (
-              <div key={pct} style={{ position: "absolute", left: 0, right: 0, bottom: `${pct}%`, borderTop: "1px dashed var(--color-border-divider)", zIndex: 0 }} />
-            ))}
-            {barsData.map((bar, idx) => {
-              const barHeight = Math.round((bar.value / MAX_VAL) * 140) || 4;
-              return (
-                <div key={idx} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%", position: "relative", zIndex: 1 }}>
-                  <div style={{ width: "60%", height: barHeight, minHeight: 4, backgroundColor: "var(--color-bar-predicted)", borderRadius: "3px 3px 0 0", transition: "height 0.5s ease" }} />
+          {/* ── Pico de la semana ──────────────────────────────────────────── */}
+          {hayDatos && pico && dias.length > 1 && picoPct >= 10 && (
+            <div style={{ marginBottom: 16 }}>
+              <Alert id="demanda-pico" tone="ia" icon="trending_up">
+                <strong>
+                  El {diaLargo(pico.fecha)} se espera el pico: +{picoPct}% sobre el promedio diario.
+                </strong>{" "}
+                Lo que más vas a necesitar ese día: {lista(pico.items.slice(0, 2).map((p) => p.nombre.toLowerCase()))}.
+              </Alert>
+            </div>
+          )}
+
+          {/* ── KPIs ───────────────────────────────────────────────────────── */}
+          {!error && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 16 }}>
+              <KpiCard
+                id="kpi-produccion"
+                label={dias.length > 0 ? `Producción prevista, próximos ${dias.length} días` : "Producción prevista"}
+                loading={loading}
+                value={dias.length > 0 ? <>{total.toLocaleString("es-AR")} <small>unidades</small></> : "—"}
+                footer={dias.length > 0 ? `de ${diaLargo(dias[0].fecha)} a ${diaLargo(dias[dias.length - 1].fecha)}` : "todavía no hay una predicción"}
+              />
+              <KpiCard
+                id="kpi-precision"
+                label="Precisión de la predicción"
+                loading={loading}
+                value={precision != null ? `${(precision * 100).toFixed(1).replace(".", ",")}%` : "—"}
+                footer={precision != null ? "comparada con lo vendido los últimos 7 días" : "todavía no hay ventas para comparar"}
+              />
+              <KpiCard
+                id="kpi-riesgo"
+                label="Productos en riesgo de faltante"
+                loading={loading}
+                isAlert={enRiesgo > 0}
+                value={dias.length > 0 ? enRiesgo : "—"}
+                footer={
+                  dias.length === 0
+                    ? "todavía no hay una predicción"
+                    : enRiesgo > 0
+                      ? "su predicción tiene confianza baja"
+                      : "ninguna predicción tiene confianza baja"
+                }
+              />
+            </div>
+          )}
+
+          {/* ── Sin predicción ─────────────────────────────────────────────── */}
+          {!loading && !error && dias.length === 0 && (
+            <section className="card">
+              <div className="empty-state">
+                <p>Todavía no hay una predicción. Se genera automáticamente todas las noches.</p>
+              </div>
+            </section>
+          )}
+
+          {/* ── Gráfico: producción por día, con el clima debajo ───────────── */}
+          {(loading || hayDatos) && (
+            <section id="demanda-grafico" className="card" style={{ marginBottom: 16 }}>
+              <header className="card-header">
+                <h2 className="card-title">
+                  <Icon name="bar_chart" size={16} />
+                  Producción prevista por día
+                </h2>
+                {hayDatos && hayClima && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, lineHeight: "16px", color: "var(--color-text-secondary)" }}>
+                    <Icon name="water_drop" size={14} />
+                    los días con lluvia, la producción prevista baja
+                  </span>
+                )}
+              </header>
+
+              {loading ? (
+                <div role="status" aria-label="Cargando la predicción" style={{ ...columnas, alignItems: "end", height: ALTO_BARRAS + 60, padding: "20px 16px" }}>
+                  {[70, 40, 55, 50, 65, 60, 75].map((h, i) => (
+                    <span key={i} style={{ display: "flex", justifyContent: "center" }}>
+                      <Skeleton width="56%" height={h * 1.6} />
+                    </span>
+                  ))}
                 </div>
-              );
-            })}
-          </div>
+              ) : (
+                <div style={{ padding: "20px 16px 16px", overflowX: "auto" }}>
+                  <ol style={{ ...columnas, minWidth: 520, margin: 0, padding: 0, listStyle: "none" }}>
+                    {dias.map((d) => {
+                      const esPico = d === pico && dias.length > 1;
+                      const pronostico = climaPorFecha.get(d.fecha);
+                      const lluvia = pronostico ? llueve(pronostico) : false;
+                      return (
+                        <li key={d.fecha} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 0 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              justifyContent: "flex-end",
+                              width: "100%",
+                              height: ALTO_BARRAS + 24,
+                              borderBottom: "1px solid var(--color-border)",
+                            }}
+                          >
+                            <span
+                              className="num"
+                              style={{
+                                marginBottom: 4,
+                                fontSize: 13,
+                                lineHeight: "18px",
+                                fontWeight: 500,
+                                color: esPico ? "var(--color-accent-dark)" : "var(--color-text-primary)",
+                              }}
+                            >
+                              {d.total.toLocaleString("es-AR")}
+                              <span className="sr-only"> unidades</span>
+                            </span>
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                width: "56%",
+                                height: Math.max(4, Math.round((d.total / maximo) * ALTO_BARRAS)),
+                                borderRadius: "4px 4px 0 0",
+                                backgroundColor: esPico ? "var(--color-accent)" : "var(--color-bar-predicted)",
+                              }}
+                            />
+                          </div>
 
-          <div style={{ display: "flex", gap: 0, marginTop: 6 }}>
-            {barsData.map((bar, idx) => (
-              <div key={idx} style={{ flex: 1, textAlign: "center", fontSize: 11, color: "var(--color-text-secondary)", fontWeight: 400 }}>
-                {bar.label}
-              </div>
-            ))}
-          </div>
-        </div>
+                          <span
+                            style={{
+                              marginTop: 8,
+                              fontSize: 12,
+                              lineHeight: "16px",
+                              textAlign: "center",
+                              fontWeight: d.fecha === manana ? 500 : 400,
+                              color: d.fecha === manana ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+                            }}
+                          >
+                            {diaCorto(d.fecha)}
+                            {d.fecha === manana && ", mañana"}
+                          </span>
 
-        {/* ── Recomendaciones para mañana ──────────────────────────────── */}
-        <EstadoApi
-          loading={isLoading}
-          loadingLabel="Cargando predicciones de IA…"
-          error={errorMsg || null}
-          errorTitle="No se pudo obtener la sugerencia de producción"
-          onRetry={() => { setIsLoading(true); void fetchPrediccion(); }}
-          origen={origen}
-        >
-        <div style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 100px", columnGap: 16, padding: "10px 16px", borderBottom: "1px solid var(--color-border)" }}>
-            {[
-              { label: "Recomendación de producción", align: "left" },
-              { label: "Cantidad sugerida", align: "right" },
-              { label: "Confianza", align: "center" },
-            ].map((h) => (
-              <span key={h.label} style={{ fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)", textAlign: h.align as React.CSSProperties["textAlign"] }}>{h.label}</span>
-            ))}
-          </div>
-
-          {recomendaciones.length === 0 ? (
-            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-secondary)" }}>No hay predicciones generadas para este usuario. (Espera a que el cronjob corra).</div>
-          ) : (
-             recomendaciones.map((rec, idx) => (
-            <div key={rec.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 100px", columnGap: 16, padding: "12px 16px", alignItems: "center", borderBottom: idx < recomendaciones.length - 1 ? "1px solid var(--color-border-subtle)" : "none", backgroundColor: rec.risk ? "var(--color-surface-flag)" : "transparent" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                {rec.risk && <span style={{ ...icon, fontSize: 13, color: "var(--color-warning-text)" }}>warning</span>}
-                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>{rec.product}</span>
-              </div>
-              <div className="num" style={{ fontSize: 13, color: "var(--color-text-primary)" }}>
-                {rec.qty} <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{rec.unit}</span>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <Badge tone={CONF_TONE[rec.confidence]}>{rec.confidence}</Badge>
-              </div>
-            </div>
-          ))
+                          {/* Clima del día: información, no advertencia */}
+                          {climaLoading ? (
+                            <span style={{ marginTop: 14 }}>
+                              <Skeleton width={36} height={34} />
+                            </span>
+                          ) : (
+                            hayClima && (
+                              <div
+                                title={pronostico?.descripcion}
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  alignItems: "center",
+                                  gap: 2,
+                                  width: "100%",
+                                  minHeight: 62,
+                                  marginTop: 10,
+                                  paddingTop: 10,
+                                  borderTop: "1px dashed var(--color-border-divider)",
+                                  color: "var(--color-text-secondary)",
+                                }}
+                              >
+                                {pronostico && (
+                                  <>
+                                    <Icon name={iconoClima(pronostico)} size={20} />
+                                    <span className="sr-only">{pronostico.descripcion}, máxima </span>
+                                    <span className="num" style={{ fontSize: 13, lineHeight: "18px", fontWeight: 500, color: "var(--color-text-primary)" }}>
+                                      {pronostico.tempMax != null ? `${Math.round(pronostico.tempMax)}°` : "—"}
+                                    </span>
+                                    {pronostico.probLluvia != null && (
+                                      <span
+                                        className="num"
+                                        style={{
+                                          fontSize: 11,
+                                          lineHeight: "14px",
+                                          textAlign: "center",
+                                          fontWeight: lluvia ? 500 : 400,
+                                          color: lluvia ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+                                        }}
+                                      >
+                                        {Math.round(pronostico.probLluvia)}% lluvia
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            )
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  {hayClima && climaCiudad && (
+                    <p style={{ margin: "10px 0 0", fontSize: 11, lineHeight: "14px", color: "var(--color-text-secondary)", textAlign: "right" }}>
+                      pronóstico para {climaCiudad}
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
           )}
         </div>
-        </EstadoApi>
 
+        {/* ── Producción sugerida del día elegido (es lo único que se imprime) ── */}
+        {loading && (
+          <section className="card no-print">
+            <header className="card-header">
+              <h2 className="card-title">Producción sugerida</h2>
+            </header>
+            <SkeletonRows rows={4} label="Cargando la producción sugerida" />
+          </section>
+        )}
+
+        {hayDatos && dia && (
+          <section id="demanda-produccion" className="card print-area" style={{ overflow: "hidden" }}>
+            <header className="card-header">
+              <h2 className="card-title" style={{ flexWrap: "wrap" }}>
+                Producción sugerida
+                <span style={{ fontSize: 13, fontWeight: 400, color: "var(--color-text-secondary)" }}>{diaConMes(dia.fecha)}</span>
+                {!sinIa && (
+                  <span className="no-print" style={{ display: "inline-flex" }}>
+                    <Badge tone="ia">IA</Badge>
+                  </span>
+                )}
+              </h2>
+              <span className="no-print">
+                <Button id="btn-imprimir" size="sm" icon="print" onClick={() => window.print()}>
+                  imprimir lista
+                </Button>
+              </span>
+            </header>
+
+            {dias.length > 1 && (
+              <div className="no-print" style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", overflowX: "auto" }}>
+                <Segmented
+                  label="día de producción"
+                  value={dia.fecha}
+                  onChange={setDiaElegido}
+                  options={dias.map((d) => ({ value: d.fecha, label: diaCorto(d.fecha) }))}
+                />
+              </div>
+            )}
+
+            <div role="table" aria-label={`Producción sugerida para el ${diaConMes(dia.fecha)}`}>
+              <div role="row" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 160px 140px", columnGap: 16, padding: "10px 16px", backgroundColor: "var(--color-bg)" }}>
+                {[
+                  { label: "Producto", align: "left" as const },
+                  { label: "Cantidad", align: "right" as const },
+                  { label: "Confianza", align: "center" as const },
+                ].map((h) => (
+                  <span key={h.label} role="columnheader" style={{ fontSize: 12, lineHeight: "16px", fontWeight: 500, color: "var(--color-text-secondary)", textAlign: h.align }}>
+                    {h.label}
+                  </span>
+                ))}
+              </div>
+
+              {dia.items.map((item) => {
+                const confianza = asConfianza(item.confianza);
+                const riesgo = confianza === "baja";
+                const unidad = item.unidadProducto ? (UNIDAD_PLURAL[item.unidadProducto] ?? item.unidadProducto) : "unidades";
+                return (
+                  <div
+                    key={item.productoID}
+                    role="row"
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "minmax(0, 1fr) 160px 140px",
+                      columnGap: 16,
+                      alignItems: "center",
+                      padding: "12px 16px",
+                      borderTop: "1px solid var(--color-border-subtle)",
+                      backgroundColor: riesgo ? "var(--color-surface-flag)" : undefined,
+                      fontSize: 13,
+                      lineHeight: "18px",
+                      color: "var(--color-text-primary)",
+                    }}
+                  >
+                    <span role="cell" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, fontWeight: 500 }}>
+                      {riesgo && (
+                        <span style={{ display: "flex", color: "var(--color-warning-text)" }}>
+                          <Icon name="warning" size={14} />
+                        </span>
+                      )}
+                      <span style={{ overflowWrap: "anywhere" }}>{item.nombre}</span>
+                    </span>
+                    <span role="cell" className="num" style={{ textAlign: "right" }}>
+                      {item.cantidad.toLocaleString("es-AR")}{" "}
+                      <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{unidad}</span>
+                    </span>
+                    <span role="cell" style={{ textAlign: "center" }}>
+                      <Badge tone={confianza ? CONF_TONE[confianza] : "neutral"}>{confianza ?? "sin dato"}</Badge>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <p
+              className="no-print"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                margin: 0,
+                padding: "12px 16px",
+                borderTop: "1px solid var(--color-border)",
+                fontSize: 12,
+                lineHeight: "17px",
+                color: "var(--color-text-secondary)",
+              }}
+            >
+              <Icon name="info" size={14} />
+              La confianza dice qué tan segura es la predicción de cada producto. «Sin dato» significa que no la recibimos.
+            </p>
+          </section>
+        )}
       </div>
     </AppLayout>
   );
