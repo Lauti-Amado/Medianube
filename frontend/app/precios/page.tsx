@@ -2,7 +2,6 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
-import { useAuth } from "../../lib/auth-context";
 import {
   sugerirPreciosConIA,
   aplicarPrecioIndividual,
@@ -87,7 +86,6 @@ function nombreDesdeId(id: string): string {
 // ── Página ───────────────────────────────────────────────────────────────────
 
 export default function PreciosPage() {
-  const { user } = useAuth();
   const toast = useToast();
 
   const [resultado, setResultado] = useState<ResultadoPrecios | null>(null);
@@ -112,7 +110,7 @@ export default function PreciosPage() {
     setLoading(true);
     setError(null);
     try {
-      setResultado(await sugerirPreciosConIA(undefined, user?.sub));
+      setResultado(await sugerirPreciosConIA());
       setAplicados(new Set());
       setAbierto(null);
     } catch (err: unknown) {
@@ -120,7 +118,7 @@ export default function PreciosPage() {
     } finally {
       setLoading(false);
     }
-  }, [user?.sub]);
+  }, []);
 
   useEffect(() => {
     void consultarSugerencias();

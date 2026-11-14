@@ -13,8 +13,9 @@ import Stepper from "../../src/src/components/ui/Stepper";
 import { useToast } from "../../src/src/components/ui/Toast";
 import { useAuth } from "../../lib/auth-context";
 import { useNombreNegocio, useTipoNegocio } from "../../lib/negocio";
+import { apiUrl } from "../../lib/api";
 
-const CONFIG_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/configuracion";
+const CONFIG_URL = apiUrl("/configuracion");
 
 // ── Datos de la pantalla ───────────────────────────────────────────────────────
 

@@ -11,6 +11,7 @@ import StepIndicator from "../../../src/src/components/invoices/StepIndicator";
 import { uploadInvoice } from "../../../lib/upload";
 import { validarArchivo } from "../../../lib/validarArchivo";
 import { formatMoneda } from "../../../lib/formato";
+import { apiUrl } from "../../../lib/api";
 import PageHeader from "../../../src/src/components/ui/PageHeader";
 import Alert from "../../../src/src/components/ui/Alert";
 import Badge from "../../../src/src/components/ui/Badge";
@@ -18,7 +19,7 @@ import Button from "../../../src/src/components/ui/Button";
 import Icon from "../../../src/src/components/ui/Icon";
 import Skeleton, { SkeletonRows } from "../../../src/src/components/ui/Skeleton";
 
-const COMPRAS_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/compras";
+const COMPRAS_URL = apiUrl("/compras");
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 60000;
 
