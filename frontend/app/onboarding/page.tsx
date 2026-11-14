@@ -838,7 +838,7 @@ export default function OnboardingPage() {
         id="onboarding-card"
         style={{
           width: "100%",
-          maxWidth: "410px",
+          maxWidth: "400px",
           backgroundColor: "var(--color-surface)",
           border: "1px solid var(--color-border)",
           borderRadius: "var(--radius-2xl)",

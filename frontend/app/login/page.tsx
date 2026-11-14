@@ -5,7 +5,19 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, Suspense } from "react";
 import Icon from "../../src/src/components/ui/Icon";
+import Alert from "../../src/src/components/ui/Alert";
+import Button from "../../src/src/components/ui/Button";
 import { useAuth } from "../../lib/auth-context";
+
+type Campo = "email" | "password";
+
+interface ErrorLogin {
+  texto: string;
+  /** Campos que se marcan con borde de error. */
+  campos: Campo[];
+  /** Suma el link para recuperar la contraseña dentro del mensaje. */
+  ofrecerRecuperar?: boolean;
+}
 
 // ── Inner component (needs useSearchParams inside Suspense) ────────────────
 
@@ -17,15 +29,21 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ErrorLogin | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
+    setError(null);
 
     if (!email.trim() || !password) {
-      setError("completá todos los campos");
+      const vacios: Campo[] = [];
+      if (!email.trim()) vacios.push("email");
+      if (!password) vacios.push("password");
+      setError({
+        texto: vacios.length === 2 ? "ingresá tu email y tu contraseña." : vacios[0] === "email" ? "ingresá tu email." : "ingresá tu contraseña.",
+        campos: vacios,
+      });
       return;
     }
 
@@ -35,19 +53,19 @@ function LoginForm() {
       const redirect = searchParams.get("redirect") || "/dashboard";
       router.push(redirect);
     } catch (err: unknown) {
-      const cognitoError = err as { code?: string; message?: string };
+      const cognitoError = err as { code?: string };
       switch (cognitoError.code) {
         case "UserNotConfirmedException":
-          setError("tu cuenta aún no fue confirmada. revisá tu email.");
+          setError({ texto: "tu cuenta todavía no está confirmada. revisá tu email.", campos: [] });
           break;
         case "NotAuthorizedException":
-          setError("email o contraseña incorrectos.");
+          setError({ texto: "email o contraseña incorrectos. revisalos o", campos: ["email", "password"], ofrecerRecuperar: true });
           break;
         case "UserNotFoundException":
-          setError("no encontramos una cuenta con ese email.");
+          setError({ texto: "no encontramos una cuenta con ese email.", campos: ["email"] });
           break;
         default:
-          setError(cognitoError.message || "ocurrió un error inesperado.");
+          setError({ texto: "no pudimos iniciar sesión. probá de nuevo en unos segundos.", campos: [] });
       }
     } finally {
       setIsSubmitting(false);
@@ -105,29 +123,17 @@ function LoginForm() {
               priority
             />
           </div>
-          <div style={{ textAlign: "center", lineHeight: "1" }}>
-            <p
-              style={{
-                fontSize: "16px",
-                fontWeight: 500,
-                color: "var(--color-text-primary)",
-                margin: 0,
-                letterSpacing: "0.01em",
-              }}
-            >
-              medianube
-            </p>
-            <p
-              className="text-caption"
-              style={{
-                color: "var(--color-text-secondary)",
-                letterSpacing: "0.14em",
-                margin: "3px 0 0",
-              }}
-            >
-              SOFTWARE
-            </p>
-          </div>
+          <p
+            style={{
+              fontSize: "16px",
+              fontWeight: 500,
+              color: "var(--color-text-primary)",
+              margin: 0,
+              letterSpacing: "0.01em",
+            }}
+          >
+            medianube
+          </p>
         </div>
 
         {/* Heading */}
@@ -152,28 +158,21 @@ function LoginForm() {
 
         {/* Error message */}
         {error && (
-          <div
-            id="login-error"
-            style={{
-              backgroundColor: "rgba(239, 68, 68, 0.08)",
-              border: "1px solid rgba(239, 68, 68, 0.25)",
-              borderRadius: "var(--radius-md)",
-              padding: "10px 14px",
-              marginBottom: "16px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <Icon name="error" size={16} />
-            <span style={{ fontSize: "13px", color: "var(--color-warning-text)" }}>
-              {error}
-            </span>
+          <div style={{ marginBottom: "16px" }}>
+            <Alert id="login-error" tone="warning" icon="error">
+              {error.texto}
+              {error.ofrecerRecuperar && (
+                <>
+                  {" "}
+                  <Link href="/recuperar-password">recuperá tu contraseña</Link>.
+                </>
+              )}
+            </Alert>
           </div>
         )}
 
         {/* Form */}
-        <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <form onSubmit={handleLogin} noValidate style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {/* Email */}
           <div>
             <label
@@ -189,35 +188,37 @@ function LoginForm() {
               autoComplete="email"
               placeholder="horno@panaderia.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={isSubmitting}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                backgroundColor: "var(--color-surface-input)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "11px 14px",
-                fontSize: "13px",
-                color: "var(--color-text-primary)",
-                outline: "none",
-                transition: "border-color 0.15s",
-                opacity: isSubmitting ? 0.6 : 1,
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setError(null);
               }}
-              onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
-              onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+              disabled={isSubmitting}
+              autoFocus
+              className="input"
+              aria-invalid={error?.campos.includes("email") || undefined}
+              aria-describedby={error ? "login-error" : undefined}
             />
           </div>
 
           {/* Password */}
           <div>
-            <label
-              htmlFor="login-password"
-              className="text-label-medium"
-              style={{ display: "block", color: "var(--color-text-secondary)", marginBottom: "4px" }}
-            >
-              contraseña
-            </label>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "4px" }}>
+              <label
+                htmlFor="login-password"
+                className="text-label-medium"
+                style={{ color: "var(--color-text-secondary)" }}
+              >
+                contraseña
+              </label>
+              <Link
+                id="login-forgot-password"
+                href="/recuperar-password"
+                className="text-label-default"
+                style={{ color: "var(--color-accent-dark)", textDecoration: "none" }}
+              >
+                ¿olvidaste tu contraseña?
+              </Link>
+            </div>
             <div style={{ position: "relative" }}>
               <input
                 id="login-password"
@@ -225,23 +226,15 @@ function LoginForm() {
                 autoComplete="current-password"
                 placeholder="••••••••"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isSubmitting}
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  backgroundColor: "var(--color-surface-input)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "11px 40px 11px 14px",
-                  fontSize: "13px",
-                  color: "var(--color-text-primary)",
-                  outline: "none",
-                  transition: "border-color 0.15s",
-                  opacity: isSubmitting ? 0.6 : 1,
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setError(null);
                 }}
-                onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
-                onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+                disabled={isSubmitting}
+                className="input"
+                style={{ paddingRight: "40px" }}
+                aria-invalid={error?.campos.includes("password") || undefined}
+                aria-describedby={error ? "login-error" : undefined}
               />
               <button
                 type="button"
@@ -265,73 +258,22 @@ function LoginForm() {
                 <Icon name={showPassword ? "visibility_off" : "visibility"} size={16} />
               </button>
             </div>
-            <div style={{ textAlign: "center", marginTop: "10px" }}>
-              <Link
-                id="login-forgot-password"
-                href="/recuperar-password"
-                className="text-caption"
-                style={{
-                  color: "var(--color-text-secondary)",
-                  textDecoration: "underline",
-                }}
-              >
-                ¿olvidaste tu contraseña?
-              </Link>
-            </div>
           </div>
 
           {/* Primary button */}
-          <button
-            id="login-submit"
-            type="submit"
-            disabled={isSubmitting}
-            style={{
-              width: "100%",
-              backgroundColor: "var(--color-accent)",
-              color: "var(--color-on-primary)",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "12px",
-              fontSize: "14px",
-              fontWeight: 500,
-              cursor: isSubmitting ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "6px",
-              marginTop: "4px",
-              transition: "background-color 0.15s",
-              opacity: isSubmitting ? 0.7 : 1,
-            }}
-            onMouseEnter={(e) => {
-              if (!isSubmitting) e.currentTarget.style.backgroundColor = "var(--color-accent-dark)";
-            }}
-            onMouseLeave={(e) => {
-              if (!isSubmitting) e.currentTarget.style.backgroundColor = "var(--color-accent)";
-            }}
-          >
-            {isSubmitting ? (
-              <>
-                ingresando…
-                <span
-                  style={{
-                    display: "inline-block",
-                    width: "14px",
-                    height: "14px",
-                    border: "2px solid rgba(255,255,255,0.3)",
-                    borderTopColor: "#fff",
-                    borderRadius: "50%",
-                    animation: "spin 0.6s linear infinite",
-                  }}
-                />
-              </>
-            ) : (
-              <>
-                iniciar sesión
-                <Icon name="arrow_forward" size={14} />
-              </>
-            )}
-          </button>
+          <div style={{ marginTop: "4px" }}>
+            <Button
+              id="login-submit"
+              type="submit"
+              variant="primary"
+              block
+              disabled={isSubmitting}
+              iconEnd={isSubmitting ? undefined : "arrow_forward"}
+              style={{ padding: "11px 16px", fontSize: "14px" }}
+            >
+              {isSubmitting ? "ingresando…" : "iniciar sesión"}
+            </Button>
+          </div>
         </form>
 
         {/* Footer */}
@@ -357,9 +299,6 @@ function LoginForm() {
           </Link>
         </p>
       </div>
-
-      {/* Spinner keyframe */}
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </main>
   );
 }
