@@ -11,14 +11,33 @@ import { useCallback, useSyncExternalStore } from "react";
  * este es el único lugar que hay que cambiar.
  */
 const CLAVE = "medianube:nombreNegocio";
+const CLAVE_TIPO = "medianube:tipoNegocio";
 const EVENTO = "medianube:negocio";
 
-function leer(): string {
+function leerClave(clave: string): string {
   try {
-    return window.localStorage.getItem(CLAVE) ?? "";
+    return window.localStorage.getItem(clave) ?? "";
   } catch {
     return "";
   }
+}
+
+const leer = () => leerClave(CLAVE);
+const leerTipo = () => leerClave(CLAVE_TIPO);
+
+/** Tipo de negocio elegido en el onboarding ("panadería", "mixto"). */
+export function guardarTipoNegocio(tipo: string) {
+  try {
+    window.localStorage.setItem(CLAVE_TIPO, tipo);
+    window.dispatchEvent(new Event(EVENTO));
+  } catch {
+    // Sin almacenamiento: Configuración lo muestra como "sin definir".
+  }
+}
+
+/** "" si la cuenta se creó antes de que se guardara el tipo, o en otro navegador. */
+export function useTipoNegocio(): string {
+  return useSyncExternalStore(suscribir, leerTipo, () => "");
 }
 
 export function guardarNombreNegocio(nombre: string) {

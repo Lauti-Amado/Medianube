@@ -12,7 +12,7 @@ import Stepper from "../../src/src/components/ui/Stepper";
 import PasswordInput from "../../src/src/components/ui/PasswordInput";
 import PasswordRequirements, { cumpleRequisitos } from "../../src/src/components/ui/PasswordRequirements";
 import { useAuth } from "../../lib/auth-context";
-import { guardarNombreNegocio } from "../../lib/negocio";
+import { guardarNombreNegocio, guardarTipoNegocio } from "../../lib/negocio";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -613,6 +613,7 @@ export default function OnboardingPage() {
         // El nombre del negocio todavía no viaja a Cognito: queda en este navegador
         // para que el Dashboard y Configuración muestren el mismo (plan 0.14).
         guardarNombreNegocio(formData.businessName);
+        guardarTipoNegocio(BUSINESS_TYPE_LABELS[formData.businessType]);
         if (result.userConfirmed) {
           setStep(4); // no hace falta verificar: directo al resumen
         } else {

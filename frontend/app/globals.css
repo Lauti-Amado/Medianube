@@ -977,6 +977,80 @@ button.kpi.is-attention:hover {
   color: var(--color-accent-dark);
 }
 
+/* --- Interruptor (role="switch") --- */
+
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background-color: var(--color-border-strong);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: #fff;
+  transition: transform 0.15s;
+}
+.switch[aria-checked="true"] {
+  background-color: var(--color-accent);
+}
+.switch[aria-checked="true"]::after {
+  transform: translateX(16px);
+}
+
+/* --- Barra de guardado: aparece solo cuando hay cambios sin guardar --- */
+
+.savebar {
+  position: fixed;
+  bottom: 20px;
+  /* centrada en el área de contenido, a la derecha del sidebar de 224px */
+  left: calc(224px + (100vw - 224px) / 2);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(760px, calc(100vw - 224px - 48px));
+  padding: 10px 12px 10px 16px;
+  border-radius: var(--radius-xl);
+  background-color: var(--color-sidebar-bg);
+  color: var(--color-sidebar-text);
+  font-size: 13px;
+  line-height: 18px;
+  transform: translateX(-50%);
+}
+.savebar > .material-symbols-outlined {
+  color: var(--color-sidebar-active-text);
+}
+.savebar-discard {
+  padding: 6px 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-sidebar-active-text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.savebar-discard:hover:not(:disabled) {
+  background-color: var(--color-sidebar-active-bg);
+}
+.savebar :focus-visible {
+  outline-color: var(--color-sidebar-active-text);
+}
+
 /* --- Impresión: solo sale el bloque marcado con .print-area (la lista para el obrador) --- */
 
 @media print {

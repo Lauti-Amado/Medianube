@@ -1,386 +1,362 @@
 ﻿"use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
+import PageHeader from "../../src/src/components/ui/PageHeader";
+import Card from "../../src/src/components/ui/Card";
 import Badge from "../../src/src/components/ui/Badge";
 import Button from "../../src/src/components/ui/Button";
-import { useNombreNegocio } from "../../lib/negocio";
+import ConfirmDialog from "../../src/src/components/ui/ConfirmDialog";
+import Icon from "../../src/src/components/ui/Icon";
+import Stepper from "../../src/src/components/ui/Stepper";
+import { useToast } from "../../src/src/components/ui/Toast";
+import { useAuth } from "../../lib/auth-context";
+import { useNombreNegocio, useTipoNegocio } from "../../lib/negocio";
 
-// ── Types & mock data ──────────────────────────────────────────────────────────
+const CONFIG_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/configuracion";
 
-interface Member {
-  id: string;
-  name: string;
-  role: string;
-  initials: string;
+// ── Datos de la pantalla ───────────────────────────────────────────────────────
+
+const CATEGORIAS = ["panadería", "pastelería", "bebidas"] as const;
+type Categoria = (typeof CATEGORIAS)[number];
+
+const AVISOS = [
+  { key: "precios", label: "Alertas de precio", ayuda: "cuando un producto queda debajo de su margen objetivo" },
+  { key: "faltante", label: "Riesgo de faltante", ayuda: "cuando la predicción anticipa que puede faltar un producto" },
+  { key: "demanda", label: "Picos de demanda", ayuda: "cuando se espera un día de producción alta" },
+] as const;
+type Aviso = (typeof AVISOS)[number]["key"];
+
+interface Config {
+  nombre: string;
+  sucursales: number;
+  margenes: Record<Categoria, string>;
+  avisos: Record<Aviso, boolean>;
 }
 
-const MEMBERS: Member[] = [
-  { id: "m1", name: "Rodrigo García",  role: "Dueño",          initials: "RG" },
-  { id: "m2", name: "Valentina López", role: "Administración",  initials: "VL" },
-  { id: "m3", name: "Marcos Ibáñez",   role: "Producción",      initials: "MI" },
-];
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-const icon: React.CSSProperties = {
-  fontFamily: "Material Symbols Outlined",
-  fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
-  fontSize: "14px",
-  lineHeight: 1,
-  userSelect: "none",
+// Todavía no hay un endpoint que devuelva la configuración guardada: la pantalla
+// arranca con estos valores y con el nombre guardado en este navegador.
+const INICIAL: Config = {
+  nombre: "",
+  sucursales: 1,
+  margenes: { panadería: "40", pastelería: "45", bebidas: "60" },
+  avisos: { precios: true, faltante: true, demanda: false },
 };
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        backgroundColor: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: 10,
-        overflow: "hidden",
-        marginBottom: 16,
-      }}
-    >
-      <div
-        style={{
-          padding: "12px 16px",
-          borderBottom: "1px solid var(--color-border)",
-        }}
-      >
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 500,
-            color: "var(--color-text-primary)",
-          }}
-        >
-          {title}
-        </span>
-      </div>
-      <div style={{ padding: "16px" }}>{children}</div>
-    </div>
-  );
+function margenValido(valor: string): boolean {
+  const n = Number(valor);
+  return valor.trim() !== "" && Number.isFinite(n) && n >= 0 && n <= 100;
 }
 
-function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+// ── Piezas ─────────────────────────────────────────────────────────────────────
+
+/** Fila "etiqueta · control". `htmlFor` conecta la etiqueta con su campo. */
+function Fila({ label, htmlFor, primera, children }: { label: string; htmlFor?: string; primera?: boolean; children: React.ReactNode }) {
+  const etiqueta: React.CSSProperties = { fontSize: 13, lineHeight: "18px", color: "var(--color-text-secondary)" };
   return (
     <div
       style={{
-        display: "flex",
+        display: "grid",
+        gridTemplateColumns: "200px minmax(0, 1fr)",
         alignItems: "center",
-        justifyContent: "space-between",
-        paddingTop: 10,
-        paddingBottom: 10,
-        borderBottom: "1px solid var(--color-border-subtle)",
+        columnGap: 16,
+        padding: primera ? "0 0 12px" : "12px 0",
+        borderTop: primera ? "none" : "1px solid var(--color-border-subtle)",
+        fontSize: 13,
+        lineHeight: "18px",
+        color: "var(--color-text-primary)",
       }}
     >
-      <span style={{ fontSize: 13, color: "var(--color-text-secondary)", minWidth: 180 }}>
-        {label}
-      </span>
-      {children}
+      {htmlFor ? <label htmlFor={htmlFor} style={etiqueta}>{label}</label> : <span style={etiqueta}>{label}</span>}
+      <div style={{ justifySelf: "start", maxWidth: "100%" }}>{children}</div>
     </div>
   );
 }
 
-function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      onClick={() => onChange(!value)}
-      style={{
-        width: 36,
-        height: 20,
-        borderRadius: 10,
-        border: "none",
-        backgroundColor: value ? "var(--color-accent)" : "var(--color-border)",
-        position: "relative",
-        cursor: "pointer",
-        transition: "background-color 0.2s",
-        flexShrink: 0,
-      }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          top: 2,
-          left: value ? 18 : 2,
-          width: 16,
-          height: 16,
-          borderRadius: "50%",
-          backgroundColor: "#fff",
-          transition: "left 0.2s",
-        }}
-      />
-    </button>
-  );
-}
-
-// ── Page ───────────────────────────────────────────────────────────────────────
+// ── Página ─────────────────────────────────────────────────────────────────────
 
 export default function ConfiguracionPage() {
-  // Datos del negocio
-  // El nombre sale de la cuenta (por ahora, de lo guardado en este navegador)
+  const router = useRouter();
+  const toast = useToast();
+  const { user } = useAuth();
   const [nombreGuardado, guardarNombre] = useNombreNegocio();
-  const [businessName, setBusinessName] = useState("");
+  const tipoNegocio = useTipoNegocio();
+
+  // `guardado` es lo último que se guardó; `config`, lo que se ve en pantalla
+  const [guardado, setGuardado] = useState<Config>(INICIAL);
+  const [config, setConfig] = useState<Config>(INICIAL);
+  const [guardando, setGuardando] = useState(false);
+  const [salirA, setSalirA] = useState<string | null>(null); // destino pendiente de confirmar
+
   useEffect(() => {
-    if (nombreGuardado) setBusinessName(nombreGuardado);
+    if (!nombreGuardado) return;
+    setGuardado((c) => ({ ...c, nombre: nombreGuardado }));
+    setConfig((c) => ({ ...c, nombre: nombreGuardado }));
   }, [nombreGuardado]);
-  const [branches, setBranches] = useState("1");
 
-  // Márgenes
-  const [margins, setMargins] = useState({
-    panadería: "40",
-    pastelería: "45",
-    bebidas: "60",
-  });
+  const hayCambios = JSON.stringify(config) !== JSON.stringify(guardado);
+  const margenesInvalidos = CATEGORIAS.filter((c) => !margenValido(config.margenes[c]));
+  const sinNombre = config.nombre.trim() === "";
+  const puedeGuardar = margenesInvalidos.length === 0 && !sinNombre;
 
-  // Notificaciones
-  const [notifs, setNotifs] = useState({
-    precios: true,
-    faltante: true,
-    demanda: false,
-  });
+  // ── Salir con cambios sin guardar ──────────────────────────────────────────
+  useEffect(() => {
+    if (!hayCambios) return;
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [mensaje, setMensaje] = useState("");
+    // Cerrar o recargar la pestaña: aviso nativo del navegador
+    const alCerrar = (e: BeforeUnloadEvent) => e.preventDefault();
 
-  const guardarDatosAWS = async () => {
-    setIsLoading(true);
-    setMensaje("");
+    // Links dentro de la app (sidebar incluido): se frena la navegación y se pregunta
+    const alHacerClic = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const link = (e.target as Element | null)?.closest?.("a[href]");
+      const href = link?.getAttribute("href");
+      if (!link || !href || !href.startsWith("/") || link.getAttribute("target") === "_blank") return;
+      if (href === window.location.pathname) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setSalirA(href);
+    };
 
+    window.addEventListener("beforeunload", alCerrar);
+    document.addEventListener("click", alHacerClic, true);
+    return () => {
+      window.removeEventListener("beforeunload", alCerrar);
+      document.removeEventListener("click", alHacerClic, true);
+    };
+  }, [hayCambios]);
+
+  // ── Guardar ────────────────────────────────────────────────────────────────
+  async function guardar() {
+    if (!puedeGuardar) return;
+    setGuardando(true);
+    const aGuardar: Config = { ...config, nombre: config.nombre.trim() };
     try {
-      const response = await fetch("https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/configuracion", {
+      const response = await fetch(CONFIG_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           usuarioID: "user_test_123", // Convención unificada
-          nombreNegocio: businessName,
-          sucursales: branches,
-          margenes: margins,
-          notificaciones: notifs,
+          nombreNegocio: aGuardar.nombre,
+          sucursales: String(aGuardar.sucursales),
+          margenes: aGuardar.margenes,
+          notificaciones: aGuardar.avisos,
         }),
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      if (!response.ok) throw new Error("Error en AWS");
-
-      guardarNombre(businessName);
-      
-      setMensaje("¡Configuración guardada exitosamente en DynamoDB!");
-    } catch (error) {
-      console.error(error);
-      setMensaje("Hubo un problema al guardar.");
+      guardarNombre(aGuardar.nombre);
+      setGuardado(aGuardar);
+      setConfig(aGuardar);
+      toast({ message: "Cambios guardados" });
+    } catch {
+      toast({ tone: "error", message: "No pudimos guardar los cambios. Probá de nuevo." });
     } finally {
-      setIsLoading(false);
+      setGuardando(false);
     }
-  };
-
-  const inputStyle: React.CSSProperties = {
-    fontSize: 13,
-    color: "var(--color-text-primary)",
-    backgroundColor: "var(--color-surface-input)",
-    border: "1px solid var(--color-border)",
-    borderRadius: 8,
-    padding: "6px 10px",
-    outline: "none",
-    width: 220,
-    textAlign: "right" as const,
-  };
+  }
 
   return (
     <AppLayout activeTab="configuracion">
-      <div style={{ maxWidth: 680, margin: "0 auto" }}>
-
-        {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div style={{ marginBottom: 24 }}>
-          <Link
-            href="/dashboard"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 12,
-              color: "var(--color-text-secondary)",
-              textDecoration: "none",
-              marginBottom: 12,
-            }}
-          >
-            <span style={{ ...icon, fontSize: 13 }}>arrow_back</span>
-            Volver al dashboard
-          </Link>
-          <h1 className="text-headline-screen" style={{ color: "var(--color-text-primary)", margin: 0 }}>
-            Configuración
-          </h1>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 760, margin: "0 auto", paddingBottom: hayCambios ? 80 : 0 }}>
+        <div style={{ marginBottom: -16 }}>
+          <PageHeader title="Configuración" subtitle="Datos del negocio, márgenes, equipo y avisos." />
         </div>
 
-        {/* ── Datos del negocio ────────────────────────────────────────── */}
-        <SectionCard title="Datos del negocio">
-          <FieldRow label="Nombre del negocio">
+        {/* ── Datos del negocio ──────────────────────────────────────────── */}
+        <Card title="Datos del negocio">
+          <Fila label="Nombre del negocio" htmlFor="input-nombre-negocio" primera>
             <input
               id="input-nombre-negocio"
               type="text"
-              value={businessName}
+              className="input"
+              value={config.nombre}
               placeholder="ej.: Panadería Central"
-              onChange={(e) => setBusinessName(e.target.value)}
-              style={inputStyle}
+              autoComplete="organization"
+              aria-invalid={sinNombre && hayCambios ? true : undefined}
+              aria-describedby={sinNombre && hayCambios ? "error-nombre" : undefined}
+              onChange={(e) => setConfig((c) => ({ ...c, nombre: e.target.value }))}
+              style={{ width: 320, maxWidth: "100%", padding: "7px 10px" }}
             />
-          </FieldRow>
-          <FieldRow label="Tipo de negocio">
-            <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
-              Panadería
-            </span>
-          </FieldRow>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              paddingTop: 10,
-            }}
-          >
-            <span style={{ fontSize: 13, color: "var(--color-text-secondary)", minWidth: 180 }}>
-              Sucursales
-            </span>
-            <input
+            {sinNombre && hayCambios && (
+              <p id="error-nombre" className="field-error">
+                <Icon name="error" size={14} />
+                escribí el nombre de tu negocio.
+              </p>
+            )}
+          </Fila>
+          <Fila label="Tipo de negocio">
+            <p style={{ margin: 0 }}>{tipoNegocio ? tipoNegocio[0].toUpperCase() + tipoNegocio.slice(1) : "sin definir"}</p>
+            <p className="field-help" style={{ marginTop: 2 }}>se define al crear la cuenta</p>
+          </Fila>
+          <Fila label="Sucursales">
+            <Stepper
               id="input-sucursales"
-              type="number"
-              min={1}
-              value={branches}
-              onChange={(e) => setBranches(e.target.value)}
-              style={{ ...inputStyle, width: 80 }}
+              label="sucursales"
+              value={config.sucursales}
+              onChange={(sucursales) => setConfig((c) => ({ ...c, sucursales }))}
             />
+          </Fila>
+          <div style={{ marginBottom: -12 }}>
+            <Fila label="Moneda">
+              <span style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+                $ ARS, peso argentino
+                <Badge>predeterminada</Badge>
+              </span>
+            </Fila>
           </div>
-        </SectionCard>
+        </Card>
 
-        {/* ── Márgenes objetivo ────────────────────────────────────────── */}
-        <SectionCard title="Márgenes objetivo por categoría">
-          {(Object.keys(margins) as (keyof typeof margins)[]).map((cat, idx, arr) => (
-            <div
-              key={cat}
+        {/* ── Márgenes objetivo ──────────────────────────────────────────── */}
+        <Card title="Márgenes objetivo por categoría">
+          <p className="field-help" style={{ margin: "0 0 12px" }}>La IA usa estos márgenes para sugerir tus precios.</p>
+          {CATEGORIAS.map((cat, i) => {
+            const invalido = !margenValido(config.margenes[cat]);
+            const id = `input-margen-${cat}`;
+            return (
+              <div key={cat} style={{ marginBottom: i === CATEGORIAS.length - 1 ? -12 : 0 }}>
+                <Fila label={cat[0].toUpperCase() + cat.slice(1)} htmlFor={id}>
+                  <span style={{ position: "relative", display: "inline-block" }}>
+                    <input
+                      id={id}
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      max={100}
+                      className="input num"
+                      value={config.margenes[cat]}
+                      aria-invalid={invalido || undefined}
+                      aria-describedby={invalido ? `${id}-error` : undefined}
+                      onChange={(e) => setConfig((c) => ({ ...c, margenes: { ...c.margenes, [cat]: e.target.value } }))}
+                      style={{ width: 96, padding: "7px 28px 7px 10px", textAlign: "right" }}
+                    />
+                    <span
+                      aria-hidden="true"
+                      style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-text-secondary)", pointerEvents: "none" }}
+                    >
+                      %
+                    </span>
+                  </span>
+                  {invalido && (
+                    <p id={`${id}-error`} className="field-error">
+                      <Icon name="error" size={14} />
+                      poné un porcentaje entre 0 y 100.
+                    </p>
+                  )}
+                </Fila>
+              </div>
+            );
+          })}
+        </Card>
+
+        {/* ── Equipo ─────────────────────────────────────────────────────── */}
+        <Card title="Equipo">
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span
+              aria-hidden="true"
               style={{
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "space-between",
-                paddingTop: 10,
-                paddingBottom: 10,
-                borderBottom: idx < arr.length - 1 ? "1px solid var(--color-border-subtle)" : "none",
+                justifyContent: "center",
+                flexShrink: 0,
+                width: 32,
+                height: 32,
+                border: "1px solid var(--color-border-strong)",
+                borderRadius: "50%",
+                backgroundColor: "var(--color-accent-tint)",
+                color: "var(--color-accent-dark)",
               }}
             >
-              <span style={{ fontSize: 13, color: "var(--color-text-secondary)", textTransform: "capitalize" }}>
-                {cat}
-              </span>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <input
-                  id={`input-margen-${cat}`}
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={margins[cat]}
-                  onChange={(e) =>
-                    setMargins((prev) => ({ ...prev, [cat]: e.target.value }))
-                  }
-                  style={{ ...inputStyle, width: 70 }}
-                />
-                <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>%</span>
-              </div>
-            </div>
-          ))}
-        </SectionCard>
-
-        {/* ── Equipo ───────────────────────────────────────────────────── */}
-        <SectionCard title="Equipo">
-          {MEMBERS.map((m, idx) => (
-            <div
-              key={m.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                paddingTop: 10,
-                paddingBottom: 10,
-                borderBottom: idx < MEMBERS.length - 1 ? "1px solid var(--color-border-subtle)" : "none",
-              }}
-            >
-              {/* Avatar */}
-              <div
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: "50%",
-                  backgroundColor: "var(--color-tint-accent)",
-                  border: "1px solid var(--color-border-strong)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: "var(--color-accent-dark)",
-                  flexShrink: 0,
-                }}
-              >
-                {m.initials}
-              </div>
-              <span style={{ fontSize: 13, color: "var(--color-text-primary)", flex: 1 }}>
-                {m.name}
-              </span>
-              <Badge>{m.role}</Badge>
-            </div>
-          ))}
-          <div style={{ paddingTop: 12 }}>
-            <Button id="btn-invitar-miembro" variant="text" icon="person_add">
-              invitar miembro
-            </Button>
+              <Icon name="person" size={18} />
+            </span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: "18px", color: "var(--color-text-primary)", overflowWrap: "anywhere" }}>
+              {user?.email || "tu cuenta"}
+            </span>
+            <Badge>vos</Badge>
           </div>
-        </SectionCard>
+          <p className="field-help" style={{ marginTop: 12 }}>
+            Por ahora cada cuenta tiene un solo usuario. Todavía no se puede invitar a otras personas.
+          </p>
+        </Card>
 
-        {/* ── Notificaciones ───────────────────────────────────────────── */}
-        <SectionCard title="Notificaciones">
-          {[
-            { key: "precios" as const,  label: "Alertas de precio",             sub: "Cuando un insumo supera el margen objetivo" },
-            { key: "faltante" as const, label: "Riesgo de faltante de stock",    sub: "Cuando la predicción detecta posible faltante" },
-            { key: "demanda" as const,  label: "Picos de demanda previstos",     sub: "Cuando se proyecta un día de producción alta" },
-          ].map((n, idx, arr) => (
+        {/* ── Notificaciones ─────────────────────────────────────────────── */}
+        <Card
+          title="Notificaciones"
+          action={
+            user?.email && (
+              <span style={{ fontSize: 12, lineHeight: "16px", color: "var(--color-text-secondary)", overflowWrap: "anywhere", textAlign: "right" }}>
+                por email a {user.email}
+              </span>
+            )
+          }
+        >
+          {AVISOS.map((aviso, i) => (
             <div
-              key={n.key}
+              key={aviso.key}
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
                 gap: 16,
-                paddingTop: 10,
-                paddingBottom: 10,
-                borderBottom: idx < arr.length - 1 ? "1px solid var(--color-border-subtle)" : "none",
+                padding: i === 0 ? "0 0 12px" : i === AVISOS.length - 1 ? "12px 0 0" : "12px 0",
+                borderTop: i === 0 ? "none" : "1px solid var(--color-border-subtle)",
               }}
             >
               <div>
-                <div style={{ fontSize: 13, color: "var(--color-text-primary)", marginBottom: 2 }}>
-                  {n.label}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{n.sub}</div>
+                <p id={`aviso-${aviso.key}`} style={{ margin: 0, fontSize: 13, lineHeight: "18px", color: "var(--color-text-primary)" }}>
+                  {aviso.label}
+                </p>
+                <p id={`aviso-${aviso.key}-ayuda`} className="field-help" style={{ marginTop: 2 }}>
+                  {aviso.ayuda}
+                </p>
               </div>
-              <Toggle
-                value={notifs[n.key]}
-                onChange={(v) => setNotifs((prev) => ({ ...prev, [n.key]: v })) }
+              <button
+                type="button"
+                role="switch"
+                className="switch"
+                aria-checked={config.avisos[aviso.key]}
+                aria-labelledby={`aviso-${aviso.key}`}
+                aria-describedby={`aviso-${aviso.key}-ayuda`}
+                onClick={() => setConfig((c) => ({ ...c, avisos: { ...c.avisos, [aviso.key]: !c.avisos[aviso.key] } }))}
               />
             </div>
           ))}
-        </SectionCard>
+        </Card>
+      </div>
 
-        {/* ── Guardar ──────────────────────────────────────────────────── */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 16, paddingBottom: 32 }}>
-          {/* Mensaje de respuesta de AWS */}
-          {mensaje && (
-            <span style={{ fontSize: 13, fontWeight: 500, color: mensaje.includes("problema") ? "var(--color-warning-text)" : "var(--color-success-text)" }}>
-              {mensaje}
-            </span>
-          )}
-          
-          <Button id="btn-guardar-config" variant="primary" onClick={guardarDatosAWS} disabled={isLoading}>
-            {isLoading ? "guardando…" : "guardar cambios"}
+      {/* ── Barra de guardado ────────────────────────────────────────────── */}
+      {hayCambios && (
+        <div id="barra-guardado" className="savebar" role="region" aria-label="cambios sin guardar">
+          <Icon name="edit" size={18} />
+          <span style={{ flex: 1 }}>
+            {puedeGuardar ? "Tenés cambios sin guardar" : "Corregí los campos marcados para poder guardar"}
+          </span>
+          <button type="button" className="savebar-discard" disabled={guardando} onClick={() => setConfig(guardado)}>
+            descartar
+          </button>
+          <Button id="btn-guardar-config" variant="primary" size="sm" disabled={guardando || !puedeGuardar} onClick={() => void guardar()}>
+            {guardando ? "guardando…" : "guardar cambios"}
           </Button>
         </div>
+      )}
 
-      </div>
+      {/* ── Salir sin guardar ────────────────────────────────────────────── */}
+      <ConfirmDialog
+        open={salirA != null}
+        title="¿Salir sin guardar?"
+        description="Vas a perder los cambios que hiciste en esta pantalla."
+        confirmLabel="salir sin guardar"
+        cancelLabel="seguir editando"
+        tone="danger"
+        onCancel={() => setSalirA(null)}
+        onConfirm={() => {
+          const destino = salirA;
+          setSalirA(null);
+          setConfig(guardado); // sin cambios pendientes, la navegación ya no se frena
+          if (destino) router.push(destino);
+        }}
+      />
     </AppLayout>
   );
 }
