@@ -3,6 +3,10 @@
 import { useState, useEffect } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
 import EstadoApi from "../../src/src/components/ui/EstadoApi";
+import PageHeader from "../../src/src/components/ui/PageHeader";
+import KpiCard from "../../src/src/components/ui/KpiCard";
+import Badge, { type BadgeTone } from "../../src/src/components/ui/Badge";
+import Button from "../../src/src/components/ui/Button";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -92,11 +96,7 @@ function mapProduccion(items: ProductoApi[]): Recommendation[] {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const CONF_STYLE: Record<Confidence, React.CSSProperties> = {
-  alta:  { backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)" },
-  media: { backgroundColor: "var(--color-neutral-bg)",  color: "var(--color-neutral-text)"  },
-  baja:  { backgroundColor: "var(--color-warning-bg)", color: "var(--color-warning-text)" },
-};
+const CONF_TONE: Record<Confidence, BadgeTone> = { alta: "success", media: "neutral", baja: "warning" };
 
 const icon: React.CSSProperties = {
   fontFamily: "Material Symbols Outlined",
@@ -144,7 +144,7 @@ export default function DemandaPage() {
       const totalUnidades = mapped.reduce((acc, r) => acc + r.qty, 0);
       setKpiDatos({
         produccionTotal: `${totalUnidades.toLocaleString("es-AR")} u.`,
-        precision: data.precision != null ? `${(data.precision * 100).toFixed(1)}%` : "-",
+        precision: data.precision != null ? `${(data.precision * 100).toFixed(1).replace(".", ",")}%` : "—",
       });
 
       const porFecha = new Map<string, number>();
@@ -215,39 +215,24 @@ export default function DemandaPage() {
       <div style={{ maxWidth: 1080, margin: "0 auto" }}>
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 18, fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>Predicción de demanda</h1>
-            <p style={{ fontSize: 12, color: "var(--color-text-muted)", margin: "4px 0 0" }}>Proyección para los próximos 7 días · basada en historial de ventas</p>
-          </div>
-          <button
-            id="btn-recalcular-demanda"
-            onClick={handleRecalculate}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              backgroundColor: "var(--color-accent)", color: "#fff",
-              fontSize: 13, fontWeight: 500, padding: "9px 16px",
-              borderRadius: 8, border: "none", cursor: "pointer",
-              opacity: recalculating ? 0.7 : 1, transition: "opacity 0.2s",
-            }}
-          >
-            <span style={{ ...icon, fontSize: 15, animation: recalculating ? "spin 1s linear infinite" : "none" }}>autorenew</span>
-            {recalculating ? "Actualizando…" : "Actualizar"}
-          </button>
-        </div>
+        <PageHeader
+          title="Predicción de demanda"
+          subtitle="Proyección para los próximos 7 días, basada en tu historial de ventas"
+          action={
+            <Button id="btn-recalcular-demanda" variant="primary" icon="autorenew" disabled={recalculating} onClick={handleRecalculate}>
+              {recalculating ? "actualizando…" : "actualizar"}
+            </Button>
+          }
+        />
 
         {/* ── KPIs ────────────────────────────────────────────────────────── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
           {[
-            { label: "Producción total prevista", value: isLoading ? "..." : kpiDatos?.produccionTotal || "-", sub: "para los próximos 7 días", warn: false },
-            { label: "Precisión del modelo", value: isLoading ? "..." : kpiDatos?.precision || "-", sub: "backtest de los últimos 7 días", warn: false },
-            { label: "Productos en riesgo de faltante", value: isLoading ? "..." : String(atRisk), sub: "con baja confianza de predicción", warn: true },
+            { label: "Producción total prevista", value: kpiDatos?.produccionTotal || "—", sub: "para los próximos 7 días", warn: false },
+            { label: "Precisión del modelo", value: kpiDatos?.precision || "—", sub: "backtest de los últimos 7 días", warn: false },
+            { label: "Productos en riesgo de faltante", value: String(atRisk), sub: "con baja confianza de predicción", warn: atRisk > 0 },
           ].map((kpi) => (
-            <div key={kpi.label} style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "14px 16px" }}>
-              <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", display: "block", marginBottom: 8 }}>{kpi.label}</span>
-              <div style={{ fontSize: 24, fontWeight: 500, color: kpi.warn ? "var(--color-warning-text)" : "var(--color-text-primary)", marginBottom: 4 }}>{kpi.value}</div>
-              <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{kpi.sub}</span>
-            </div>
+            <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} isAlert={kpi.warn} loading={isLoading} footer={kpi.sub} />
           ))}
         </div>
 
@@ -266,7 +251,7 @@ export default function DemandaPage() {
                 <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>
                   Pronóstico{climaCiudad ? ` · ${climaCiudad}` : ""}
                 </span>
-                <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>
+                <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>
                   Con lluvia (≥ 60 % o ≥ 2 mm) el modelo reduce la producción prevista
                 </span>
               </div>
@@ -285,12 +270,12 @@ export default function DemandaPage() {
                         backgroundColor: llueve ? "var(--color-warning-bg)" : "transparent",
                       }}
                     >
-                      <div style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", textTransform: "uppercase" }}>{etiquetaDia(d.fecha)}</div>
-                      <div style={{ fontSize: 10, color: "var(--color-text-muted)", marginBottom: 6 }}>{d.fecha.slice(8, 10)}/{d.fecha.slice(5, 7)}</div>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)" }}>{etiquetaDia(d.fecha)}</div>
+                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 6 }}>{d.fecha.slice(8, 10)}/{d.fecha.slice(5, 7)}</div>
                       <div style={{ fontSize: 15, fontWeight: 500, color: "var(--color-text-primary)" }}>{d.tempMax != null ? `${Math.round(d.tempMax)}°` : "-"}</div>
-                      <div style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{d.tempMin != null ? `${Math.round(d.tempMin)}°` : "-"}</div>
-                      <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 6 }}>{d.descripcion}</div>
-                      <div style={{ fontSize: 10, color: llueve ? "var(--color-warning-text)" : "var(--color-text-muted)" }}>
+                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{d.tempMin != null ? `${Math.round(d.tempMin)}°` : "-"}</div>
+                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 6 }}>{d.descripcion}</div>
+                      <div style={{ fontSize: 11, color: llueve ? "var(--color-warning-text)" : "var(--color-text-secondary)" }}>
                         {d.probLluvia != null ? `${d.probLluvia} % lluvia` : "-"}
                       </div>
                     </div>
@@ -315,7 +300,7 @@ export default function DemandaPage() {
 
           <div style={{ display: "flex", alignItems: "flex-end", gap: 0, height: 140, position: "relative", borderBottom: "1px solid var(--color-border)" }}>
             {[25, 50, 75].map((pct) => (
-              <div key={pct} style={{ position: "absolute", left: 0, right: 0, bottom: `${pct}%`, borderTop: "1px dashed #F0E4D4", zIndex: 0 }} />
+              <div key={pct} style={{ position: "absolute", left: 0, right: 0, bottom: `${pct}%`, borderTop: "1px dashed var(--color-border-divider)", zIndex: 0 }} />
             ))}
             {barsData.map((bar, idx) => {
               const barHeight = Math.round((bar.value / MAX_VAL) * 140) || 4;
@@ -329,7 +314,7 @@ export default function DemandaPage() {
 
           <div style={{ display: "flex", gap: 0, marginTop: 6 }}>
             {barsData.map((bar, idx) => (
-              <div key={idx} style={{ flex: 1, textAlign: "center", fontSize: 10, color: "var(--color-text-muted)", fontWeight: 400 }}>
+              <div key={idx} style={{ flex: 1, textAlign: "center", fontSize: 11, color: "var(--color-text-secondary)", fontWeight: 400 }}>
                 {bar.label}
               </div>
             ))}
@@ -352,24 +337,24 @@ export default function DemandaPage() {
               { label: "Cantidad sugerida", align: "right" },
               { label: "Confianza", align: "center" },
             ].map((h) => (
-              <span key={h.label} style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: h.align as React.CSSProperties["textAlign"] }}>{h.label}</span>
+              <span key={h.label} style={{ fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)", textAlign: h.align as React.CSSProperties["textAlign"] }}>{h.label}</span>
             ))}
           </div>
 
           {recomendaciones.length === 0 ? (
-            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>No hay predicciones generadas para este usuario. (Espera a que el cronjob corra).</div>
+            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-secondary)" }}>No hay predicciones generadas para este usuario. (Espera a que el cronjob corra).</div>
           ) : (
              recomendaciones.map((rec, idx) => (
-            <div key={rec.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 100px", columnGap: 16, padding: "12px 16px", alignItems: "center", borderBottom: idx < recomendaciones.length - 1 ? "1px solid #F5EBDF" : "none", backgroundColor: rec.risk ? "rgba(247,227,221,0.25)" : "transparent" }}>
+            <div key={rec.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 100px", columnGap: 16, padding: "12px 16px", alignItems: "center", borderBottom: idx < recomendaciones.length - 1 ? "1px solid var(--color-border-subtle)" : "none", backgroundColor: rec.risk ? "var(--color-surface-flag)" : "transparent" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 {rec.risk && <span style={{ ...icon, fontSize: 13, color: "var(--color-warning-text)" }}>warning</span>}
                 <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>{rec.product}</span>
               </div>
-              <div style={{ fontSize: 13, color: "var(--color-text-primary)", textAlign: "right" }}>
-                {rec.qty} <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{rec.unit}</span>
+              <div className="num" style={{ fontSize: 13, color: "var(--color-text-primary)" }}>
+                {rec.qty} <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{rec.unit}</span>
               </div>
               <div style={{ textAlign: "center" }}>
-                <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, fontWeight: 500, ...CONF_STYLE[rec.confidence] }}>{rec.confidence}</span>
+                <Badge tone={CONF_TONE[rec.confidence]}>{rec.confidence}</Badge>
               </div>
             </div>
           ))

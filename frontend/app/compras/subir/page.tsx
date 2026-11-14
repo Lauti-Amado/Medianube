@@ -9,6 +9,10 @@ import IaBanner from "../../../src/src/components/invoices/IaBanner";
 import InvoiceTable, { InvoiceItem } from "../../../src/src/components/invoices/InvoiceTable";
 import { uploadInvoice } from "../../../lib/upload";
 import { validarArchivo } from "../../../lib/validarArchivo";
+import { formatMoneda } from "../../../lib/formato";
+import PageHeader from "../../../src/src/components/ui/PageHeader";
+import Badge from "../../../src/src/components/ui/Badge";
+import Button from "../../../src/src/components/ui/Button";
 
 const COMPRAS_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/compras";
 const POLL_INTERVAL_MS = 3000;
@@ -152,7 +156,7 @@ export default function SubirFacturaPage() {
   }
 
   const total = items.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
-  const totalFormatted = "$" + total.toLocaleString("es-AR");
+  const totalFormatted = formatMoneda(total);
 
   function handleItemChange(id: string, field: "product" | "quantity" | "unitPrice", value: string | number) {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)));
@@ -171,7 +175,7 @@ export default function SubirFacturaPage() {
             fontSize: "12px", color: "var(--color-text-secondary)", textDecoration: "none",
             marginBottom: "14px", transition: "color 0.15s",
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-accent)"; }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-accent-dark)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-secondary)"; }}
         >
           <span style={iconStyle}>arrow_back</span>
@@ -179,9 +183,7 @@ export default function SubirFacturaPage() {
         </Link>
 
         {/* ── Page title ────────────────────────────────────────────── */}
-        <h1 style={{ fontSize: "20px", fontWeight: 500, color: "var(--color-text-primary)", margin: "0 0 16px", letterSpacing: "-0.01em" }}>
-          Subir factura
-        </h1>
+        <PageHeader title="Subir factura" />
 
         {!file && <FileDropzone onFileSelected={setFile} />}
 
@@ -205,15 +207,15 @@ export default function SubirFacturaPage() {
                   <p style={{ fontSize: "13px", fontWeight: 500, color: "var(--color-text-primary)", margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {file.name}
                   </p>
-                  <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>{formatSize(file.size)}</p>
+                  <p style={{ fontSize: "11px", color: "var(--color-text-secondary)", margin: 0 }}>{formatSize(file.size)}</p>
                 </div>
                 <button
                   type="button"
                   disabled={progress !== null || isProcessing}
                   onClick={resetearArchivo}
-                  style={{ background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "12px", color: "var(--color-text-muted)", padding: "4px", flexShrink: 0, transition: "color 0.15s" }}
+                  style={{ background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "12px", color: "var(--color-text-secondary)", padding: "4px", flexShrink: 0, transition: "color 0.15s" }}
                   onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-warning-text)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-muted)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-secondary)"; }}
                 >
                   <span style={{ ...iconStyle, fontSize: "13px" }}>close</span>
                   Quitar
@@ -231,18 +233,16 @@ export default function SubirFacturaPage() {
                     minWidth: "200px",
                   }}
                 >
-                  <p style={{ fontSize: "10px", fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 4px" }}>
+                  <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: "0 0 4px" }}>
                     Distribuidora detectada
                   </p>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
                     <p style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>
                       {proveedorDetectado.nombre}
                     </p>
-                    <span style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)", fontSize: "10px", fontWeight: 600, padding: "2px 7px", borderRadius: "var(--radius-full)", whiteSpace: "nowrap" }}>
-                      IA OCR
-                    </span>
+                    <Badge tone="ia">IA</Badge>
                   </div>
-                  <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>
+                  <p style={{ fontSize: "11px", color: "var(--color-text-secondary)", margin: 0 }}>
                     {proveedorDetectado.cuit}
                   </p>
                 </div>
@@ -262,7 +262,7 @@ export default function SubirFacturaPage() {
                   color: "var(--color-text-secondary)",
                 }}
               >
-                Procesando factura en la cola SQS con Gemini Vision… (esto puede demorar unos segundos)
+                Leyendo tu factura… suele tardar unos segundos.
               </div>
             )}
 
@@ -288,66 +288,28 @@ export default function SubirFacturaPage() {
           {uploadError && (
             <p style={{ fontSize: "12px", color: "var(--color-warning-text)", margin: 0 }}>{uploadError}</p>
           )}
-          <button
-            id="invoice-cancel"
-            type="button"
-            onClick={() => router.push("/compras")}
-            style={{
-              padding: "9px 20px", fontSize: "13px", fontWeight: 500,
-              backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)", color: "var(--color-text-primary)", cursor: "pointer",
-              transition: "border-color 0.15s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-border-strong)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-border)"; }}
-          >
-            Cancelar
-          </button>
+          <Button id="invoice-cancel" onClick={() => router.push("/compras")}>
+            cancelar
+          </Button>
 
           {!ocrReady ? (
-            <button
+            <Button
               id="invoice-upload"
-              type="button"
+              variant="primary"
+              icon={isProcessing ? "hourglass_empty" : "upload_file"}
               disabled={!file || progress !== null || isProcessing}
               onClick={handleUploadAndAnalyze}
-              style={{
-                padding: "9px 20px", fontSize: "13px", fontWeight: 500,
-                backgroundColor: "var(--color-accent)", border: "none",
-                borderRadius: "var(--radius-md)", color: "#FFFFFF", cursor: "pointer",
-                transition: "background-color 0.15s",
-                display: "inline-flex", alignItems: "center", gap: "7px",
-                opacity: !file || progress !== null || isProcessing ? 0.6 : 1,
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent-dark)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent)"; }}
             >
-              <span style={{ ...iconStyle, fontSize: "15px" }}>
-                {isProcessing ? "hourglass_empty" : "upload_file"}
-              </span>
               {progress !== null
-                ? `Subiendo… ${progress}%`
+                ? `subiendo… ${progress}%`
                 : isProcessing
-                  ? "Analizando con IA…"
-                  : "Subir y extraer datos"}
-            </button>
+                  ? "leyendo la factura…"
+                  : "subir y extraer datos"}
+            </Button>
           ) : (
-            <button
-              id="invoice-confirm"
-              type="button"
-              onClick={handleConfirm}
-              style={{
-                padding: "9px 20px", fontSize: "13px", fontWeight: 500,
-                backgroundColor: "var(--color-accent)", border: "none",
-                borderRadius: "var(--radius-md)", color: "#FFFFFF", cursor: "pointer",
-                transition: "background-color 0.15s",
-                display: "inline-flex", alignItems: "center", gap: "7px",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent-dark)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent)"; }}
-            >
-              <span style={{ ...iconStyle, fontSize: "15px" }}>check_circle</span>
-              Confirmar y guardar
-            </button>
+            <Button id="invoice-confirm" variant="primary" icon="check_circle" onClick={handleConfirm}>
+              confirmar y guardar
+            </Button>
           )}
         </div>
 
