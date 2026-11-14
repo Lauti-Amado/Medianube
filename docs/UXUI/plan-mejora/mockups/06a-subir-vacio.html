@@ -32,12 +32,13 @@
       <div class="anchor" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:16px">
         <span class="pin">3</span>
         <div class="row gap10" style="align-items:flex-start"><span class="ms s20 tacc-d">document_scanner</span><div><p class="fw5">Leemos la factura por vos</p><p class="help">Proveedor, ítems, cantidades y totales.</p></div></div>
-        <div class="row gap10" style="align-items:flex-start"><span class="ms s20 tacc-d">edit_note</span><div><p class="fw5">Revisás y corregís</p><p class="help">Cualquier dato se puede editar antes de guardar.</p></div></div>
-        <div class="row gap10" style="align-items:flex-start"><span class="ms s20 tacc-d">task_alt</span><div><p class="fw5">Nada se guarda sin tu confirmación</p><p class="help">Si cancelás, la factura no queda registrada.</p></div></div>
+        <div class="row gap10" style="align-items:flex-start"><span class="ms s20 tacc-d">edit_note</span><div><p class="fw5">Revisás y corregís</p><p class="help">Cualquier dato que haya leído mal se puede editar.</p></div></div>
+        <div class="row gap10" style="align-items:flex-start"><span class="ms s20 tacc-d">task_alt</span><div><p class="fw5">Confirmás al final</p><p class="help">Tus correcciones se guardan cuando confirmás.</p></div></div>
       </div>
 
-      <div class="row" style="justify-content:flex-end;margin-top:24px">
-        <span class="btn btn-secondary anchor">cancelar<span class="pin r">2</span></span>
+      <div class="row gap10" style="justify-content:flex-end;margin-top:24px">
+        <span class="btn btn-secondary">cancelar</span>
+        <span class="btn btn-disabled anchor"><span class="ms">upload_file</span>subir y extraer datos<span class="pin r">2</span></span>
       </div>
 
     </div>

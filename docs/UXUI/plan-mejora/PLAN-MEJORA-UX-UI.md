@@ -19,7 +19,18 @@ Plan por etapas para mejorar la experiencia y la interfaz de las 9 pantallas del
 
 Prioridad: **P0** bloquea la tarea · **P1** confunde o puede causar errores (resolver primero) · **P2** molestia con salida alternativa · **P3** pulido.
 
-`📍n` = marcador visible en el PNG de esa pantalla.
+`📍n` = marcador visible en el PNG de esa pantalla. ✅ = ítem ya resuelto (total o parcialmente) en `main`.
+
+### Cambios de `main` incorporados al plan (13/11/2026)
+
+Después de escribir la primera versión del plan entraron a `main` cambios de otro integrante del equipo (PR #98 a #108). Los que tocan la interfaz son dos pantallas; el resto es backend, infraestructura y documentación:
+
+| Pantalla | Qué cambió en `main` | Cómo se adaptó el plan |
+|---|---|---|
+| **Subir factura** | Ítems reales leídos por la IA en lugar de ejemplos, estado de "procesando" y botón en dos pasos ("Subir y extraer datos" → "Confirmar y guardar"). | Ítems 2 y 4 marcados como resueltos en parte. Se agregó el ítem 11 ("Confirmar y guardar" no guarda las correcciones) y se reescribieron el 3, el 5 y el 10. Hay una vista nueva: `06c-subir-leyendo.png`. |
+| **Demanda** | Datos reales de `GET /demanda`, gráfico solo con la predicción, botón "Actualizar" y pronóstico del clima. | Ítem 4 resuelto, ítems 3, 6 y 8 en parte. El 5 pasó a P1 (la tabla mezcla días) y se sumaron el 9 (clima integrado al gráfico) y el 10 (color de los días de lluvia). El mockup `08-demanda.png` se rehízo sobre la pantalla nueva. |
+
+Ningún cambio de `main` contradice la Etapa 0 ni el cambio de paleta (0.15).
 
 ---
 
@@ -39,7 +50,7 @@ Prioridad: **P0** bloquea la tarea · **P1** confunde o puede causar errores (re
 3. **Demasiados botones primarios.** El `DESIGN.md` pide una acción de acento sólido por pantalla. Hoy Precios tiene 8 botones sólidos, el Dashboard 4 y Compras 3.
 4. **Jerga técnica a la vista del usuario:** "Lambda", "DynamoDB", "Gemini", "modelo v2.4", "ID: sug-4e19a695…", "tablas Producto y Receta-nueva", "Estado: completed", "Cargando datos desde la nube".
 5. **Acciones con plata sin confirmación.** "Aplicar precio" cambia el precio de venta con un clic, sin mostrar el antes y el después ni permitir deshacer.
-6. **Datos que se contradicen entre pantallas.** El Dashboard saluda a "Panadería La Espiga" y Configuración dice "Panadería Central". El Dashboard muestra 2 alertas de precio y Precios dice 0. Producción prevista dice 2.180 u. en el Dashboard y 315 u. en Demanda.
+6. **Datos que se contradicen entre pantallas.** El Dashboard saluda a "Panadería La Espiga" y Configuración dice "Panadería Central". El Dashboard muestra 2 alertas de precio y Precios dice 0. Producción prevista dice 2.180 u. en el Dashboard (mock) y otro número en Demanda (datos reales).
 7. **Contraste insuficiente.** `text-secondary` (#8C7361) sobre el fondo crema da 3,98:1 y `text-muted` (#B08D6F) da 2,74:1. Ambos quedan por debajo del mínimo AA (4,5:1) y se usan para subtítulos y textos de ayuda. Además, el texto blanco sobre el acento caramelo (#B5722E) de los botones primarios da 3,9:1.
 
 **Puntaje heurístico estimado (Nielsen, 0–4):** 22/40, **Aceptable**. Los puntos más bajos son *prevención de errores* (1), *consistencia* (2), *diseño minimalista* (2) y *correspondencia con el mundo real* (2, por la jerga técnica).
@@ -176,20 +187,31 @@ Prioridad: **P0** bloquea la tarea · **P1** confunde o puede causar errores (re
 
 ## Etapa 6 · Subir factura — `/compras/subir`
 
-**Objetivo:** cargar una factura y confiar en lo que leyó la IA antes de guardarla. Previsualizaciones: [`06a-subir-vacio.png`](png/06a-subir-vacio.png) (antes de elegir archivo) y [`06b-subir-revision.png`](png/06b-subir-revision.png) (revisión).
+**Objetivo:** cargar una factura y confiar en lo que leyó la IA antes de guardarla. Previsualizaciones: [`06a-subir-vacio.png`](png/06a-subir-vacio.png) (antes de elegir archivo), [`06c-subir-leyendo.png`](png/06c-subir-leyendo.png) (mientras la IA lee la factura) y [`06b-subir-revision.png`](png/06b-subir-revision.png) (revisión).
+
+> **Actualizado con los cambios de `main` del 13/11** (PR #103 y commit `119108a`). La pantalla ya no usa ítems de ejemplo: sube el archivo, espera a que la IA lo lea (consultando `/compras` cada 3 s, hasta 60 s) y muestra los ítems reales. El botón principal ahora es "Subir y extraer datos" y pasa a "Confirmar y guardar" recién cuando hay datos.
 
 | # | Tipo | Qué | Por qué | Prio |
 |---|---|---|---|---|
-| 📍1 | Agregar | **Indicador de pasos** "1 subir · 2 revisar · 3 confirmar". El componente `StepIndicator.tsx` ya existe y no se usa. | Orienta en un flujo de varios pasos (§5.4 del `DESIGN.md`). | P2 |
-| 📍2 | Corregir | Antes de elegir archivo, **ocultar** "Confirmar y guardar". Hoy se ve habilitado aunque no hace nada. | Un botón primario que no responde parece roto. | P1 |
-| 📍3 | Agregar | En el estado vacío, tres líneas breves de qué va a pasar: "leemos proveedor, ítems y totales · vas a poder corregir todo · no se guarda nada hasta que confirmes". | Baja la ansiedad de subir un documento con plata y llena una pantalla que hoy está vacía. | P2 |
-| 4 | Agregar | Estado "leyendo tu factura…" con skeleton de la tabla y barra de progreso mientras la IA extrae los datos. | Hoy la tabla aparece de golpe. Hay que mostrar que el sistema trabaja. | P2 |
-| 📍5 | Resaltar | En el banner de IA: "**1 ítem con confianza baja**: revisalo antes de guardar". La fila correspondiente se marca con fondo de advertencia suave. | La revisión es el paso clave del flujo (§5.4). El usuario tiene que saber *dónde* mirar. | P1 |
-| 📍6 | Simplificar | **Mostrar todos los ítems** (8 no es mucho), sin colapsar a 3. | Con el colapso, la fila de confianza baja (ítem 8) queda oculta, justo la que hay que revisar. | P1 |
-| 📍7 | Simplificar | **Proveedor detectado integrado** en la tarjeta del archivo, en una sola fila: archivo · proveedor · CUIT · coincidencia. | Dos tarjetas para datos del mismo documento es carga visual innecesaria. | P2 |
+| 📍1 | Agregar | **Indicador de pasos** "1 subir · 2 revisar · 3 confirmar". El componente `StepIndicator.tsx` ya existe y no se usa. Con el flujo nuevo, los tres momentos existen de verdad. | Orienta en un flujo de varios pasos (§5.4 del `DESIGN.md`). | P2 |
+| 📍2 | Corregir | ✅ *Resuelto en parte por el compañero:* sin archivo, el botón principal ("Subir y extraer datos") queda deshabilitado en vez de parecer activo. **Falta:** usar el estilo de deshabilitado del sistema (0.3) en lugar de bajar la opacidad, y `cursor: not-allowed` (hoy sigue en `pointer`). | Un botón deshabilitado tiene que verse y comportarse como tal. | P3 |
+| 📍3 | Agregar | En el estado vacío, tres líneas breves de qué va a pasar: "leemos proveedor, ítems y totales · vas a poder corregir todo · confirmás al final". **Ojo:** no prometer "no se guarda nada hasta que confirmes": con el flujo nuevo, la factura queda registrada apenas la IA la lee. | Baja la ansiedad de subir un documento con plata. El texto tiene que decir lo que realmente pasa. | P2 |
+| 📍4 | Corregir | ✅ *Resuelto en parte:* ya existe un estado de "procesando". **Falta:** cambiar el texto "Procesando factura en la cola SQS con Gemini Vision…" por "Leyendo tu factura… suele tardar unos segundos", sumar un skeleton de la tabla y una barra de progreso indeterminada. | Jerga técnica (0.7). El skeleton anticipa qué va a aparecer. | P1 |
+| 📍5 | Corregir | **No inventar confianza.** Hoy todos los ítems que lee la IA se muestran con confianza "alta" fija (el OCR no la informa) y el banner también dice "confianza alta" fijo. Mientras el backend no mande la confianza por ítem, no mostrarla. Cuando la mande, resaltar los ítems con confianza baja en el banner ("1 ítem con confianza baja: revisalo") y en la fila, como en el mockup. | Principio 4 del `DESIGN.md`: decir "alta" sin saberlo hace que el usuario no revise justo lo que debería. | P1 |
+| 📍6 | Simplificar | **Mostrar todos los ítems**, sin colapsar a 3 (`InvoiceTable` no cambió). | Con facturas reales, la fila que hay que revisar puede quedar oculta. | P1 |
+| 📍7 | Simplificar | **Proveedor detectado integrado** en la tarjeta del archivo, en una sola fila: archivo · proveedor · CUIT. El badge "IA OCR" pasa a ser el badge "IA" del sistema (0.6). | Dos tarjetas para datos del mismo documento es carga visual innecesaria. "OCR" es jerga técnica. | P2 |
 | 📍8 | Corregir | Badges de confianza sin `✓` ni `⚠`, y el encabezado de columna "Estado AI" pasa a "confianza". | Ver 0.4. Además "Estado AI" mezcla inglés y no dice qué mide. | P3 |
 | 📍9 | Simplificar | Resumen de totales en bloque a la derecha, como en una factura real: subtotal, IVA, percepciones y total. | El ojo busca el total abajo a la derecha. | P3 |
-| 10 | Agregar | **Popup** al cancelar con datos cargados: "¿descartar esta factura? Se pierden los cambios que hiciste." | Evita perder la revisión por un clic accidental. | P2 |
+| 10 | Agregar | **Popup** al salir de la revisión con correcciones sin confirmar: "¿Salir sin confirmar? La factura ya quedó registrada con lo que leyó la IA; se pierden tus correcciones." | Evita perder la revisión por un clic accidental, sin prometer algo que no pasa. | P2 |
+| 11 | Corregir | **"Confirmar y guardar" no guarda las correcciones**: hoy solo vuelve a Compras y lo editado en la tabla se pierde. Hace falta que mande los ítems corregidos al backend. Mientras tanto, el botón debería llamarse "volver a compras" o la tabla no debería ser editable. | El botón promete algo que no hace (heurística 1). Es el problema más grave de la pantalla. | P1 |
+
+**Copy**
+
+| Antes | Después |
+|---|---|
+| Procesando factura en la cola SQS con Gemini Vision… (esto puede demorar unos segundos) | Leyendo tu factura… suele tardar unos segundos. |
+| El análisis por IA demoró más de 60 segundos. Podés verificar la factura más tarde en el historial de compras. | La lectura está tardando más de lo normal. Te avisamos en Compras cuando esté lista. **[ir a compras]** |
+| Distribuidora detectada · IA OCR | *(una sola fila)* Distribuidora Sur S.A. · CUIT 30-71449821-4 · **IA** |
 
 ---
 
@@ -226,18 +248,32 @@ Prioridad: **P0** bloquea la tarea · **P1** confunde o puede causar errores (re
 
 ## Etapa 8 · Predicción de demanda — `/demanda`
 
-**Objetivo:** saber cuánto producir mañana y anticipar los picos. Previsualización: [`08-demanda.png`](png/08-demanda.png).
+**Objetivo:** saber cuánto producir cada día y anticipar los picos. Previsualización: [`08-demanda.png`](png/08-demanda.png).
+
+> **Actualizado con los cambios de `main` del 13/11** (PR #104, #106 y #108). La pantalla ahora lee datos reales de `GET /demanda` (se fueron los mocks), el gráfico muestra solo la predicción (se quitaron el histórico y el marcador "hoy"), el botón pasó de "Recalcular con IA" a "Actualizar" y se sumó una tarjeta con el **pronóstico del clima** de 7 días.
 
 | # | Tipo | Qué | Por qué | Prio |
 |---|---|---|---|---|
-| 📍1 | Quitar | El banner "Datos con IA. La sugerencia la generó el modelo a partir del contexto enviado a la Lambda.". La marca IA pasa al título de la tabla. El aviso de modo "reglas" se mantiene, pero en lenguaje humano. | Jerga técnica (0.7). El estado normal no necesita un banner: solo el caso excepcional. | P1 |
-| 📍2 | Agregar | **Banner de recomendación del pico** (§5.7): "El sábado se espera el pico de la semana: +35% sobre el promedio. Conviene reforzar medialunas y pan francés." | Es la acción más valiosa de la pantalla y hoy solo aparece en el dashboard. | P2 |
-| 📍3 | Resaltar | Gráfico con **valores** sobre las barras, fecha en el eje X ("sáb 14") y marca "hoy" más clara. | Sin valores ni eje Y, el gráfico solo dice "más alto" o "más bajo". | P2 |
-| 📍4 | Corregir | KPI "producción total prevista: 315 u. para los próximos 7 días": 315 es la suma de *mañana*. Corregir la etiqueta ("para mañana") o el cálculo. | El dato es incorrecto tal como está rotulado. | P1 |
-| 📍5 | Simplificar | La tabla pasa a ser una tarjeta con título "Producción sugerida para mañana · sábado 14/11", columnas "producto · cantidad · confianza" y orden por cantidad. | Hoy el título de la tabla está metido como encabezado de columna en mayúsculas. | P2 |
-| 6 | Corregir | **No inventar confianza**: `asConfidence()` elige un valor *al azar* cuando la API no lo manda. Mostrar "sin dato" en ese caso. | Viola el principio 4 del `DESIGN.md` (honestidad en la incertidumbre): el usuario confía en un dato aleatorio. | P1 |
-| 📍7 | Agregar | Botón secundario "imprimir lista" para el obrador. | En una panadería real, la lista de producción se lleva impresa al horno. | P3 |
-| 📍8 | Corregir | "Precisión del modelo 91,4%" está hardcodeado: mostrarlo solo si viene del backend y explicarlo en simple ("se desvió 9% en promedio las últimas 4 semanas"). | Un número fijo que se presenta como métrica del modelo es engañoso. | P2 |
+| 📍1 | Quitar | El banner "Datos con IA. La sugerencia la generó el modelo a partir del contexto enviado a la Lambda.". Ahora aparece **dos veces**: también sobre el pronóstico del clima, porque `EstadoApi` lo envuelve, y el clima no lo calcula la IA. La marca IA pasa al título de la tabla. El aviso de modo "reglas" se mantiene, pero en lenguaje humano. | Jerga técnica (0.7) y una afirmación falsa sobre el clima. El estado normal no necesita un banner, solo el caso excepcional. | P1 |
+| 📍2 | Agregar | **Banner de recomendación del pico** (§5.7): "El sábado se espera el pico de la semana: +35% sobre el promedio. Conviene reforzar medialunas de manteca y pan francés." | Es la acción más valiosa de la pantalla y todavía no está. | P2 |
+| 📍3 | Resaltar | ✅ *En parte:* sacar el histórico simplificó el gráfico y el marcador "hoy" ya no hace falta. **Falta:** **valores** sobre las barras y la fecha en el eje ("sá 14" en vez de solo "sáb", que se repite si hay más de una semana). | Sin valores ni eje Y, el gráfico solo dice "más alto" o "más bajo". | P2 |
+| 4 | Corregir | ✅ *Resuelto por el compañero:* "producción total prevista para los próximos 7 días" ahora suma los 7 días que devuelve la API, así que el dato coincide con su etiqueta. | — | — |
+| 📍5 | Corregir | **La tabla mezcla días.** Ahora lista los productos de los 7 días juntos sin mostrar la fecha, así que el mismo producto puede aparecer hasta 7 veces sin saber de qué día es cada fila. Sumar un **selector de día** (por defecto, mañana) y titular la tarjeta "Producción sugerida · sábado 14/11", con columnas "producto · cantidad · confianza" y orden por cantidad. | Sin la fecha, la tabla no sirve para planificar la producción. | P1 |
+| 6 | Corregir | ✅ *En parte:* la confianza ya no es aleatoria. **Falta:** cuando la API no la manda, hoy se muestra "media" por defecto. Mostrar "sin dato" en ese caso. | Principio 4 del `DESIGN.md` (honestidad en la incertidumbre). | P2 |
+| 📍7 | Agregar | Botón secundario "imprimir lista" para el obrador (imprime el día elegido en el selector). | En una panadería real, la lista de producción se lleva impresa al horno. | P3 |
+| 📍8 | Corregir | ✅ *En parte:* la precisión ya viene del backend (`precision`). **Falta:** cambiar el subtítulo "backtest de los últimos 7 días" por algo simple: "comparada con lo que se vendió los últimos 7 días". | "Backtest" es jerga técnica. | P3 |
+| 📍9 | Simplificar | **Clima integrado al gráfico.** En lugar de una tarjeta aparte con 7 cajitas, mostrar debajo de cada barra el ícono del clima, la máxima y el % de lluvia. Así se lee directo por qué un día baja la producción (p. ej., domingo con lluvia: 130 u.). Si el pronóstico no está disponible, la fila de clima desaparece y el gráfico sigue igual. | Una tarjeta menos, y el clima queda al lado del dato al que afecta, en vez de obligar a cruzar dos bloques. | P2 |
+| 10 | Corregir | Los días de lluvia se pintan con el fondo de **advertencia** (rojizo). La lluvia es información, no un riesgo: usar el ícono de lluvia y el texto en `text-secondary`, y reservar el rojizo para "riesgo de faltante". | El color de advertencia tiene que significar una sola cosa. | P3 |
+
+**Copy**
+
+| Antes | Después |
+|---|---|
+| No hay predicciones generadas para este usuario. (Espera a que el cronjob corra). | Todavía no hay una predicción. Se genera automáticamente todas las noches. |
+| No se pudo cargar la predicción de demanda desde la base de datos. | No pudimos cargar la predicción. Probá de nuevo en unos segundos. **[reintentar]** |
+| Con lluvia (≥ 60 % o ≥ 2 mm) el modelo reduce la producción prevista | Los días con lluvia, la producción prevista baja. |
+| Precisión del modelo · backtest de los últimos 7 días | Precisión de la predicción · comparada con lo vendido los últimos 7 días |
+| Recomendación de producción *(encabezado de columna)* | Producción sugerida · sábado 14/11 *(título de la tarjeta)* |
 
 ---
 
@@ -266,9 +302,9 @@ Prioridad: **P0** bloquea la tarea · **P1** confunde o puede causar errores (re
 | 1 | **0 · Fundamentos** | Medio | Resuelve de una vez las inconsistencias de todas las pantallas y crea los componentes que usan las demás etapas. |
 | 2 | **7 · Precios** | Alto | La pantalla con más ruido y la única con acciones de plata sin confirmación. |
 | 3 | **4 · Dashboard** | Medio | Es la primera pantalla después del login. |
-| 4 | **6 · Subir factura** | Medio | Flujo principal de carga de datos. La fila de baja confianza hoy queda oculta. |
+| 4 | **6 · Subir factura** | Medio | Flujo principal de carga de datos. "Confirmar y guardar" no guarda las correcciones, y el estado de carga muestra jerga técnica. |
 | 5 | **5 · Compras** | Medio | Unificar filtros y estados. |
-| 6 | **8 · Demanda** | Bajo–medio | Corregir el KPI mal rotulado y la confianza aleatoria. |
+| 6 | **8 · Demanda** | Medio | Separar la tabla por día, sacar el banner de IA (también del clima) e integrar el clima al gráfico. |
 | 7 | **9 · Configuración** | Bajo | Barra de guardado y copy. |
 | 8 | **3 · Onboarding** | Bajo | Requisitos de contraseña y reenviar código. |
 | 9 | **1–2 · Login y recuperar** | Bajo | Pulido. |
@@ -279,12 +315,13 @@ Estas no son de diseño, pero hacen que la interfaz parezca poco confiable:
 
 1. **Nombre del negocio**: el Dashboard dice "Panadería La Espiga" (hardcodeado) y Configuración "Panadería Central" (valor inicial hardcodeado). Debe salir de la cuenta.
 2. **Alertas de precio**: el Dashboard usa un mock con 2 alertas y Precios trae 0 de la API. El Dashboard debería leer el mismo endpoint.
-3. **Producción prevista**: 2.180 u. (mock del Dashboard) vs 315 u. (Demanda, que además es el total de mañana y no de 7 días).
+3. **Producción prevista**: el Dashboard sigue mostrando 2.180 u. (mock), mientras que Demanda ya muestra el total real de 7 días que devuelve `GET /demanda`. El Dashboard debería leer ese mismo endpoint.
 4. **Facturas por revisar**: "4 pendientes de revisión" (Dashboard) vs "3" (KPI de Compras).
 5. **Margen objetivo**: Configuración define panadería 40%, pastelería 45% y bebidas 60%, pero el análisis de IA de Precios habla de "margen objetivo del 60%" para productos de panadería. Revisar qué margen recibe la Lambda.
-6. **Configuración guarda con `usuarioID: "user_test_123"`** fijo. Debe usar el usuario autenticado.
-7. **Precisión del modelo (91,4%)** y **"actualizado hace N minutos"** son valores fijos.
+6. **`usuarioID: "user_test_123"` fijo**: lo usan Configuración al guardar y, desde los cambios del 13/11, también las consultas de Demanda y Clima. Deben usar el usuario autenticado.
+7. **"Actualizado hace N minutos"** sigue siendo un valor fijo (Dashboard y Compras). La precisión del modelo ya viene del backend.
 8. **Nombres de productos**: "Media luna de jyq" (abreviatura del dato cargado) aparece así en Precios. En los mockups se muestra como "Medialuna de jamón y queso".
+9. **Subir factura**: la confianza de cada ítem se muestra siempre "alta" porque el OCR no la informa, y "Confirmar y guardar" no envía las correcciones al backend (ver Etapa 6, ítems 5 y 11).
 
 > Los mockups usan un único set de datos ficticios coherente entre pantallas (315 u. para mañana, 3 facturas por revisar, 2 precios a revisar, objetivo de panadería 40%), justamente para mostrar cómo se ve la interfaz cuando los números coinciden.
 
