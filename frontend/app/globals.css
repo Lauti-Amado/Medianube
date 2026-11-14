@@ -776,6 +776,7 @@ button.kpi.is-attention:hover {
 /* --- Diálogo de confirmación (0.10) --- */
 
 .dialog {
+  margin: auto; /* el reset de Tailwind lo deja en 0 y el diálogo se va a la esquina */
   width: min(460px, calc(100vw - 32px));
   padding: 24px;
   border: 1px solid var(--color-border);
