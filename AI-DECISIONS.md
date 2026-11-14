@@ -449,3 +449,10 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Seguridad de datos:** el chequeo nunca borra tablas, porque podrían tener datos de un compañero; la decisión queda en el equipo. La comparación contra los recursos del stack también cubre las tablas que se agreguen al template más adelante.
 - **Pruebas:** `bash -n` sobre los dos scripts. El chequeo previo se probó con un `aws` simulado en cinco escenarios (tabla creada a mano con el stack nuevo o existente, `ROLLBACK_COMPLETE`, sin conflictos y cuenta limpia). `preparar-demo.sh` se probó con un camino exitoso, una Lambda que falla y argumentos inválidos. El ejemplo de la guía se validó con `node --check`. Los tests del backend no cambian.
 - **Pendiente de validar por el equipo:** correr `deploy.sh` y `preparar-demo.sh` en CloudShell con la cuenta real. Que Persona 2 guarde la ubicación del negocio con `UpdateItem`.
+
+## 10/11/2026 - Implementación de Load Leveling con Amazon SQS (Procesamiento de Facturas)
+
+- **Problema abordado:** El procesamiento directo de imágenes desde S3 a la Lambda `procesarFactura` con IA (Gemini) corría el riesgo de agotar la concurrencia, saturar la API externa o duplicar invocaciones ante ráfagas de subidas simultáneas.
+- **Prompt / Herramienta utilizada:** Asistencia de Gemini (Chat) para reescribir la firma del handler de S3 a SQS y desempaquetar el payload anidado.
+- **Código / Arquitectura generada:** Se interpuso una cola SQS estándar (`medianube-facturas-queue`) como destino de eventos de S3. El código de la Lambda se modificó para iterar sobre `event.Records` de SQS, haciendo un `JSON.parse(sqsRecord.body)` para recuperar el evento S3 subyacente.
+- **Validación y Corrección Humana:** Se configuraron manualmente las políticas de IAM para que S3 pueda hacer `sqs:SendMessage` y la Lambda pueda hacer `sqs:ReceiveMessage`. Se ajustó críticamente el *Visibility Timeout* de la cola a 90 segundos para que sea igual al *Timeout* de la Lambda, evitando bucles de reintentos infinitos por cortes prematuros.
