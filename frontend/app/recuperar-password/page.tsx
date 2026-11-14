@@ -2,24 +2,28 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Icon from "../../src/src/components/ui/Icon";
+import Alert from "../../src/src/components/ui/Alert";
+import Button from "../../src/src/components/ui/Button";
+import StepProgress from "../../src/src/components/ui/StepProgress";
+import PasswordInput from "../../src/src/components/ui/PasswordInput";
+import PasswordRequirements, { cumpleRequisitos } from "../../src/src/components/ui/PasswordRequirements";
 import { useAuth } from "../../lib/auth-context";
 
 type Step = "email" | "reset" | "done";
+type Campo = "email" | "code" | "password" | "confirm";
 
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  backgroundColor: "var(--color-surface-input)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "11px 14px",
-  fontSize: "13px",
-  color: "var(--color-text-primary)",
-  outline: "none",
-  transition: "border-color 0.15s",
-};
+interface ErrorForm {
+  texto: string;
+  /** Campo que se marca con borde de error. */
+  campo?: Campo;
+}
+
+/** Segundos de espera entre dos envíos del código (evita el límite de intentos de Cognito). */
+const ESPERA_REENVIO = 30;
+
+const DEMASIADOS_INTENTOS = "hiciste demasiados intentos. esperá unos minutos y volvé a probar.";
 
 const labelStyle: React.CSSProperties = {
   display: "block",
@@ -29,49 +33,7 @@ const labelStyle: React.CSSProperties = {
   marginBottom: "4px",
 };
 
-function PrimaryButton({ label, loadingLabel, loading }: { label: string; loadingLabel: string; loading: boolean }) {
-  return (
-    <button
-      type="submit"
-      disabled={loading}
-      style={{
-        width: "100%",
-        backgroundColor: "var(--color-accent)",
-        color: "var(--color-on-primary)",
-        border: "none",
-        borderRadius: "var(--radius-md)",
-        padding: "12px",
-        fontSize: "14px",
-        fontWeight: 500,
-        cursor: loading ? "not-allowed" : "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "6px",
-        opacity: loading ? 0.7 : 1,
-      }}
-    >
-      {loading ? (
-        <>
-          {loadingLabel}
-          <span
-            style={{
-              display: "inline-block",
-              width: "14px",
-              height: "14px",
-              border: "2px solid rgba(255,255,255,0.3)",
-              borderTopColor: "#fff",
-              borderRadius: "50%",
-              animation: "spin 0.6s linear infinite",
-            }}
-          />
-        </>
-      ) : (
-        label
-      )}
-    </button>
-  );
-}
+const submitStyle: React.CSSProperties = { padding: "11px 16px", fontSize: "14px" };
 
 export default function RecuperarPasswordPage() {
   const { forgotPassword, confirmForgotPassword } = useAuth();
@@ -82,17 +44,25 @@ export default function RecuperarPasswordPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ErrorForm | null>(null);
   const [info, setInfo] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [esperaReenvio, setEsperaReenvio] = useState(0);
+
+  // Cuenta regresiva para volver a pedir el código
+  useEffect(() => {
+    if (esperaReenvio <= 0) return;
+    const timer = setTimeout(() => setEsperaReenvio((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [esperaReenvio]);
 
   async function handleSendCode(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
+    setError(null);
     setInfo("");
 
     if (!email.trim()) {
-      setError("ingresá tu email");
+      setError({ texto: "ingresá tu email.", campo: "email" });
       return;
     }
 
@@ -100,20 +70,21 @@ export default function RecuperarPasswordPage() {
     try {
       await forgotPassword(email.trim());
       setStep("reset");
+      setEsperaReenvio(ESPERA_REENVIO);
     } catch (err: unknown) {
-      const cognitoError = err as { code?: string; message?: string };
+      const cognitoError = err as { code?: string };
       switch (cognitoError.code) {
         case "UserNotFoundException":
-          setError("no encontramos una cuenta con ese email.");
+          setError({ texto: "no encontramos una cuenta con ese email.", campo: "email" });
           break;
         case "LimitExceededException":
-          setError("hiciste demasiados intentos. esperá unos minutos y volvé a probar.");
+          setError({ texto: DEMASIADOS_INTENTOS });
           break;
         case "InvalidParameterException":
-          setError("esta cuenta todavía no está confirmada. confirmá tu email primero.");
+          setError({ texto: "esta cuenta todavía no está confirmada. confirmá tu email primero." });
           break;
         default:
-          setError(cognitoError.message || "ocurrió un error inesperado.");
+          setError({ texto: "no pudimos enviar el código. probá de nuevo en unos segundos." });
       }
     } finally {
       setIsSubmitting(false);
@@ -121,19 +92,21 @@ export default function RecuperarPasswordPage() {
   }
 
   async function handleResend() {
-    setError("");
+    setError(null);
     setInfo("");
     setIsSubmitting(true);
     try {
       await forgotPassword(email.trim());
       setInfo("te enviamos un código nuevo.");
+      setEsperaReenvio(ESPERA_REENVIO);
     } catch (err: unknown) {
-      const cognitoError = err as { code?: string; message?: string };
-      setError(
-        cognitoError.code === "LimitExceededException"
-          ? "hiciste demasiados intentos. esperá unos minutos y volvé a probar."
-          : cognitoError.message || "no pudimos reenviar el código."
-      );
+      const cognitoError = err as { code?: string };
+      setError({
+        texto:
+          cognitoError.code === "LimitExceededException"
+            ? DEMASIADOS_INTENTOS
+            : "no pudimos reenviar el código. probá de nuevo en unos segundos.",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -141,19 +114,19 @@ export default function RecuperarPasswordPage() {
 
   async function handleReset(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
+    setError(null);
     setInfo("");
 
     if (code.length < 6) {
-      setError("ingresá el código de 6 dígitos");
+      setError({ texto: "ingresá el código de 6 dígitos.", campo: "code" });
       return;
     }
-    if (password.length < 8) {
-      setError("la contraseña debe tener al menos 8 caracteres");
+    if (!cumpleRequisitos(password)) {
+      setError({ texto: "la contraseña todavía no cumple todos los requisitos.", campo: "password" });
       return;
     }
     if (password !== confirmPassword) {
-      setError("las contraseñas no coinciden");
+      setError({ texto: "las contraseñas no coinciden.", campo: "confirm" });
       return;
     }
 
@@ -162,22 +135,22 @@ export default function RecuperarPasswordPage() {
       await confirmForgotPassword(email.trim(), code, password);
       setStep("done");
     } catch (err: unknown) {
-      const cognitoError = err as { code?: string; message?: string };
+      const cognitoError = err as { code?: string };
       switch (cognitoError.code) {
         case "CodeMismatchException":
-          setError("el código ingresado es incorrecto.");
+          setError({ texto: "el código ingresado es incorrecto.", campo: "code" });
           break;
         case "ExpiredCodeException":
-          setError("el código expiró. pedí uno nuevo.");
+          setError({ texto: "el código venció. pedí uno nuevo con «reenviar código».", campo: "code" });
           break;
         case "InvalidPasswordException":
-          setError("la contraseña no cumple los requisitos de seguridad (mayúscula, minúscula, número y símbolo).");
+          setError({ texto: "la contraseña no cumple los requisitos de seguridad.", campo: "password" });
           break;
         case "LimitExceededException":
-          setError("hiciste demasiados intentos. esperá unos minutos y volvé a probar.");
+          setError({ texto: DEMASIADOS_INTENTOS });
           break;
         default:
-          setError(cognitoError.message || "ocurrió un error inesperado.");
+          setError({ texto: "no pudimos cambiar la contraseña. probá de nuevo en unos segundos." });
       }
     } finally {
       setIsSubmitting(false);
@@ -188,10 +161,13 @@ export default function RecuperarPasswordPage() {
     step === "email" ? "recuperar contraseña" : step === "reset" ? "creá tu nueva contraseña" : "¡contraseña actualizada!";
   const subtitle =
     step === "email"
-      ? "te enviamos un código por email para restablecerla"
+      ? "te mandamos un código por email para que crees una nueva"
       : step === "reset"
       ? `ingresá el código que enviamos a ${email}`
       : "ya podés iniciar sesión con tu nueva contraseña";
+
+  const describedBy = error ? "recover-error" : undefined;
+  const done = step === "done";
 
   return (
     <main
@@ -210,8 +186,8 @@ export default function RecuperarPasswordPage() {
           padding: "44px 40px 36px",
         }}
       >
-        {/* Brand mark */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", marginBottom: "28px" }}>
+        {/* Marca */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", marginBottom: "24px" }}>
           <div
             style={{
               width: "64px",
@@ -236,53 +212,54 @@ export default function RecuperarPasswordPage() {
           </p>
         </div>
 
-        {/* Heading */}
-        <div style={{ textAlign: "center", marginBottom: "28px" }}>
-          <h1 style={{ fontSize: "20px", fontWeight: 500, color: "var(--color-text-primary)", margin: "0 0 6px", letterSpacing: "-0.01em" }}>
-            {title}
-          </h1>
-          <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", margin: 0 }}>{subtitle}</p>
-        </div>
+        {/* Progreso: se sabe cuánto falta */}
+        {!done && <StepProgress step={step === "email" ? 1 : 2} total={2} />}
 
-        {/* Error / info */}
-        {error && (
+        {/* Cierre: mismo círculo con check que el final del onboarding */}
+        {done && (
           <div
-            id="recover-error"
-            role="alert"
             style={{
-              backgroundColor: "rgba(239, 68, 68, 0.08)",
-              border: "1px solid rgba(239, 68, 68, 0.25)",
-              borderRadius: "var(--radius-md)",
-              padding: "10px 14px",
-              marginBottom: "16px",
+              width: "56px",
+              height: "56px",
+              borderRadius: "9999px",
+              backgroundColor: "var(--color-accent-tint)",
+              border: "2px solid var(--color-border-strong)",
               display: "flex",
               alignItems: "center",
-              gap: "8px",
+              justifyContent: "center",
+              margin: "0 auto 16px",
+              color: "var(--color-accent)",
             }}
           >
-            <Icon name="error" size={16} />
-            <span style={{ fontSize: "13px", color: "var(--color-warning-text)" }}>{error}</span>
+            <Icon name="check" size={24} />
+          </div>
+        )}
+
+        {/* Título */}
+        <div style={{ textAlign: done ? "center" : "left", marginBottom: "20px" }}>
+          <h1 style={{ fontSize: "20px", lineHeight: "26px", fontWeight: 500, color: "var(--color-text-primary)", margin: "0 0 4px", letterSpacing: "-0.01em" }}>
+            {title}
+          </h1>
+          <p style={{ fontSize: "13px", lineHeight: "19px", color: "var(--color-text-secondary)", margin: 0, overflowWrap: "anywhere" }}>{subtitle}</p>
+        </div>
+
+        {/* Error / aviso */}
+        {error && (
+          <div style={{ marginBottom: "16px" }}>
+            <Alert id="recover-error" tone="warning" icon="error">
+              {error.texto}
+            </Alert>
           </div>
         )}
         {info && (
-          <div
-            role="status"
-            style={{
-              backgroundColor: "var(--color-success-bg)",
-              borderRadius: "var(--radius-md)",
-              padding: "10px 14px",
-              marginBottom: "16px",
-              fontSize: "13px",
-              color: "var(--color-success-text)",
-            }}
-          >
-            {info}
+          <div style={{ marginBottom: "16px" }}>
+            <Alert tone="success">{info}</Alert>
           </div>
         )}
 
         {/* Paso 1: email */}
         {step === "email" && (
-          <form onSubmit={handleSendCode} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <form onSubmit={handleSendCode} noValidate style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             <div>
               <label htmlFor="recover-email" style={labelStyle}>email</label>
               <input
@@ -291,20 +268,26 @@ export default function RecuperarPasswordPage() {
                 autoComplete="email"
                 placeholder="horno@panaderia.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setError(null);
+                }}
                 disabled={isSubmitting}
-                style={{ ...inputStyle, opacity: isSubmitting ? 0.6 : 1 }}
-                onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
-                onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+                autoFocus
+                className="input"
+                aria-invalid={error?.campo === "email" || undefined}
+                aria-describedby={describedBy}
               />
             </div>
-            <PrimaryButton label="enviar código" loadingLabel="enviando…" loading={isSubmitting} />
+            <Button type="submit" variant="primary" block disabled={isSubmitting} style={submitStyle}>
+              {isSubmitting ? "enviando…" : "enviar código"}
+            </Button>
           </form>
         )}
 
         {/* Paso 2: código + nueva contraseña */}
         {step === "reset" && (
-          <form onSubmit={handleReset} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <form onSubmit={handleReset} noValidate style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             <div>
               <label htmlFor="recover-code" style={labelStyle}>código de verificación</label>
               <input
@@ -315,141 +298,96 @@ export default function RecuperarPasswordPage() {
                 placeholder="123456"
                 maxLength={6}
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                disabled={isSubmitting}
-                style={{
-                  ...inputStyle,
-                  textAlign: "center",
-                  fontSize: "20px",
-                  fontWeight: 500,
-                  letterSpacing: "0.3em",
-                  opacity: isSubmitting ? 0.6 : 1,
+                onChange={(e) => {
+                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                  setError(null);
                 }}
-                onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
-                onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+                disabled={isSubmitting}
+                autoFocus
+                className="input"
+                aria-invalid={error?.campo === "code" || undefined}
+                aria-describedby={describedBy}
+                style={{ textAlign: "center", fontSize: "20px", lineHeight: "24px", fontWeight: 500, letterSpacing: "0.3em" }}
               />
             </div>
 
             <div>
               <label htmlFor="recover-password" style={labelStyle}>nueva contraseña</label>
-              <div style={{ position: "relative" }}>
-                <input
-                  id="recover-password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="new-password"
-                  placeholder="mínimo 8 caracteres"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={isSubmitting}
-                  style={{ ...inputStyle, paddingRight: "40px", opacity: isSubmitting ? 0.6 : 1 }}
-                  onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
-                  onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
-                />
-                <button
-                  type="button"
-                  id="recover-toggle-password"
-                  onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? "ocultar contraseña" : "mostrar contraseña"}
-                  style={{
-                    position: "absolute",
-                    right: "10px",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    cursor: "pointer",
-                    color: "var(--color-text-secondary)",
-                    display: "flex",
-                    alignItems: "center",
-                  }}
-                >
-                  <Icon name={showPassword ? "visibility_off" : "visibility"} size={16} />
-                </button>
-              </div>
+              <PasswordInput
+                id="recover-password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setError(null);
+                }}
+                disabled={isSubmitting}
+                visible={showPassword}
+                onToggleVisible={() => setShowPassword((v) => !v)}
+                invalid={error?.campo === "password"}
+                aria-describedby={describedBy}
+              />
+              <PasswordRequirements password={password} />
             </div>
 
             <div>
               <label htmlFor="recover-confirm-password" style={labelStyle}>confirmar contraseña</label>
-              <input
+              <PasswordInput
                 id="recover-confirm-password"
-                type={showPassword ? "text" : "password"}
                 autoComplete="new-password"
                 placeholder="repetí tu contraseña"
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                  setError(null);
+                }}
                 disabled={isSubmitting}
-                style={{ ...inputStyle, opacity: isSubmitting ? 0.6 : 1 }}
-                onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
-                onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+                visible={showPassword}
+                onToggleVisible={() => setShowPassword((v) => !v)}
+                invalid={error?.campo === "confirm"}
+                aria-describedby={describedBy}
               />
             </div>
 
-            <PrimaryButton label="restablecer contraseña" loadingLabel="guardando…" loading={isSubmitting} />
+            <Button type="submit" variant="primary" block disabled={isSubmitting} style={submitStyle}>
+              {isSubmitting ? "guardando…" : "restablecer contraseña"}
+            </Button>
 
-            <div style={{ textAlign: "center" }}>
-              <button
-                type="button"
-                id="recover-resend"
-                onClick={handleResend}
-                disabled={isSubmitting}
-                className="text-caption"
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  cursor: isSubmitting ? "not-allowed" : "pointer",
-                  color: "var(--color-text-secondary)",
-                  textDecoration: "underline",
-                }}
-              >
-                reenviar código
-              </button>
+            {/* Reenviar: visible, con cuenta regresiva */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", fontSize: "12px", lineHeight: "16px", color: "var(--color-text-secondary)" }}>
+              <span>¿no te llegó?</span>
+              {esperaReenvio > 0 ? (
+                <span id="recover-resend-wait" role="timer">reenviar código en {esperaReenvio} s</span>
+              ) : (
+                <Button id="recover-resend" variant="text" size="sm" onClick={handleResend} disabled={isSubmitting} style={{ padding: 0, background: "none" }}>
+                  reenviar código
+                </Button>
+              )}
             </div>
           </form>
         )}
 
         {/* Paso 3: listo */}
-        {step === "done" && (
-          <Link
-            id="recover-go-login"
-            href="/login"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "6px",
-              width: "100%",
-              boxSizing: "border-box",
-              backgroundColor: "var(--color-accent)",
-              color: "var(--color-on-primary)",
-              borderRadius: "var(--radius-md)",
-              padding: "12px",
-              fontSize: "14px",
-              fontWeight: 500,
-              textDecoration: "none",
-            }}
-          >
+        {done && (
+          <Button id="recover-go-login" variant="primary" block href="/login" iconEnd="arrow_forward">
             ir a iniciar sesión
-            <Icon name="arrow_forward" size={14} />
-          </Link>
+          </Button>
         )}
 
-        {/* Footer */}
-        {step !== "done" && (
-          <p style={{ fontSize: "13px", textAlign: "center", color: "var(--color-text-secondary)", margin: "24px 0 0" }}>
+        {/* Pie */}
+        {!done && (
+          <p style={{ fontSize: "13px", textAlign: "center", margin: "20px 0 0" }}>
             <Link
               id="recover-back-login"
               href="/login"
-              style={{ color: "var(--color-accent-dark)", fontWeight: 500, textDecoration: "none" }}
+              style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "var(--color-accent-dark)", fontWeight: 500, textDecoration: "none" }}
             >
-              ← volver a iniciar sesión
+              <Icon name="arrow_back" size={14} />
+              volver a iniciar sesión
             </Link>
           </p>
         )}
       </div>
-
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </main>
   );
 }
