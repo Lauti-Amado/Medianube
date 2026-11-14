@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Onboarding · mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+</head>
+<body>
+<div class="auth-stage" style="gap:28px">
+
+  <!-- Paso 1 -->
+  <div class="auth-col">
+    <div class="cap">paso 1 · datos del negocio</div>
+    <div class="auth">
+      <div class="brand">
+        <img src="../../../../frontend/public/medianube-logo.jpeg" alt="medianube">
+        <span>medianube</span>
+      </div>
+      <div class="prog anchor"><span class="pin out-r">1</span>
+        <div class="bars" style="grid-template-columns:repeat(4,1fr)"><i class="on"></i><i></i><i></i><i></i></div>
+        <span class="lbl">paso 1 de 4</span>
+      </div>
+      <div style="margin-bottom:20px">
+        <h1>contanos sobre tu panadería</h1>
+        <p class="lead">lo usamos para ajustar tus costos y sugerencias</p>
+      </div>
+      <div class="col" style="gap:18px">
+        <div class="field">
+          <label class="label">nombre del negocio</label>
+          <div class="in">Panadería Central</div>
+        </div>
+        <div class="field">
+          <label class="label">tipo de establecimiento</label>
+          <div class="row gap8"><span class="chip on">panadería</span><span class="chip">mixto</span></div>
+          <p class="help">venta tradicional de panificados y control de producción e insumos.</p>
+        </div>
+        <div class="field">
+          <label class="label anchor" style="align-self:flex-start">sucursales<span class="pin out-l" style="top:38px">2</span></label>
+          <div class="stepper"><span class="ms">remove</span><b>1</b><span class="ms">add</span></div>
+        </div>
+        <p class="help anchor"><span class="pin out-l">3</span>usamos los índices de inflación del sector en Argentina para estimar tus costos.</p>
+        <div class="btn btn-primary btn-block" style="padding:11px">continuar<span class="ms s14">arrow_forward</span></div>
+      </div>
+      <p class="foot">¿ya tenés una cuenta? <a>iniciá sesión</a></p>
+    </div>
+  </div>
+
+  <!-- Paso 2 -->
+  <div class="auth-col">
+    <div class="cap">paso 2 · cuenta</div>
+    <div class="auth">
+      <div class="brand">
+        <img src="../../../../frontend/public/medianube-logo.jpeg" alt="medianube">
+        <span>medianube</span>
+      </div>
+      <div class="prog">
+        <div class="bars" style="grid-template-columns:repeat(4,1fr)"><i class="on"></i><i class="on"></i><i></i><i></i></div>
+        <span class="lbl">paso 2 de 4</span>
+      </div>
+      <div style="margin-bottom:20px">
+        <h1>creá tu cuenta</h1>
+        <p class="lead">vas a usar este email para ingresar a medianube</p>
+      </div>
+      <div class="col" style="gap:16px">
+        <div class="field">
+          <label class="label">email</label>
+          <div class="in">rodrigo@panaderiacentral.com</div>
+        </div>
+        <div class="field">
+          <label class="label">contraseña</label>
+          <div class="in focus">•••••••<span class="ms end">visibility</span></div>
+          <div class="reqs anchor"><span class="pin out-l">5</span>
+            <div><span class="ms">radio_button_unchecked</span>8 caracteres o más</div>
+            <div class="ok"><span class="ms">check_circle</span>una mayúscula</div>
+            <div class="ok"><span class="ms">check_circle</span>una minúscula</div>
+            <div class="ok"><span class="ms">check_circle</span>un número</div>
+            <div><span class="ms">radio_button_unchecked</span>un símbolo (!@#$)</div>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">confirmar contraseña</label>
+          <div class="in ph-text">repetí tu contraseña<span class="ms end">visibility</span></div>
+        </div>
+        <div class="btn btn-primary btn-block" style="padding:11px">crear cuenta<span class="ms s14">arrow_forward</span></div>
+        <div class="row" style="justify-content:center">
+          <span class="btn btn-text btn-sm anchor"><span class="pin out-l">6</span><span class="ms s14">arrow_back</span>volver al paso anterior</span>
+        </div>
+      </div>
+      <p class="foot" style="margin-top:12px">¿ya tenés una cuenta? <a>iniciá sesión</a></p>
+    </div>
+  </div>
+
+  <!-- Paso 3 -->
+  <div class="auth-col">
+    <div class="cap">paso 3 · verificar email</div>
+    <div class="auth">
+      <div class="brand">
+        <img src="../../../../frontend/public/medianube-logo.jpeg" alt="medianube">
+        <span>medianube</span>
+      </div>
+      <div class="prog">
+        <div class="bars" style="grid-template-columns:repeat(4,1fr)"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+        <span class="lbl">paso 3 de 4</span>
+      </div>
+      <div class="round-icon"><span class="ms s24">mark_email_read</span></div>
+      <div style="margin-bottom:20px">
+        <h1>verificá tu email</h1>
+        <p class="lead">enviamos un código de 6 dígitos a rodrigo@panaderiacentral.com</p>
+      </div>
+      <div class="col" style="gap:16px">
+        <div class="field">
+          <label class="label">código de verificación</label>
+          <div class="in focus" style="justify-content:center;font-size:20px;font-weight:500;letter-spacing:0.3em;min-height:46px">7314<span class="tm">··</span></div>
+        </div>
+        <div class="btn btn-disabled btn-block" style="padding:11px">verificar<span class="ms s14">check</span></div>
+        <div class="col gap6" style="align-items:center">
+          <div class="row gap6 f12 anchor"><span class="pin out-l">7</span><span class="t2">¿no te llegó?</span><span class="tm">reenviar en 24 s</span><span class="tm">·</span><span class="tacc fw5">cambiar email</span></div>
+          <p class="help" style="text-align:center">revisá también la carpeta de spam.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="shell.js"></script>
+</body>
+</html>

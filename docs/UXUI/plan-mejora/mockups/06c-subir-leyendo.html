@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Subir factura (leyendo) · mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+  .sk-row { display: grid; grid-template-columns: 2.4fr 90px 130px 120px 110px 32px; column-gap: 16px; align-items: center; padding: 14px 16px; border-top: 1px solid var(--subtle); }
+  .track { height: 4px; border-radius: 999px; background: var(--divider); overflow: hidden; margin-top: 12px; }
+  .track i { display: block; width: 38%; height: 100%; margin-left: 22%; border-radius: 999px; background: var(--accent); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" data-active="compras"></aside>
+  <main class="main">
+    <div class="wrap">
+
+      <p class="row gap4 f12 t2" style="margin-bottom:14px"><span class="ms s14">arrow_back</span>volver a compras</p>
+      <div class="ph" style="margin-bottom:14px"><h1>Subir factura</h1></div>
+
+      <div class="steps">
+        <span class="st done"><i><span class="ms s14">check</span></i>subir</span><span class="ln"></span>
+        <span class="st on"><i>2</i>revisar</span><span class="ln"></span>
+        <span class="st"><i>3</i>confirmar</span>
+      </div>
+
+      <div class="card row gap16" style="padding:12px 16px;margin-bottom:12px">
+        <span class="ms s24 tacc">description</span>
+        <div><p class="fw5">factura-distribuidora-sur-0012.pdf</p><p class="f12 t2">412 KB · subida</p></div>
+        <span class="vdiv"></span>
+        <div class="col gap6" style="width:220px"><span class="sk" style="width:70%"></span><span class="sk" style="width:45%;height:8px"></span></div>
+        <span class="grow"></span>
+      </div>
+
+      <div class="alert alert-ia anchor" style="margin-bottom:12px;flex-direction:column;align-items:stretch">
+        <span class="pin">4</span>
+        <div class="row gap10">
+          <span class="ms s18 ia-mark">auto_awesome</span>
+          <p class="grow"><span class="fw5">Leyendo tu factura…</span> Suele tardar unos segundos. Si preferís no esperar, la vas a ver en Compras cuando esté lista.</p>
+        </div>
+        <div class="track"><i></i></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-h"><h2>Ítems de la factura</h2></div>
+        <div class="tr th" style="grid-template-columns:2.4fr 90px 130px 120px 110px 32px"><span>Producto</span><span style="text-align:center">Cantidad</span><span class="num">Precio unitario</span><span class="num">Subtotal</span><span style="text-align:center">Confianza</span><span></span></div>
+        <div class="sk-row" style="border-top:none"><div class="col gap6"><span class="sk" style="width:55%"></span><span class="sk" style="width:35%;height:8px"></span></div><span class="sk" style="width:30px;margin:0 auto"></span><span class="sk" style="width:70%;margin-left:auto"></span><span class="sk" style="width:65%;margin-left:auto"></span><span class="sk" style="width:46px;margin:0 auto"></span><span></span></div>
+        <div class="sk-row"><div class="col gap6"><span class="sk" style="width:40%"></span><span class="sk" style="width:28%;height:8px"></span></div><span class="sk" style="width:30px;margin:0 auto"></span><span class="sk" style="width:60%;margin-left:auto"></span><span class="sk" style="width:70%;margin-left:auto"></span><span class="sk" style="width:46px;margin:0 auto"></span><span></span></div>
+        <div class="sk-row"><div class="col gap6"><span class="sk" style="width:62%"></span><span class="sk" style="width:30%;height:8px"></span></div><span class="sk" style="width:30px;margin:0 auto"></span><span class="sk" style="width:66%;margin-left:auto"></span><span class="sk" style="width:58%;margin-left:auto"></span><span class="sk" style="width:46px;margin:0 auto"></span><span></span></div>
+        <div class="sk-row"><div class="col gap6"><span class="sk" style="width:48%"></span><span class="sk" style="width:32%;height:8px"></span></div><span class="sk" style="width:30px;margin:0 auto"></span><span class="sk" style="width:62%;margin-left:auto"></span><span class="sk" style="width:64%;margin-left:auto"></span><span class="sk" style="width:46px;margin:0 auto"></span><span></span></div>
+      </div>
+
+      <div class="row gap10" style="justify-content:flex-end">
+        <span class="btn btn-secondary">volver a compras</span>
+        <span class="btn btn-disabled"><span class="ms">hourglass_empty</span>leyendo…</span>
+      </div>
+
+    </div>
+  </main>
+</div>
+<script src="shell.js"></script>
+</body>
+</html>
