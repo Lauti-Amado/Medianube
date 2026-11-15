@@ -10,11 +10,13 @@ import Button from "../../src/src/components/ui/Button";
 import Icon from "../../src/src/components/ui/Icon";
 import Segmented from "../../src/src/components/ui/Segmented";
 import Skeleton, { SkeletonRows } from "../../src/src/components/ui/Skeleton";
+import { apiUrl } from "../../lib/api";
 
 // ── API ───────────────────────────────────────────────────────────────────────
 
-const API_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/demanda?usuarioID=user_test_123";
-const CLIMA_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/clima?usuarioID=user_test_123";
+// Usuario de prueba fijo hasta unificar la identidad con Cognito (ver PENDIENTES-INTEGRACION, P1-1)
+const API_URL = apiUrl("/demanda?usuarioID=user_test_123");
+const CLIMA_URL = apiUrl("/clima?usuarioID=user_test_123");
 
 interface ProductoApi {
   productoID: string;
@@ -212,6 +214,9 @@ export default function DemandaPage() {
   const hayClima = dias.some((d) => climaPorFecha.has(d.fecha));
   const sinIa = origen?.trim().toLowerCase() === "reglas";
   const hayDatos = !loading && !error && dias.length > 0;
+  const sinPrediccion = !loading && !error && dias.length === 0;
+  const hoy = isoLocal(new Date());
+  const columnasClima: React.CSSProperties = { display: "grid", gridTemplateColumns: `repeat(${clima.length || 7}, minmax(0, 1fr))` };
 
   const columnas: React.CSSProperties = { display: "grid", gridTemplateColumns: `repeat(${dias.length || 7}, minmax(0, 1fr))` };
 
@@ -303,11 +308,67 @@ export default function DemandaPage() {
           )}
 
           {/* ── Sin predicción ─────────────────────────────────────────────── */}
-          {!loading && !error && dias.length === 0 && (
-            <section className="card">
+          {sinPrediccion && (
+            <section className="card" style={{ marginBottom: 16 }}>
               <div className="empty-state">
-                <p>Todavía no hay una predicción. Se genera automáticamente todas las noches.</p>
+                <p>Todavía no hay una predicción para los próximos días. Cuando la haya, vas a ver acá cuánto producir cada día.</p>
               </div>
+            </section>
+          )}
+
+          {/* ── Sin predicción, el pronóstico se muestra igual (con predicción va debajo del gráfico) ── */}
+          {sinPrediccion && (climaLoading || clima.length > 0) && (
+            <section id="demanda-clima" className="card" style={{ marginBottom: 16 }}>
+              <header className="card-header">
+                <h2 className="card-title">
+                  <Icon name="partly_cloudy_day" size={16} />
+                  Pronóstico del clima
+                </h2>
+                {climaCiudad && (
+                  <span style={{ fontSize: 12, lineHeight: "16px", color: "var(--color-text-secondary)" }}>para {climaCiudad}</span>
+                )}
+              </header>
+              {climaLoading ? (
+                <div role="status" aria-label="Cargando el pronóstico" style={{ ...columnasClima, padding: "16px" }}>
+                  {Array.from({ length: 7 }, (_, i) => (
+                    <span key={i} style={{ display: "flex", justifyContent: "center" }}>
+                      <Skeleton width={44} height={64} />
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <ol style={{ ...columnasClima, minWidth: 0, margin: 0, padding: "16px", listStyle: "none", overflowX: "auto" }}>
+                  {clima.map((d) => {
+                    const lluvia = llueve(d);
+                    const esHoy = d.fecha === hoy;
+                    return (
+                      <li key={d.fecha} title={d.descripcion} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: 64, color: "var(--color-text-secondary)" }}>
+                        <span style={{ fontSize: 12, lineHeight: "16px", fontWeight: esHoy ? 500 : 400, color: esHoy ? "var(--color-text-primary)" : "var(--color-text-secondary)" }}>
+                          {diaCorto(d.fecha)}
+                          {esHoy && ", hoy"}
+                        </span>
+                        <span style={{ display: "flex", marginTop: 6 }}>
+                          <Icon name={iconoClima(d)} size={20} />
+                        </span>
+                        <span className="sr-only">{d.descripcion}, máxima </span>
+                        <span className="num" style={{ fontSize: 13, lineHeight: "18px", fontWeight: 500, color: "var(--color-text-primary)" }}>
+                          {d.tempMax != null ? `${Math.round(d.tempMax)}°` : "—"}
+                          {d.tempMin != null && (
+                            <span style={{ fontWeight: 400, color: "var(--color-text-secondary)" }}>
+                              <span className="sr-only">, mínima</span> {Math.round(d.tempMin)}°
+                            </span>
+                          )}
+                        </span>
+                        {d.probLluvia != null && (
+                          <span className="num" style={{ fontSize: 11, lineHeight: "14px", fontWeight: lluvia ? 500 : 400, color: lluvia ? "var(--color-text-primary)" : "var(--color-text-secondary)" }}>
+                            {Math.round(d.probLluvia)}% lluvia
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
             </section>
           )}
 

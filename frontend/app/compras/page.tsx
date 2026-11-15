@@ -11,6 +11,7 @@ import Segmented from "../../src/src/components/ui/Segmented";
 import { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 import { useToast } from "../../src/src/components/ui/Toast";
 import { formatMoneda } from "../../lib/formato";
+import { apiUrl } from "../../lib/api";
 import FiltrosHistorial, { FILTROS_VACIOS, type FiltrosGastos } from "./FiltrosHistorial";
 
 type InvoiceStatus = "procesada" | "revisar" | "procesando";
@@ -59,7 +60,7 @@ interface Resumen {
   porRevisar: number;
 }
 
-const COMPRAS_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/compras";
+const COMPRAS_URL = apiUrl("/compras");
 const PAGE_SIZE = 10;
 
 const STATUS_TONE: Record<InvoiceStatus, BadgeTone> = { procesada: "success", revisar: "warning", procesando: "neutral" };

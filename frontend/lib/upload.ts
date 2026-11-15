@@ -2,9 +2,7 @@
 // 1) Se pide a la API (Lambda) una URL firmada para un archivo puntual.
 // 2) El navegador sube el archivo directo a S3 con esa URL (PUT).
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ??
-  "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com";
+import { apiUrl } from "./api";
 
 // Mientras no exista la ruta /uploads/presign se puede simular la subida.
 const MOCK_UPLOAD = process.env.NEXT_PUBLIC_UPLOAD_MOCK === "true";
@@ -18,7 +16,7 @@ async function requestPresignedUrl(file: File, idToken?: string): Promise<Presig
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (idToken) headers.Authorization = idToken;
 
-  const response = await fetch(`${API_URL}/uploads/presign`, {
+  const response = await fetch(apiUrl("/uploads/presign"), {
     method: "POST",
     headers,
     body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size }),
