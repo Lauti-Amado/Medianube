@@ -3,6 +3,8 @@
 Infraestructura como código (CloudFormation) para la capa de datos, la Lambda de clima, el
 motor de precios con LLM y la predicción de demanda programada con EventBridge. El código sigue una **arquitectura hexagonal** (puertos y adaptadores) en **TypeScript**.
 
+> **Motor de precios:** el motor con Claude de este backend (`sugerirPrecios`) **no está desplegado**. El motor oficial es la Lambda `sugerirPrecios-dev`, que usa Gemini y fue creada en la consola. Decisión, contrato vigente y plan de portado: [docs/MOTOR-PRECIOS-DECISION.md](../docs/MOTOR-PRECIOS-DECISION.md).
+
 ```
 backend/
 ├── src/
@@ -73,6 +75,8 @@ node --import tsx --test tests/domain/precios.test.ts   # un solo archivo de tes
 1. Abrir CloudShell, clonar el repo y pasar a la rama: `git clone … && cd Medianube/backend && git checkout <rama>`
    (requiere Node.js 22: `node --version`; si CloudShell trae otra versión, `nvm install 22`).
 2. Desplegar:
+   > ⚠️ **No correr `deploy.sh` por ahora.** El stack crea la Lambda `sugerirPrecios-dev`, que ya existe en la cuenta con el motor de Gemini, y la pisaría con el de Claude. Además, choca con las rutas y tablas creadas a mano. Ver [docs/MOTOR-PRECIOS-DECISION.md](../docs/MOTOR-PRECIOS-DECISION.md).
+
    ```bash
    chmod +x scripts/*.sh
    ./scripts/deploy.sh                       # cuenta normal: el stack crea un rol de mínimo privilegio
@@ -116,7 +120,8 @@ aws dynamodb query --table-name Medianube-Clima \
   --key-condition-expression "usuarioID = :u" \
   --expression-attribute-values '{":u":{"S":"user_test_123"}}'
 
-# Motor de precios: sugerencias para un ticket (después de seed-precios.mjs)
+# Motor de precios con Claude (no desplegado): sugerencias para un ticket (después de seed-precios.mjs).
+# La sugerirPrecios-dev de la cuenta es la de Gemini: ignora el ticket y consume la API de Gemini en cada llamada.
 aws lambda invoke --function-name sugerirPrecios-dev \
   --payload fileb://events/post-precios-dev.json /dev/stdout
 
@@ -194,6 +199,8 @@ mejor dato disponible y el motivo explícito. Solo un problema propio da 5xx, y 
 Cada caída se loguea como una línea `{"evento":"dependencia_caida","servicio","motivo",...}` y se cuenta
 en las métricas `Medianube/CaidasOpenMeteo-<env>` y `Medianube/CaidasClaude-<env>` de CloudWatch.
 
+> La columna de `POST /precios/sugerir` describe el motor con Claude. El motor desplegado (Gemini) **todavía no tiene respaldo**: si Gemini falla, responde 500. Portar el respaldo por reglas es el ítem 1 del plan de [docs/MOTOR-PRECIOS-DECISION.md](../docs/MOTOR-PRECIOS-DECISION.md).
+
 ## Contrato de `GET /clima`
 
 ```json
@@ -224,6 +231,8 @@ El refresco programado deja de llamarlo tras 2 caídas seguidas (circuit breaker
 si a la invocación le quedan menos de 10 s; el resumen informa `omitidosPorProveedor` y `pendientes`.
 
 ## Contrato de `POST /precios/sugerir`
+
+> **Contrato del motor con Claude, no desplegado.** El contrato vigente (Lambda `sugerirPrecios-dev`, con Gemini: cuerpo vacío, más `POST /precios/aplicar`) está en [docs/MOTOR-PRECIOS-DECISION.md](../docs/MOTOR-PRECIOS-DECISION.md#contrato-vigente-lambda-sugerirprecios-dev).
 
 Recibe el ticket ya revisado por la persona (pantalla "subir factura"), lo compara con el historial de
 compras de los últimos 90 días y sugiere precios para los productos cuya receta usa algún insumo del ticket.
