@@ -3,25 +3,32 @@
 // 2) El navegador sube el archivo directo a S3 con esa URL (PUT).
 
 import { apiUrl } from "./api";
+import { obtenerTokenAuth } from "./token";
 
 // Mientras no exista la ruta /uploads/presign se puede simular la subida.
 const MOCK_UPLOAD = process.env.NEXT_PUBLIC_UPLOAD_MOCK === "true";
+
+const SESION_VENCIDA = "Tu sesión venció. Volvé a iniciar sesión para subir la factura.";
 
 interface PresignResponse {
   uploadUrl: string;
   key: string;
 }
 
-async function requestPresignedUrl(file: File, idToken?: string): Promise<PresignResponse> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (idToken) headers.Authorization = idToken;
-
+// La ruta POST /uploads/presign tiene el autorizador JWT de Cognito: sin token responde 401.
+// Con el token, la Lambda guarda la factura en facturas/<sub del usuario>/ en lugar de "anon".
+async function requestPresignedUrl(file: File, idToken: string): Promise<PresignResponse> {
   const response = await fetch(apiUrl("/uploads/presign"), {
     method: "POST",
-    headers,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
     body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size }),
   });
-  if (!response.ok) throw new Error("No se pudo obtener la URL de subida.");
+  if (response.status === 401) throw new Error(SESION_VENCIDA);
+  if (!response.ok) {
+    // La Lambda explica el motivo en `message` (tipo de archivo o tamaño no permitidos)
+    const body = await response.json().catch(() => null);
+    throw new Error(typeof body?.message === "string" ? body.message : "No se pudo obtener la URL de subida.");
+  }
   return response.json();
 }
 
@@ -62,7 +69,10 @@ export async function uploadInvoice(
 ): Promise<string> {
   if (MOCK_UPLOAD) return simulateUpload(file, options.onProgress);
 
-  const { uploadUrl, key } = await requestPresignedUrl(file, options.idToken);
+  const idToken = options.idToken ?? (await obtenerTokenAuth());
+  if (!idToken) throw new Error(SESION_VENCIDA);
+
+  const { uploadUrl, key } = await requestPresignedUrl(file, idToken);
   await putToS3(uploadUrl, file, options.onProgress);
   return key;
 }
