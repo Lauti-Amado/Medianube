@@ -60,7 +60,7 @@ describe("repositorio DynamoDB de demanda", () => {
     });
   });
 
-  it("pagina las consultas de productos", async () => {
+  it("recorre el catálogo global (tabla Producto) con un Scan proyectado y paginado", async () => {
     const { cliente, enviados } = clienteFalso((_, n) =>
       n === 1
         ? { Items: [{ productoID: "pan", nombre: "Pan francés" }], LastEvaluatedKey: { productoID: "pan" } }
@@ -73,6 +73,10 @@ describe("repositorio DynamoDB de demanda", () => {
       { productoID: "torta", nombre: "torta" },
     ]);
     assert.equal(enviados.length, 2);
+    assert.ok(enviados.every((e) => e.nombre === "ScanCommand"));
+    assert.equal(enviados[0]!.input.TableName, "P");
+    assert.equal(enviados[0]!.input.KeyConditionExpression, undefined); // la tabla no tiene usuarioID
+    assert.equal(enviados[0]!.input.ProjectionExpression, "#p, #n");
     assert.deepEqual(enviados[1]!.input.ExclusiveStartKey, { productoID: "pan" });
   });
 
