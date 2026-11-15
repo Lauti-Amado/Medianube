@@ -1,18 +1,35 @@
 "use client";
 
-import Link from "next/link";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { Fragment, useState, useEffect, useCallback, useRef } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
+import PageHeader from "../../src/src/components/ui/PageHeader";
+import KpiCard from "../../src/src/components/ui/KpiCard";
+import Badge, { type BadgeTone } from "../../src/src/components/ui/Badge";
+import Button from "../../src/src/components/ui/Button";
+import Icon from "../../src/src/components/ui/Icon";
+import Segmented from "../../src/src/components/ui/Segmented";
+import { SkeletonRows } from "../../src/src/components/ui/Skeleton";
+import { useToast } from "../../src/src/components/ui/Toast";
+import { formatMoneda } from "../../lib/formato";
 import FiltrosHistorial, { FILTROS_VACIOS, type FiltrosGastos } from "./FiltrosHistorial";
 
 type InvoiceStatus = "procesada" | "revisar" | "procesando";
+type StatusFilter = InvoiceStatus | "todos";
+
+interface InvoiceItem {
+  description: string;
+  quantity: number | null;
+  unitPrice: number | null;
+}
 
 interface Invoice {
   id: string;
   provider: string;
+  /** Fecha AAAA-MM-DD tal como viene de la API, o "" si no vino. */
   date: string;
   items: number;
   itemsDetail: string;
+  itemList: InvoiceItem[];
   total: number;
   status: InvoiceStatus;
   alert?: string;
@@ -28,270 +45,400 @@ interface GastoApi {
   usuarioID?: string;
   descripcion?: string;
   cantidadItems?: number;
-  items?: { descripcion?: string }[];
+  items?: { descripcion?: string; cantidad?: number | string; precio_unitario?: number | string; precioUnitario?: number | string }[];
   estado?: string;
   alerta?: string;
 }
 
-const fmt = (n: number) => "$" + n.toLocaleString("es-AR", { maximumFractionDigits: 0 });
+/** Totales del historial completo (sin filtros de búsqueda), para los KPIs. */
+interface Resumen {
+  totalMes: number;
+  facturasMes: number;
+  /** Variación contra el mes anterior, en %. `null` si no hay con qué comparar. */
+  variacion: number | null;
+  porRevisar: number;
+}
 
-const STATUS_LABEL: Record<InvoiceStatus, string> = { procesada: "Procesada", revisar: "Revisar", procesando: "Procesando" };
+const COMPRAS_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/compras";
+const PAGE_SIZE = 10;
 
-const STATUS_STYLE: Record<InvoiceStatus, React.CSSProperties> = {
-  procesada: { backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)" },
-  revisar: { backgroundColor: "var(--color-warning-bg)", color: "var(--color-warning-text)" },
-  procesando: { backgroundColor: "var(--color-neutral-bg)", color: "var(--color-neutral-text)" },
-};
+const STATUS_TONE: Record<InvoiceStatus, BadgeTone> = { procesada: "success", revisar: "warning", procesando: "neutral" };
 
-const icon: React.CSSProperties = { fontFamily: "Material Symbols Outlined", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20", fontSize: "14px", lineHeight: 1, userSelect: "none" };
+const GRID = "minmax(0, 2fr) 96px minmax(0, 2.5fr) 104px 104px 112px";
 
-const KPIS = [
-  { label: "Total compras del mes", value: "$1.284.600", meta: "32 comprobantes contabilizados", badge: { text: "+4.2% vs ago", warning: false }, icon: "calendar_month" },
-  { label: "Facturas por revisar", value: "3", meta: "Discrepancias o ítems nuevos", badge: { text: "Acción requerida", warning: true }, icon: "notifications" },
-  { label: "Sobreprecios detectados por IA", value: "$38.200", meta: "Harina 000 y Grasa bovina", badge: { text: "Desvío medio +8.6%", warning: true }, icon: "query_stats" },
-];
+const tableHeader: React.CSSProperties = { fontSize: 12, lineHeight: "16px", fontWeight: 500, color: "var(--color-text-secondary)" };
+
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+/** "2026-11-10" → "10/11/2026". Si no es una fecha ISO, devuelve el texto tal cual. */
+function formatFecha(fecha: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(fecha);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : fecha || "sin fecha";
+}
+
+function toNumber(v: number | string | undefined) {
+  const n = Number(v);
+  return v != null && v !== "" && Number.isFinite(n) ? n : null;
+}
+
+function mapInvoices(gastos: GastoApi[]): Invoice[] {
+  return gastos.map((item, index) => {
+    const itemList: InvoiceItem[] = Array.isArray(item.items)
+      ? item.items.map((i) => ({
+          description: i.descripcion || "ítem sin descripción",
+          quantity: toNumber(i.cantidad),
+          unitPrice: toNumber(i.precio_unitario ?? i.precioUnitario),
+        }))
+      : [];
+
+    return {
+      id: item.gastoID || `temp-id-${index}`,
+      provider: item.proveedor || "Proveedor desconocido",
+      date: item.fecha || "",
+      items: itemList.length || item.cantidadItems || 1,
+      itemsDetail: itemList.length
+        ? itemList.map((i) => i.description).join(", ")
+        : item.categoria || item.descripcion || "insumos varios",
+      itemList,
+      total: Number(item.monto) || 0,
+      status: (item.estado || "procesada") as InvoiceStatus,
+      alert: item.alerta || undefined,
+    };
+  });
+}
+
+function calcularResumen(invoices: Invoice[], hoy: Date): Resumen {
+  const clave = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const mesActual = clave(hoy);
+  const mesAnterior = clave(new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1));
+  const delMes = invoices.filter((i) => i.date.startsWith(mesActual));
+  const totalMes = delMes.reduce((acc, i) => acc + i.total, 0);
+  const totalAnterior = invoices.filter((i) => i.date.startsWith(mesAnterior)).reduce((acc, i) => acc + i.total, 0);
+  return {
+    totalMes,
+    facturasMes: delMes.length,
+    variacion: totalAnterior > 0 ? (totalMes / totalAnterior - 1) * 100 : null,
+    porRevisar: invoices.filter((i) => i.status === "revisar").length,
+  };
+}
+
+function exportarCsv(invoices: Invoice[]) {
+  const celda = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+  const filas = [
+    ["Proveedor", "Fecha", "Ítems", "Detalle", "Monto", "Estado"],
+    ...invoices.map((i) => [i.provider, formatFecha(i.date), i.items, i.itemsDetail, i.total, i.status]),
+  ];
+  // BOM + punto y coma: así Excel en español lo abre bien con doble clic
+  const csv = "﻿" + filas.map((f) => f.map(celda).join(";")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `compras-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────
 
 export default function ComprasPage() {
-  const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "todos">("todos");
-  
-  // 1. Estados para la integración con el backend (de la rama feat)
+  const toast = useToast();
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos");
+  const [filtros, setFiltros] = useState<FiltrosGastos>(FILTROS_VACIOS);
+  const [visible, setVisible] = useState(PAGE_SIZE);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [resumen, setResumen] = useState<Resumen | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isClient, setIsClient] = useState(false);
-
-  // 2. Estado para el cartel de éxito (de la rama main)
-  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
-
-  // 3. Estados de los filtros de búsqueda contra el backend
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState(false);
   const [hayFiltrosAplicados, setHayFiltrosAplicados] = useState(false);
   const ultimaBusqueda = useRef(0);
+  const ultimosFiltros = useRef<FiltrosGastos>(FILTROS_VACIOS);
 
   // Trae los gastos del backend, agregando solo los filtros completos
-  const fetchHistorial = useCallback(async (filtros: FiltrosGastos = FILTROS_VACIOS) => {
-      const busquedaId = ++ultimaBusqueda.current;
-      setIsLoading(true);
-      setFetchError(null);
+  const fetchHistorial = useCallback(async (f: FiltrosGastos = FILTROS_VACIOS) => {
+    const busquedaId = ++ultimaBusqueda.current;
+    ultimosFiltros.current = f;
+    setIsLoading(true);
+    setFetchError(false);
 
-      const params = new URLSearchParams();
-      if (filtros.proveedor) params.set("proveedor", filtros.proveedor);
-      if (filtros.desde) params.set("desde", filtros.desde);
-      if (filtros.hasta) params.set("hasta", filtros.hasta);
-      const query = params.toString();
+    const params = new URLSearchParams();
+    if (f.proveedor) params.set("proveedor", f.proveedor);
+    if (f.desde) params.set("desde", f.desde);
+    if (f.hasta) params.set("hasta", f.hasta);
+    const query = params.toString();
 
-      try {
-        const urlEndpoint = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/compras";
+    try {
+      const response = await fetch(query ? `${COMPRAS_URL}?${query}` : COMPRAS_URL, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
 
-        const response = await fetch(query ? `${urlEndpoint}?${query}` : urlEndpoint, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" }
-        });
+      const data = await response.json();
+      if (busquedaId !== ultimaBusqueda.current) return; // llegó una búsqueda más nueva
 
-        if (!response.ok) {
-          // El backend responde { error } en los 400 (ej: fecha con mal formato)
-          const body = await response.json().catch(() => null);
-          throw new Error(body?.error || `Error HTTP: ${response.status}`);
-        }
+      const gastos: GastoApi[] = Array.isArray(data?.gastos) ? data.gastos : Array.isArray(data) ? data : [];
+      const mapped = mapInvoices(gastos);
 
-        const data = await response.json();
-        if (busquedaId !== ultimaBusqueda.current) return; // llegó una búsqueda más nueva
-
-        // --- DEPURACIÓN Y VALIDACIÓN ---
-        console.log("Respuesta cruda de la API:", data);
-
-        let parsedData: GastoApi[] = [];
-
-        if (data && data.gastos && Array.isArray(data.gastos)) {
-           parsedData = data.gastos;
-        } else if (Array.isArray(data)) {
-          parsedData = data;
-        }
-
-        // Mapeo defensivo
-        const mappedInvoices: Invoice[] = parsedData.map((item: GastoApi, index: number) => {
-
-            let itemsCount = 0;
-            let detailText = "Sin detalle";
-
-            if (item.items && Array.isArray(item.items)) {
-                itemsCount = item.items.length;
-                detailText = item.items.map((i) => i.descripcion).filter(Boolean).join(", ");
-            } else {
-                itemsCount = item.cantidadItems || 1;
-                detailText = item.categoria || item.descripcion || "Insumos varios";
-            }
-
-            return {
-                id: item.gastoID || `temp-id-${index}`,
-                provider: item.proveedor || "Proveedor Desconocido",
-                date: item.fecha || "Fecha desconocida",
-                items: itemsCount,
-                itemsDetail: detailText,
-                total: Number(item.monto) || 0,
-                status: (item.estado || "procesada") as InvoiceStatus,
-                alert: item.alerta || undefined
-            };
-        });
-
-        setInvoices(mappedInvoices);
-        setHayFiltrosAplicados(query !== "");
-
-      } catch (error) {
-        if (busquedaId !== ultimaBusqueda.current) return;
-        console.error("Error en la integración:", error);
-        setInvoices([]);
-        setFetchError(error instanceof Error ? error.message : "Error desconocido");
-      } finally {
-        if (busquedaId === ultimaBusqueda.current) setIsLoading(false);
-      }
+      setInvoices(mapped);
+      setHayFiltrosAplicados(query !== "");
+      setVisible(PAGE_SIZE);
+      setExpandedId(null);
+      // Los KPIs describen todo el historial: solo se recalculan con la consulta sin filtros
+      if (query === "") setResumen(calcularResumen(mapped, new Date()));
+    } catch (error) {
+      if (busquedaId !== ultimaBusqueda.current) return;
+      console.error("Error al cargar las compras:", error);
+      setInvoices([]);
+      setFetchError(true);
+    } finally {
+      if (busquedaId === ultimaBusqueda.current) setIsLoading(false);
+    }
   }, []);
 
-  // Efecto A: Cargar los datos desde el backend
+  // Carga inicial
   useEffect(() => {
-    setIsClient(true);
     fetchHistorial();
   }, [fetchHistorial]);
 
-  // Efecto B: Manejar el cartel de éxito si venimos de subir una factura
+  // Parámetros de llegada: ?estado=revisar (atajo del dashboard) y ?subida=ok (después de subir una factura)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("subida") !== "ok") return;
-    setUploadedFile(params.get("archivo") ?? "");
-    window.history.replaceState(null, "", "/compras"); // así no reaparece al recargar
-    const timer = setTimeout(() => setUploadedFile(null), 4000);
-    return () => clearTimeout(timer);
-  }, []);
+    const estado = params.get("estado");
+    if (estado === "revisar" || estado === "procesada" || estado === "procesando") {
+      setStatusFilter(estado);
+    }
+    if (params.get("subida") === "ok") {
+      const archivo = params.get("archivo");
+      toast({ message: archivo ? <>Factura subida: <strong>{archivo}</strong></> : "Factura subida" });
+      window.history.replaceState(null, "", "/compras"); // así no reaparece al recargar
+    }
+  }, [toast]);
 
-  // Evitamos renderizar lógica compleja en el servidor antes del montaje del cliente
-  if (!isClient) {
-     return <AppLayout activeTab="compras"><div style={{ padding: "40px", textAlign: "center" }}>Cargando interfaz...</div></AppLayout>;
+  function cambiarEstado(estado: StatusFilter) {
+    setStatusFilter(estado);
+    setVisible(PAGE_SIZE);
+    setExpandedId(null);
   }
 
-  // Filtrado combinando la lógica segura (feat) apuntando al estado real (invoices)
-  // La búsqueda por proveedor y fechas la hace el backend (FiltrosHistorial); acá solo se filtra por estado
+  function limpiarFiltros() {
+    setFiltros(FILTROS_VACIOS);
+    setStatusFilter("todos");
+    if (hayFiltrosAplicados) fetchHistorial(FILTROS_VACIOS);
+  }
+
+  // La búsqueda por proveedor y fechas la hace el backend; acá solo se filtra por estado
+  const contar = (estado: InvoiceStatus) => invoices.filter((i) => i.status === estado).length;
   const filtered = invoices.filter((inv) => statusFilter === "todos" || inv.status === statusFilter);
+  const shown = filtered.slice(0, visible);
+  const hayFiltros = hayFiltrosAplicados || statusFilter !== "todos";
+  const sinFacturas = !isLoading && !fetchError && invoices.length === 0 && !hayFiltrosAplicados;
+
+  const mesActual = MESES[new Date().getMonth()];
 
   return (
     <AppLayout activeTab="compras">
-      <div style={{ maxWidth: 1080, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+        <PageHeader title="Historial de compras" subtitle="Todas tus facturas. La IA marca las que conviene revisar." />
 
-        {/* Cartel de éxito si uploadedFile no es nulo */}
-        {uploadedFile !== null && (
-          <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)", fontSize: 13, padding: "10px 14px", borderRadius: 8, marginBottom: 16 }}>
-            <span style={{ ...icon, fontSize: 16 }}>check_circle</span>
-            <span style={{ flex: 1 }}>
-              Factura subida correctamente{uploadedFile && <> · <strong style={{ fontWeight: 500 }}>{uploadedFile}</strong></>}
-            </span>
-            <button type="button" aria-label="cerrar" onClick={() => setUploadedFile(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0, display: "flex" }}>
-              <span style={{ ...icon, fontSize: 16 }}>close</span>
-            </button>
-          </div>
-        )}
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 18, fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>Historial de compras</h1>
-            <p style={{ fontSize: 12, color: "var(--color-text-muted)", margin: "4px 0 0" }}>Facturas procesadas y auditadas por IA</p>
-          </div>
-          <Link href="/compras/subir" style={{ display: "inline-flex", alignItems: "center", gap: 6, backgroundColor: "var(--color-accent)", color: "#fff", fontSize: 13, fontWeight: 500, padding: "9px 16px", borderRadius: 8, textDecoration: "none" }}>
-            <span style={{ ...icon, fontSize: 15 }}>upload_file</span>
-            Subir factura
-          </Link>
+        {/* ── KPIs ─────────────────────────────────────────────────────── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
+          <KpiCard
+            label={`Total de compras de ${mesActual}`}
+            value={resumen ? formatMoneda(resumen.totalMes) : "—"}
+            loading={!resumen && isLoading}
+            footer={
+              resumen &&
+              (resumen.facturasMes === 0
+                ? "todavía no hay facturas este mes"
+                : `${resumen.facturasMes === 1 ? "1 factura" : `${resumen.facturasMes} facturas`}${
+                    resumen.variacion != null
+                      ? ` · ${resumen.variacion > 0 ? "+" : "−"}${Math.abs(resumen.variacion).toFixed(1).replace(".", ",")}% vs. el mes anterior`
+                      : ""
+                  }`)
+            }
+          />
+          <KpiCard
+            id="kpi-por-revisar"
+            label="Facturas por revisar"
+            value={resumen ? resumen.porRevisar : "—"}
+            loading={!resumen && isLoading}
+            isAlert={!!resumen && resumen.porRevisar > 0}
+            onClick={resumen && resumen.porRevisar > 0 ? () => cambiarEstado("revisar") : undefined}
+            footer={
+              resumen && resumen.porRevisar > 0 ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontWeight: 500, color: "var(--color-accent-dark)" }}>
+                  ver solo estas
+                  <Icon name="chevron_right" size={14} />
+                </span>
+              ) : (
+                resumen && "no hay facturas pendientes"
+              )
+            }
+          />
+          {/* MOCK TEMPORAL: la API todavía no informa los sobreprecios detectados */}
+          <KpiCard
+            label="Sobreprecios detectados"
+            ia
+            value="$38.200"
+            footer="manteca y grasa bovina, +8,6% sobre tu precio habitual"
+          />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
-          {KPIS.map((kpi) => (
-            <div key={kpi.label} style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{kpi.label}</span>
-                <span style={{ ...icon, fontSize: 16, color: "var(--color-text-muted)" }}>{kpi.icon}</span>
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 500, color: kpi.badge.warning ? "var(--color-warning-text)" : "var(--color-text-primary)", marginBottom: 6 }}>{kpi.value}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 6, backgroundColor: kpi.badge.warning ? "var(--color-warning-bg)" : "var(--color-success-bg)", color: kpi.badge.warning ? "var(--color-warning-text)" : "var(--color-success-text)" }}>{kpi.badge.text}</span>
-                <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{kpi.meta}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <FiltrosHistorial isLoading={isLoading} onBuscar={fetchHistorial} />
-
-        <div style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
-            <select id="filter-estado" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as InvoiceStatus | "todos")}
-              style={{ fontSize: 13, border: "1px solid var(--color-border)", borderRadius: 8, backgroundColor: "var(--color-surface-input)", color: "var(--color-text-primary)", padding: "8px 10px", outline: "none", cursor: "pointer" }}>
-              <option value="todos">Todos los estados</option>
-              <option value="procesada">Procesada</option>
-              <option value="revisar">Revisar</option>
-              <option value="procesando">Procesando</option>
-            </select>
-            <button id="btn-exportar-csv" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: "var(--color-text-secondary)", backgroundColor: "transparent", border: "1px solid var(--color-border)", borderRadius: 8, padding: "7px 12px", cursor: "pointer" }}>
-              <span style={{ ...icon }}>download</span>
-              Exportar CSV
-            </button>
-            <span style={{ fontSize: 12, color: "var(--color-text-muted)", marginLeft: "auto" }}>Mostrando {filtered.length} facturas</span>
+        {/* ── Tabla ────────────────────────────────────────────────────── */}
+        <section className="card" aria-label="facturas">
+          {/* Una sola barra de filtros */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
+            <FiltrosHistorial filtros={filtros} onChange={setFiltros} onBuscar={fetchHistorial} />
+            <Segmented
+              label="estado de la factura"
+              value={statusFilter}
+              onChange={cambiarEstado}
+              options={[
+                { value: "todos", label: "todas", count: invoices.length },
+                { value: "revisar", label: "por revisar", count: contar("revisar") },
+                { value: "procesada", label: "procesadas", count: contar("procesada") },
+                { value: "procesando", label: "procesando", count: contar("procesando") },
+              ]}
+            />
+            <span style={{ flex: 1 }} />
+            <Button id="btn-exportar-csv" size="sm" icon="download" disabled={filtered.length === 0} onClick={() => exportarCsv(filtered)}>
+              exportar CSV
+            </Button>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2.5fr 1fr 120px 90px", columnGap: 16, padding: "10px 16px", borderBottom: "1px solid var(--color-border)" }}>
-            {["Proveedor", "Emisión", "Detalle insumos", "Monto total", "Estado", ""].map((h) => (
-              <span key={h} style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: h === "Monto total" ? "right" : "left" }}>{h}</span>
-            ))}
-          </div>
+          <div role="table" aria-label="facturas" aria-busy={isLoading}>
+            <div role="row" style={{ display: "grid", gridTemplateColumns: GRID, columnGap: 16, padding: "10px 16px", borderBottom: "1px solid var(--color-border)" }}>
+              <span role="columnheader" style={tableHeader}>Proveedor</span>
+              <span role="columnheader" style={tableHeader}>Fecha</span>
+              <span role="columnheader" style={tableHeader}>Detalle</span>
+              <span role="columnheader" style={{ ...tableHeader, textAlign: "right" }}>Monto</span>
+              <span role="columnheader" style={tableHeader}>Estado</span>
+              <span role="columnheader" style={tableHeader}><span className="sr-only">Acción</span></span>
+            </div>
 
-          {isLoading ? (
-             <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
-               Cargando datos desde la nube...
-             </div>
-          ) : fetchError ? (
-            <div role="alert" style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-warning-text)" }}>
-              No se pudieron cargar las compras: {fetchError}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div style={{ padding: "40px 16px", textAlign: "center", fontSize: 13, color: "var(--color-text-muted)" }}>
-              {hayFiltrosAplicados && invoices.length === 0 ? "No se encontraron compras con esos filtros" : "No hay facturas que coincidan."}
-            </div>
-          ) : (
-            filtered.map((inv, idx) => (
-              <div key={inv.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2.5fr 1fr 120px 90px", columnGap: 16, padding: "12px 16px", alignItems: "center", borderBottom: idx < filtered.length - 1 ? "1px solid #F5EBDF" : "none", backgroundColor: inv.status === "revisar" ? "rgba(247,227,221,0.25)" : "transparent" }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>{inv.provider}</div>
-                <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{inv.date}</div>
-                <div>
-                  <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}><strong style={{ color: "var(--color-text-primary)", fontWeight: 400 }}>{inv.items} ítems</strong> · {inv.itemsDetail}</span>
-                  {inv.alert && (
-                    <div style={{ fontSize: 11, color: "var(--color-warning-text)", marginTop: 2, display: "flex", alignItems: "center", gap: 3 }}>
-                      <span style={{ ...icon, fontSize: 12 }}>warning</span>{inv.alert}
+            {isLoading ? (
+              <SkeletonRows rows={5} label="Cargando compras" />
+            ) : fetchError ? (
+              <div className="empty-state" role="alert">
+                <span style={{ display: "flex", color: "var(--color-warning-text)" }}><Icon name="wifi_off" size={24} /></span>
+                <p>No pudimos cargar tus compras. Revisá tu conexión y probá de nuevo.</p>
+                <Button variant="warning" size="sm" icon="refresh" onClick={() => fetchHistorial(ultimosFiltros.current)}>
+                  reintentar
+                </Button>
+              </div>
+            ) : sinFacturas ? (
+              <div className="empty-state">
+                <span style={{ display: "flex", color: "var(--color-icon-brand)" }}><Icon name="receipt_long" size={24} /></span>
+                <p>Todavía no cargaste ninguna factura. Subí la primera y la IA lee el proveedor, los ítems y los totales.</p>
+                <Button variant="primary" size="sm" icon="upload_file" href="/compras/subir">
+                  subir tu primera factura
+                </Button>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="empty-state">
+                <p>No hay facturas con esos filtros.</p>
+                <Button size="sm" icon="filter_alt_off" onClick={limpiarFiltros}>
+                  limpiar filtros
+                </Button>
+              </div>
+            ) : (
+              shown.map((inv, idx) => {
+                const expanded = expandedId === inv.id;
+                const detailId = `detalle-${inv.id}`;
+                const toggle = () => setExpandedId(expanded ? null : inv.id);
+                return (
+                  <Fragment key={inv.id}>
+                    <div
+                      role="row"
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: GRID,
+                        columnGap: 16,
+                        padding: "12px 16px",
+                        alignItems: "center",
+                        borderTop: idx > 0 ? "1px solid var(--color-border-subtle)" : "none",
+                        backgroundColor: inv.status === "revisar" ? "var(--color-surface-flag)" : "transparent",
+                      }}
+                    >
+                      <span role="cell" style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)", overflowWrap: "anywhere" }}>{inv.provider}</span>
+                      <span role="cell" style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>{formatFecha(inv.date)}</span>
+                      <div role="cell" style={{ minWidth: 0 }}>
+                        <p style={{ fontSize: 13, color: "var(--color-text-secondary)", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {inv.items === 1 ? "1 ítem" : `${inv.items} ítems`} · {inv.itemsDetail}
+                        </p>
+                        {inv.alert && (
+                          <p style={{ fontSize: 12, lineHeight: "16px", color: "var(--color-warning-text)", margin: "2px 0 0", display: "flex", alignItems: "center", gap: 4 }}>
+                            <Icon name="warning" size={14} />
+                            {inv.alert}
+                          </p>
+                        )}
+                      </div>
+                      <span role="cell" className="num" style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)" }}>{formatMoneda(inv.total)}</span>
+                      <span role="cell"><Badge tone={STATUS_TONE[inv.status] ?? "neutral"}>{inv.status}</Badge></span>
+                      <span role="cell" style={{ textAlign: "right" }}>
+                        {inv.status === "procesando" ? (
+                          <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>leyendo…</span>
+                        ) : inv.status === "revisar" ? (
+                          <Button id={"btn-revisar-" + inv.id} variant="warning" size="sm" aria-expanded={expanded} aria-controls={detailId} onClick={toggle}>
+                            {expanded ? "cerrar" : "revisar"}
+                          </Button>
+                        ) : inv.itemList.length > 0 ? (
+                          <Button id={"btn-detalle-" + inv.id} variant="text" size="sm" iconEnd={expanded ? "expand_less" : "chevron_right"} aria-expanded={expanded} aria-controls={detailId} onClick={toggle}>
+                            {expanded ? "ocultar" : "ver detalle"}
+                          </Button>
+                        ) : null}
+                      </span>
                     </div>
-                  )}
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)", textAlign: "right" }}>{fmt(inv.total)}</div>
-                <div><span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, fontWeight: 500, ...STATUS_STYLE[inv.status] }}>{STATUS_LABEL[inv.status]}</span></div>
-                <div style={{ textAlign: "right" }}>
-                  {inv.status === "procesando" ? (
-                    <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>Extrayendo…</span>
-                  ) : inv.status === "revisar" ? (
-                    <button id={"btn-auditar-" + inv.id} style={{ fontSize: 12, fontWeight: 500, color: "var(--color-warning-text)", backgroundColor: "transparent", border: "1px solid var(--color-warning-text)", borderRadius: 6, padding: "4px 10px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <span style={{ ...icon, fontSize: 12 }}>edit_note</span>Auditar
-                    </button>
-                  ) : (
-                    <button id={"btn-desglose-" + inv.id} style={{ fontSize: 12, color: "var(--color-text-secondary)", backgroundColor: "transparent", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, padding: 0 }}>
-                      Ver desglose<span style={{ ...icon, fontSize: 12 }}>chevron_right</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderTop: "1px solid var(--color-border)" }}>
-            <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>Página 1 de 4 · Actualizado hace 4 min</span>
-            <div style={{ display: "flex", gap: 4 }}>
-              {["Anterior", "1", "2", "3", "4", "Siguiente"].map((p) => (
-                <button key={p} style={{ fontSize: 12, padding: "4px 9px", borderRadius: 6, border: "1px solid var(--color-border)", backgroundColor: p === "1" ? "var(--color-accent)" : "transparent", color: p === "1" ? "#fff" : "var(--color-text-secondary)", cursor: "pointer", fontWeight: p === "1" ? 500 : 400 }}>{p}</button>
-              ))}
-            </div>
+                    {expanded && (
+                      <div id={detailId} style={{ padding: "12px 16px 16px", borderTop: "1px solid var(--color-border-subtle)", backgroundColor: "var(--color-bg)" }}>
+                        {inv.itemList.length === 0 ? (
+                          <p style={{ fontSize: 13, color: "var(--color-text-secondary)", margin: 0 }}>
+                            Esta factura no tiene el detalle de ítems cargado.
+                          </p>
+                        ) : (
+                          <ul style={{ listStyle: "none", margin: 0, padding: 0, maxWidth: 640 }}>
+                            {inv.itemList.map((it, i) => (
+                              <li key={i} style={{ display: "flex", justifyContent: "space-between", gap: 16, padding: "6px 0", borderTop: i > 0 ? "1px solid var(--color-border)" : "none", fontSize: 13 }}>
+                                <span style={{ color: "var(--color-text-primary)" }}>{it.description}</span>
+                                <span className="num" style={{ color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>
+                                  {it.quantity != null && it.unitPrice != null
+                                    ? `${it.quantity} × ${formatMoneda(it.unitPrice)}`
+                                    : it.quantity != null
+                                      ? `${it.quantity} u.`
+                                      : ""}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </Fragment>
+                );
+              })
+            )}
           </div>
-        </div>
+
+          {!isLoading && !fetchError && filtered.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderTop: "1px solid var(--color-border)" }}>
+              <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+                mostrando {shown.length} de {filtered.length === 1 ? "1 factura" : `${filtered.length} facturas`}
+                {hayFiltros && " con estos filtros"}
+              </span>
+              {shown.length < filtered.length && (
+                <Button id="btn-cargar-mas" size="sm" onClick={() => setVisible((v) => v + PAGE_SIZE)}>
+                  cargar más
+                </Button>
+              )}
+            </div>
+          )}
+        </section>
       </div>
     </AppLayout>
   );

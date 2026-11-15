@@ -36,15 +36,15 @@ Este documento traduce a especificación escrita lo definido en wireframes y en 
 | `surface-input` | `#FFFDFB` | Fondo de inputs (ligeramente distinto de `surface` para diferenciarlos dentro de una tarjeta blanca) |
 | `border` | `#E8D9C7` | Bordes de tarjetas, inputs, divisores de filas |
 | `border-strong` | `#C9986B` | Borde del isotipo / elementos que necesitan más contraste que `border` |
-| `accent` | `#B5722E` | Botones primarios, tab activo, marca, elementos interactivos clave |
-| `accent-dark` | `#8A5423` | Texto sobre fondos tintados de acento, estado hover de `accent` |
+| `accent` | `#A4651F` | Botones primarios, tab activo, marca, íconos, anillo de foco y barras de progreso. Con texto blanco da 4,7:1 (AA). No usarlo como color de texto chico: para eso está `accent-dark` |
+| `accent-dark` | `#8A5423` | Links y textos chicos en acento (6,2:1 sobre blanco), texto sobre fondos tintados de acento, estado hover de `accent` |
 | `text-primary` | `#4A3222` | Títulos, texto de mayor jerarquía, valores numéricos importantes |
-| `text-secondary` | `#8C7361` | Subtítulos, ayudas, metadatos, labels de tabla |
-| `text-muted` | `#B08D6F` | Texto terciario: placeholders de navegación, "cerrar sesión", timestamps |
+| `text-secondary` | `#7D6453` | Subtítulos, ayudas, metadatos, labels de tabla (4,9:1 sobre `bg`, AA) |
+| `text-muted` | `#B08D6F` | Solo placeholders y elementos deshabilitados (2,7:1: no cumple AA). Nunca para información que haya que leer |
 | `tint-accent` | `#F6E4D3` | Fondo de banners de IA, del isotipo, de badges "predeterminada" |
 | `success-bg` / `success-text` | `#E3EFD9` / `#4B6B2E` | Estados positivos: "procesada", "alta confianza" |
 | `warning-bg` / `warning-text` | `#F7E3DD` / `#A34A2D` | Estados que requieren atención: "revisar", "baja confianza", subas de precio |
-| `neutral-bg` / `neutral-text` | `#F0E4D4` / `#8C7361` | Estados neutros: "estable", "al día", "media confianza" |
+| `neutral-bg` / `neutral-text` | `#F0E4D4` / `#6E5646` | Estados neutros: "estable", "al día", "media confianza" |
 
 No usar sombras (`box-shadow`) en ningún componente: la jerarquía se construye con color de fondo y borde de 1px, no con elevación.
 
@@ -57,10 +57,10 @@ No usar sombras (`box-shadow`) en ningún componente: la jerarquía se construye
 
 | Uso | Tamaño | Peso |
 |---|---|---|
-| Título de pantalla | 18px | 500 |
+| Título de pantalla | 20px | 500 |
 | Título de tarjeta / sección | 13–14px | 500 |
 | Cuerpo / valores de tabla | 12–13px | 400 |
-| Labels, metadatos, timestamps | 11px | 400 |
+| Labels, metadatos, timestamps | 11–12px | 400 |
 | KPI destacado | 20–24px | 500 |
 
 ### 3.3 Espaciado y geometría
@@ -85,7 +85,7 @@ No usar sombras (`box-shadow`) en ningún componente: la jerarquía se construye
 | **Barra de navegación superior** | Isotipo circular + wordmark "medianube" a la izquierda, tabs de navegación (dashboard / compras / precios / demanda) al lado. A la derecha: ícono de configuración (engranaje), texto "cerrar sesión" y avatar circular con iniciales. El tab activo se muestra con fondo `accent` sólido y texto blanco; los inactivos en `text-secondary` sin fondo. |
 | **Tarjeta KPI** | Fondo `surface`, borde `border`, radio 10px, padding 12–14px. Label en `text-secondary` (11px) arriba, valor grande en `text-primary` (20px, 500) debajo. El color del valor puede cambiar a `warning-text` cuando el KPI representa un riesgo (ej. "alertas de precio"). |
 | **Fila de lista / tabla** | Sin bordes de celda tradicionales: cada fila es un `flex` con divisor superior de 1px en un tono de borde más claro (`#F5EBDF`). Fila de encabezado en `text-secondary` 11px. Los valores numéricos se alinean a la derecha. |
-| **Badge de estado** | Pill con padding 2–3px × 8px, radio 6px, combinación de `*-bg` / `*-text` según el estado (éxito / alerta / neutro). Siempre incluye texto, nunca es solo un punto de color. |
+| **Badge de estado** | Pill con padding 2px × 8px, radio completo, 11px/500, combinación de `*-bg` / `*-text` según el estado (éxito / alerta / neutro). Siempre incluye texto, nunca es solo un punto de color. |
 | **Banner de IA** | Tarjeta con fondo `tint-accent`, radio 10px, ícono de sparkles o bulb en `accent-dark`, texto en `#6B4226`. Se usa para resúmenes generados por IA (extracción de factura) y recomendaciones accionables (pico de demanda). |
 | **Botón primario** | Fondo `accent` sólido, texto blanco 500, radio 8px, sin borde. Uno solo por pantalla. |
 | **Botón secundario** | Fondo `surface`, borde 1px `border`, texto `text-primary`. Para acciones alternativas ("cancelar", "volver"). |

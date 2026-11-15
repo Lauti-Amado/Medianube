@@ -608,6 +608,8 @@ export async function aplicarPrecioIndividual(
 
   const res = await fetch(url, {
     method: "POST",
+    // Se completa aunque se salga de la pantalla justo después de confirmar
+    keepalive: true,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,

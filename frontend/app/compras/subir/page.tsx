@@ -2,17 +2,34 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppLayout from "../../../src/src/components/layout/AppLayout";
 import FileDropzone from "../../../src/src/components/invoices/FileDropzone";
 import IaBanner from "../../../src/src/components/invoices/IaBanner";
 import InvoiceTable, { InvoiceItem } from "../../../src/src/components/invoices/InvoiceTable";
+import StepIndicator from "../../../src/src/components/invoices/StepIndicator";
 import { uploadInvoice } from "../../../lib/upload";
 import { validarArchivo } from "../../../lib/validarArchivo";
+import { formatMoneda } from "../../../lib/formato";
+import PageHeader from "../../../src/src/components/ui/PageHeader";
+import Alert from "../../../src/src/components/ui/Alert";
+import Badge from "../../../src/src/components/ui/Badge";
+import Button from "../../../src/src/components/ui/Button";
+import Icon from "../../../src/src/components/ui/Icon";
+import Skeleton, { SkeletonRows } from "../../../src/src/components/ui/Skeleton";
 
 const COMPRAS_URL = "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com/compras";
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 60000;
+
+// El tercer paso es "revisar" y no "confirmar": la factura queda registrada apenas la IA la lee
+const PASOS = ["subir", "lectura", "revisar"];
+
+const QUE_VA_A_PASAR = [
+  { icon: "document_scanner", titulo: "Leemos la factura por vos", texto: "Proveedor, ítems, cantidades y total." },
+  { icon: "fact_check", titulo: "Revisás lo que leyó la IA", texto: "Comparás los datos con la factura antes de darla por buena." },
+  { icon: "receipt_long", titulo: "Queda en tu historial", texto: "La factura se registra en Compras apenas termina la lectura." },
+];
 
 interface ItemOcrApi {
   descripcion?: string;
@@ -36,29 +53,27 @@ interface ProveedorDetectado {
   cuit: string;
 }
 
-const iconStyle: React.CSSProperties = {
-  fontFamily: "Material Symbols Outlined",
-  fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
-  fontSize: "14px",
-  lineHeight: 1,
-  userSelect: "none",
-};
+/** La IA no terminó a tiempo: la factura sigue su curso y va a aparecer en Compras. */
+class LecturaDemorada extends Error {}
+/** Se salió de la pantalla mientras se esperaba la lectura. */
+class LecturaCancelada extends Error {}
 
 function formatSize(bytes: number) {
   return bytes < 1024 * 1024
     ? `${Math.round(bytes / 1024)} KB`
-    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    : `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
 }
 
 function esperar(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function esperarExtraccionOcr(s3Key: string, nombreArchivo: string): Promise<GastoOcrApi> {
+async function esperarExtraccionOcr(s3Key: string, nombreArchivo: string, sigue: () => boolean): Promise<GastoOcrApi> {
   const inicio = Date.now();
 
   while (Date.now() - inicio < POLL_TIMEOUT_MS) {
     await esperar(POLL_INTERVAL_MS);
+    if (!sigue()) throw new LecturaCancelada();
 
     const res = await fetch(COMPRAS_URL, { method: "GET" });
     if (!res.ok) continue;
@@ -79,26 +94,39 @@ async function esperarExtraccionOcr(s3Key: string, nombreArchivo: string): Promi
     if (encontrado) return encontrado;
   }
 
-  throw new Error("El análisis por IA demoró más de 60 segundos. Podés verificar la factura más tarde en el historial de compras.");
+  throw new LecturaDemorada();
 }
 
 export default function SubirFacturaPage() {
   const router = useRouter();
   const [items, setItems] = useState<InvoiceItem[]>([]);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [totalFactura, setTotalFactura] = useState<number | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [error, setError] = useState<{ mensaje: string; demorada?: boolean } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrReady, setOcrReady] = useState(false);
   const [proveedorDetectado, setProveedorDetectado] = useState<ProveedorDetectado | null>(null);
 
+  // Corta la consulta periódica si se sale de la pantalla
+  const montado = useRef(true);
+  useEffect(() => {
+    montado.current = true;
+    return () => {
+      montado.current = false;
+    };
+  }, []);
+
+  const subiendo = progress !== null;
+  const ocupado = subiendo || isProcessing;
+
   function resetearArchivo() {
     setFile(null);
     setItems([]);
+    setTotalFactura(null);
     setProveedorDetectado(null);
     setOcrReady(false);
-    setUploadError(null);
+    setError(null);
     setProgress(null);
     setIsProcessing(false);
   }
@@ -107,10 +135,10 @@ export default function SubirFacturaPage() {
     if (!file) return;
     const validationError = await validarArchivo(file);
     if (validationError) {
-      setUploadError(validationError);
+      setError({ mensaje: validationError });
       return;
     }
-    setUploadError(null);
+    setError(null);
     setProgress(0);
 
     try {
@@ -120,237 +148,243 @@ export default function SubirFacturaPage() {
       setProgress(null);
       setIsProcessing(true);
 
-      const gasto = await esperarExtraccionOcr(s3Key, file.name);
+      const gasto = await esperarExtraccionOcr(s3Key, file.name, () => montado.current);
 
       setProveedorDetectado({
-        nombre: gasto.proveedor || "Proveedor detectado",
+        nombre: gasto.proveedor || "Proveedor sin identificar",
         cuit: gasto.cuitProveedor ? `CUIT ${gasto.cuitProveedor}` : "CUIT no informado",
       });
 
+      // Sin `confidence`: el backend todavía no informa qué tan segura está la IA de cada ítem
       const itemsExtraidos: InvoiceItem[] = (gasto.items ?? []).map((it, idx) => ({
         id: `ocr-${idx}`,
         product: it.descripcion || `Ítem ${idx + 1}`,
-        tags: gasto.categoria ? [gasto.categoria] : [],
+        tags: [], // la categoría es de toda la factura: repetirla en cada fila no aporta
         quantity: Number(it.cantidad) || 1,
         unitPrice: Number(it.precio_unitario ?? it.precioUnitario) || 0,
-        confidence: "alta",
       }));
 
       setItems(itemsExtraidos);
+      setTotalFactura(Number(gasto.monto) || null);
       setOcrReady(true);
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Falló el procesamiento de la factura.");
+      if (err instanceof LecturaCancelada) return;
+      if (err instanceof LecturaDemorada) {
+        setError({ mensaje: "La lectura está tardando más de lo normal. La factura va a aparecer en Compras cuando esté lista.", demorada: true });
+      } else {
+        setError({ mensaje: err instanceof Error ? err.message : "No pudimos procesar la factura. Probá de nuevo." });
+      }
     } finally {
       setProgress(null);
       setIsProcessing(false);
     }
   }
 
-  function handleConfirm() {
+  function volverACompras() {
     if (!file) return;
     router.push(`/compras?subida=ok&archivo=${encodeURIComponent(file.name)}`);
   }
 
-  const total = items.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
-  const totalFormatted = "$" + total.toLocaleString("es-AR");
-
-  function handleItemChange(id: string, field: "product" | "quantity" | "unitPrice", value: string | number) {
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)));
-  }
+  const sumaItems = items.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
+  const pasoActual = ocrReady ? 3 : isProcessing ? 2 : 1;
 
   return (
     <AppLayout activeTab="compras">
       <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-
-        {/* ── Back link ─────────────────────────────────────────────── */}
-        <Link
-          href="/compras"
-          id="back-to-compras"
-          style={{
-            display: "inline-flex", alignItems: "center", gap: "4px",
-            fontSize: "12px", color: "var(--color-text-secondary)", textDecoration: "none",
-            marginBottom: "14px", transition: "color 0.15s",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-accent)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-secondary)"; }}
-        >
-          <span style={iconStyle}>arrow_back</span>
+        <Link href="/compras" id="back-to-compras" className="back-link">
+          <Icon name="arrow_back" size={14} />
           volver a compras
         </Link>
 
-        {/* ── Page title ────────────────────────────────────────────── */}
-        <h1 style={{ fontSize: "20px", fontWeight: 500, color: "var(--color-text-primary)", margin: "0 0 16px", letterSpacing: "-0.01em" }}>
-          Subir factura
-        </h1>
+        <PageHeader title="Subir factura" />
 
-        {!file && <FileDropzone onFileSelected={setFile} />}
+        <StepIndicator steps={PASOS} current={pasoActual} label="pasos para subir una factura" />
 
-        {/* ── Two-column: File card + Supplier detected ─────────────── */}
+        {/* ── Paso 1, sin archivo: zona de arrastre + qué va a pasar ───────────── */}
+        {!file && (
+          <>
+            <FileDropzone onFileSelected={setFile} />
+            <ul
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 16,
+                margin: "16px 0 0",
+                padding: 0,
+                listStyle: "none",
+              }}
+            >
+              {QUE_VA_A_PASAR.map(({ icon, titulo, texto }) => (
+                <li key={titulo} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                  <span style={{ display: "flex", color: "var(--color-accent-dark)" }}>
+                    <Icon name={icon} size={20} />
+                  </span>
+                  <div>
+                    <p style={{ fontSize: 13, lineHeight: "18px", fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>{titulo}</p>
+                    <p className="field-help" style={{ marginTop: 2 }}>{texto}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
         {file && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: proveedorDetectado ? "1fr auto" : "1fr", gap: "12px", marginBottom: "12px" }}>
-
-              {/* File card */}
-              <div
-                style={{
-                  display: "flex", alignItems: "center", gap: "12px",
-                  padding: "12px 14px",
-                  backgroundColor: "var(--color-surface)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-lg)",
-                }}
-              >
-                <span style={{ ...iconStyle, fontSize: "22px", color: "var(--color-accent)", flexShrink: 0 }}>description</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: "13px", fontWeight: 500, color: "var(--color-text-primary)", margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {file.name}
-                  </p>
-                  <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>{formatSize(file.size)}</p>
-                </div>
-                <button
-                  type="button"
-                  disabled={progress !== null || isProcessing}
-                  onClick={resetearArchivo}
-                  style={{ background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "12px", color: "var(--color-text-muted)", padding: "4px", flexShrink: 0, transition: "color 0.15s" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-warning-text)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-muted)"; }}
-                >
-                  <span style={{ ...iconStyle, fontSize: "13px" }}>close</span>
-                  Quitar
-                </button>
+            {/* ── Archivo y proveedor detectado, en una sola tarjeta ───────────── */}
+            <div
+              id="invoice-file-card"
+              className="card"
+              style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 16px", padding: "12px 16px", marginBottom: 12 }}
+            >
+              <span style={{ display: "flex", color: "var(--color-accent)" }}>
+                <Icon name="description" size={24} />
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 13, lineHeight: "18px", fontWeight: 500, color: "var(--color-text-primary)", margin: 0, overflowWrap: "anywhere" }}>
+                  {file.name}
+                </p>
+                <p style={{ fontSize: 12, lineHeight: "17px", color: "var(--color-text-secondary)", margin: 0 }}>
+                  {formatSize(file.size)}
+                  {(isProcessing || ocrReady) && ", subida"}
+                </p>
               </div>
 
-              {/* Supplier detected card */}
+              {(isProcessing || proveedorDetectado) && (
+                <span aria-hidden="true" style={{ width: 1, alignSelf: "stretch", backgroundColor: "var(--color-border)" }} />
+              )}
+              {isProcessing && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, width: 220 }}>
+                  <Skeleton width="70%" />
+                  <Skeleton width="45%" height={8} />
+                </div>
+              )}
               {proveedorDetectado && (
-                <div
-                  style={{
-                    padding: "10px 14px",
-                    backgroundColor: "var(--color-surface)",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-lg)",
-                    minWidth: "200px",
-                  }}
-                >
-                  <p style={{ fontSize: "10px", fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 4px" }}>
-                    Distribuidora detectada
-                  </p>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
-                    <p style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>
+                <>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ fontSize: 13, lineHeight: "18px", fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>
                       {proveedorDetectado.nombre}
                     </p>
-                    <span style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success-text)", fontSize: "10px", fontWeight: 600, padding: "2px 7px", borderRadius: "var(--radius-full)", whiteSpace: "nowrap" }}>
-                      IA OCR
-                    </span>
+                    <p style={{ fontSize: 12, lineHeight: "17px", color: "var(--color-text-secondary)", margin: 0 }}>
+                      {proveedorDetectado.cuit}
+                    </p>
                   </div>
-                  <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>
-                    {proveedorDetectado.cuit}
-                  </p>
-                </div>
+                  <Badge tone="ia">IA</Badge>
+                </>
+              )}
+
+              <span style={{ flex: 1 }} />
+              {/* "quitar" solo antes de subir: después la factura ya quedó registrada */}
+              {!ocupado && !ocrReady && (
+                <Button id="invoice-remove-file" variant="text" size="sm" icon="close" onClick={resetearArchivo}>
+                  quitar
+                </Button>
               )}
             </div>
 
-            {isProcessing && (
-              <div
-                style={{
-                  padding: "24px 16px",
-                  marginBottom: "16px",
-                  textAlign: "center",
-                  backgroundColor: "var(--color-surface)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-lg)",
-                  fontSize: "13px",
-                  color: "var(--color-text-secondary)",
-                }}
-              >
-                Procesando factura en la cola SQS con Gemini Vision… (esto puede demorar unos segundos)
+            {/* ── Subiendo / leyendo ───────────────────────────────────────────── */}
+            {ocupado && (
+              <>
+                <Alert id="invoice-progress" tone="ia" icon={subiendo ? "upload" : undefined}>
+                  {subiendo ? (
+                    <strong>Subiendo la factura… {progress}%</strong>
+                  ) : (
+                    <>
+                      <strong>Leyendo tu factura…</strong> Suele tardar unos segundos. Si preferís no esperar, la vas a ver en Compras cuando esté lista.
+                    </>
+                  )}
+                  <div
+                    className={`progress${subiendo ? "" : " is-indeterminate"}`}
+                    role="progressbar"
+                    aria-label={subiendo ? "subida de la factura" : "lectura de la factura"}
+                    aria-valuenow={subiendo ? progress ?? 0 : undefined}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <span style={subiendo ? { width: `${progress}%` } : undefined} />
+                  </div>
+                </Alert>
+                <section className="card" style={{ margin: "12px 0 16px" }}>
+                  <header className="card-header">
+                    <h2 className="card-title">Ítems de la factura</h2>
+                  </header>
+                  <SkeletonRows rows={4} label="Leyendo los ítems de la factura" />
+                </section>
+              </>
+            )}
+
+            {/* ── Error ────────────────────────────────────────────────────────── */}
+            {error && (
+              <div style={{ marginBottom: 16 }}>
+                <Alert
+                  id="invoice-error"
+                  tone="warning"
+                  action={
+                    error.demorada ? (
+                      <Button variant="warning" size="sm" href="/compras">ir a compras</Button>
+                    ) : (
+                      <Button variant="warning" size="sm" onClick={handleUploadAndAnalyze}>reintentar</Button>
+                    )
+                  }
+                >
+                  {error.mensaje}
+                </Alert>
               </div>
             )}
 
-            {/* ── IA Banner ────────────────────────────────────────────────── */}
+            {/* ── Paso 3: lo que leyó la IA ────────────────────────────────────── */}
             {ocrReady && items.length > 0 && (
-              <IaBanner productCount={items.length} total={totalFormatted} confidence="alta" />
+              <>
+                <div style={{ marginBottom: 12 }}>
+                  <IaBanner
+                    productCount={items.length}
+                    total={formatMoneda(totalFactura ?? sumaItems)}
+                    lowConfidence={items.filter((i) => i.confidence === "baja").length}
+                  />
+                </div>
+                <InvoiceTable items={items} total={totalFactura} />
+              </>
             )}
-
-            {/* ── Editable invoice table ───────────────────────────────────── */}
-            {ocrReady && items.length > 0 && (
-              <InvoiceTable
-                items={items}
-                editingId={editingId}
-                onEdit={setEditingId}
-                onItemChange={handleItemChange}
-              />
+            {ocrReady && items.length === 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <Alert id="invoice-sin-items" tone="warning">
+                  La factura quedó registrada
+                  {totalFactura != null && <> por <strong>{formatMoneda(totalFactura)}</strong></>}, pero la IA no pudo separar los ítems.
+                  Si la imagen estaba borrosa o cortada, probá subir una más nítida.
+                </Alert>
+              </div>
             )}
           </>
         )}
 
-        {/* ── Actions ─────────────────────────────────────────────────── */}
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "10px" }}>
-          {uploadError && (
-            <p style={{ fontSize: "12px", color: "var(--color-warning-text)", margin: 0 }}>{uploadError}</p>
-          )}
-          <button
-            id="invoice-cancel"
-            type="button"
-            onClick={() => router.push("/compras")}
-            style={{
-              padding: "9px 20px", fontSize: "13px", fontWeight: 500,
-              backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)", color: "var(--color-text-primary)", cursor: "pointer",
-              transition: "border-color 0.15s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-border-strong)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-border)"; }}
-          >
-            Cancelar
-          </button>
-
-          {!ocrReady ? (
-            <button
-              id="invoice-upload"
-              type="button"
-              disabled={!file || progress !== null || isProcessing}
-              onClick={handleUploadAndAnalyze}
-              style={{
-                padding: "9px 20px", fontSize: "13px", fontWeight: 500,
-                backgroundColor: "var(--color-accent)", border: "none",
-                borderRadius: "var(--radius-md)", color: "#FFFFFF", cursor: "pointer",
-                transition: "background-color 0.15s",
-                display: "inline-flex", alignItems: "center", gap: "7px",
-                opacity: !file || progress !== null || isProcessing ? 0.6 : 1,
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent-dark)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent)"; }}
-            >
-              <span style={{ ...iconStyle, fontSize: "15px" }}>
-                {isProcessing ? "hourglass_empty" : "upload_file"}
-              </span>
-              {progress !== null
-                ? `Subiendo… ${progress}%`
-                : isProcessing
-                  ? "Analizando con IA…"
-                  : "Subir y extraer datos"}
-            </button>
+        {/* ── Acciones ─────────────────────────────────────────────────────────── */}
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 10, marginTop: file ? 0 : 24 }}>
+          {ocrReady ? (
+            <>
+              <Button id="invoice-another" onClick={resetearArchivo}>
+                subir otra factura
+              </Button>
+              <Button id="invoice-done" variant="primary" icon="check_circle" onClick={volverACompras}>
+                listo, volver a compras
+              </Button>
+            </>
           ) : (
-            <button
-              id="invoice-confirm"
-              type="button"
-              onClick={handleConfirm}
-              style={{
-                padding: "9px 20px", fontSize: "13px", fontWeight: 500,
-                backgroundColor: "var(--color-accent)", border: "none",
-                borderRadius: "var(--radius-md)", color: "#FFFFFF", cursor: "pointer",
-                transition: "background-color 0.15s",
-                display: "inline-flex", alignItems: "center", gap: "7px",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent-dark)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-accent)"; }}
-            >
-              <span style={{ ...iconStyle, fontSize: "15px" }}>check_circle</span>
-              Confirmar y guardar
-            </button>
+            <>
+              <Button id="invoice-cancel" href="/compras">
+                {isProcessing ? "volver a compras" : "cancelar"}
+              </Button>
+              <Button
+                id="invoice-upload"
+                variant="primary"
+                icon={ocupado ? "hourglass_empty" : "upload_file"}
+                disabled={!file || ocupado}
+                onClick={handleUploadAndAnalyze}
+              >
+                {subiendo ? "subiendo…" : isProcessing ? "leyendo…" : "subir y extraer datos"}
+              </Button>
+            </>
           )}
         </div>
-
       </div>
     </AppLayout>
   );
