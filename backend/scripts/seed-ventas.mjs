@@ -1,6 +1,7 @@
 // Carga 8 semanas de ventas diarias de demo en Medianube-Ventas para probar la predicción de demanda.
-// Usa los mismos productos que seed-precios.mjs y un patrón semanal (sábado alto, domingo bajo) con
-// una variación determinística, así que es idempotente: volver a correrlo pisa los mismos ítems.
+// Usa los mismos productoID que la tabla `Producto` (el catálogo real que usan Precios y la predicción
+// para los nombres), con un patrón semanal y una variación determinística, así que es idempotente:
+// volver a correrlo pisa los mismos ítems.
 // Las fechas terminan ayer (hora de Argentina) para que caigan en la ventana del modelo.
 //
 // Uso (desde backend/, después de `npm ci`): node scripts/seed-ventas.mjs <usuarioID> [semanas]
@@ -20,12 +21,16 @@ const region = process.env.AWS_REGION || "us-east-2";
 const TABLA_VENTAS = process.env.TABLA_VENTAS || "Medianube-Ventas";
 const cliente = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
 
-// Unidades promedio por día de la semana (0 = domingo … 6 = sábado).
+// Promedio por día de la semana (0 = domingo … 6 = sábado), en la unidad de cada producto
+// (`unidadProducto` de la tabla Producto: unidad, kg, vaso o porción).
 const productos = {
-  "medialuna-manteca": [90, 160, 150, 155, 165, 220, 320],
-  "pan-frances": [12, 38, 35, 36, 40, 48, 55],
-  "torta-chocolate": [18, 6, 5, 6, 7, 12, 22],
-  "alfajor-maicena": [25, 30, 28, 30, 32, 40, 45],
+  "medialuna-manteca": [90, 160, 150, 155, 165, 220, 320], // unidad
+  "medialuna-jyq": [30, 45, 42, 44, 48, 60, 70], // unidad
+  "pan-frances": [12, 38, 35, 36, 40, 48, 55], // kg
+  "alfajor-maicena": [25, 30, 28, 30, 32, 40, 45], // unidad
+  "torta-ricota": [20, 8, 8, 9, 10, 14, 24], // porción
+  "cafe-con-leche": [35, 60, 58, 60, 62, 70, 55], // vaso
+  "te-con-leche": [15, 25, 24, 25, 26, 28, 22], // vaso
 };
 
 const hoyAR = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }).format(new Date());

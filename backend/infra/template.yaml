@@ -24,6 +24,13 @@ Parameters:
     Default: Medianube-Configuracion
     Description: Tabla existente (no la gestiona este stack) con la configuración y ubicación del negocio.
 
+  TablaCatalogoNombre:
+    Type: String
+    Default: Producto
+    Description: >
+      Tabla existente (no la gestiona este stack) con el catálogo real de productos (PK productoID,
+      sin usuarioID). La usan el motor de precios desplegado y predecirDemanda para los nombres.
+
   ModoAutenticacion:
     Type: String
     Default: dev
@@ -258,14 +265,15 @@ Resources:
                 Action: dynamodb:Query
                 Resource:
                   - !GetAtt TablaVentas.Arn
-                  - !GetAtt TablaProductos.Arn
                   - !GetAtt TablaClima.Arn
               - Effect: Allow
                 Action: [dynamodb:BatchWriteItem, dynamodb:Query]
                 Resource: !GetAtt TablaPredicciones.Arn
               - Effect: Allow
-                Action: dynamodb:Scan   # listar usuarios para la corrida nocturna
-                Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TablaConfiguracionNombre}
+                Action: dynamodb:Scan   # listar usuarios (Configuración) y nombres del catálogo (Producto)
+                Resource:
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TablaConfiguracionNombre}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TablaCatalogoNombre}
 
   # ── Lambda obtenerClima ────────────────────────────────────────────────────
 
@@ -491,7 +499,7 @@ Resources:
       Environment:
         Variables:
           TABLA_VENTAS: !Ref TablaVentas
-          TABLA_PRODUCTOS: !Ref TablaProductos
+          TABLA_PRODUCTOS: !Ref TablaCatalogoNombre   # catálogo real (tabla Producto)
           TABLA_PREDICCIONES: !Ref TablaPredicciones
           TABLA_CLIMA: !Ref TablaClima
           TABLA_CONFIGURACION: !Ref TablaConfiguracionNombre

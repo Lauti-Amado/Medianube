@@ -1,11 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import Icon from "../../src/src/components/ui/Icon";
+import Alert from "../../src/src/components/ui/Alert";
+import Button from "../../src/src/components/ui/Button";
+import StepProgress from "../../src/src/components/ui/StepProgress";
+import Stepper from "../../src/src/components/ui/Stepper";
+import PasswordInput from "../../src/src/components/ui/PasswordInput";
+import PasswordRequirements, { cumpleRequisitos } from "../../src/src/components/ui/PasswordRequirements";
 import { useAuth } from "../../lib/auth-context";
+import { guardarNombreNegocio, guardarTipoNegocio } from "../../lib/negocio";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -29,61 +36,36 @@ interface FieldErrors {
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
+const TOTAL_STEPS = 4;
+
+/** Segundos de espera entre dos envíos del código (evita el límite de intentos de Cognito). */
+const ESPERA_REENVIO = 30;
+
 const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
   panaderia: "panadería",
   mixto: "mixto",
 };
 
-// ── Shared styles ──────────────────────────────────────────────────────────
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  backgroundColor: "var(--color-surface-input)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "11px 14px",
-  fontSize: "13px",
-  color: "var(--color-text-primary)",
-  outline: "none",
-  transition: "border-color 0.15s",
+const BUSINESS_TYPE_HELP: Record<BusinessType, string> = {
+  panaderia: "venta tradicional de panificados y control de producción e insumos.",
+  mixto: "combina panadería tradicional con cafetería, pastelería o rotisería.",
 };
+
+// ── Shared styles ──────────────────────────────────────────────────────────
 
 const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: "12px",
   fontWeight: 500,
   color: "var(--color-text-secondary)",
-  marginBottom: "7px",
+  marginBottom: "6px",
 };
 
-const errorStyle: React.CSSProperties = {
-  fontSize: "11px",
-  color: "var(--color-warning-text)",
-  marginTop: "4px",
-};
+const formStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: "16px" };
+
+const submitStyle: React.CSSProperties = { padding: "11px 16px" };
 
 // ── Sub-components ────────────────────────────────────────────────────────
-
-function ProgressBar({ step }: { step: number }) {
-  // 4 steps now: business data, credentials, confirmation code, summary
-  const totalSteps = 4;
-  return (
-    <div style={{ width: "100%", display: "grid", gridTemplateColumns: `repeat(${totalSteps}, 1fr)`, gap: "6px", marginBottom: "20px" }}>
-      {Array.from({ length: totalSteps }, (_, i) => i + 1).map((s) => (
-        <div
-          key={s}
-          style={{
-            height: "4px",
-            borderRadius: "9999px",
-            backgroundColor: s <= step ? "var(--color-accent)" : "var(--color-border-divider)",
-            transition: "background-color 0.3s ease",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
 
 function BrandMark() {
   return (
@@ -96,9 +78,6 @@ function BrandMark() {
           border: "2px solid var(--color-border-strong)",
           backgroundColor: "var(--color-accent-tint)",
           overflow: "hidden",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
           marginBottom: "8px",
         }}
       >
@@ -125,22 +104,24 @@ function BrandMark() {
   );
 }
 
-function StepHeading({ title, subtitle }: { step?: number; title: string; subtitle?: string }) {
+/** Título de cada paso: siempre a la izquierda, un solo eje de lectura en todo el flujo. */
+function StepHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div style={{ width: "100%", marginBottom: "20px" }}>
+    <div style={{ marginBottom: "20px" }}>
       <h1
         style={{
-          fontSize: "18px",
+          fontSize: "20px",
+          lineHeight: "26px",
           fontWeight: 500,
           color: "var(--color-text-primary)",
-          margin: subtitle ? "0 0 6px" : 0,
+          margin: 0,
           letterSpacing: "-0.01em",
         }}
       >
         {title}
       </h1>
       {subtitle && (
-        <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", margin: 0, lineHeight: "1.5" }}>
+        <p style={{ fontSize: "13px", lineHeight: "19px", color: "var(--color-text-secondary)", margin: "4px 0 0", overflowWrap: "anywhere" }}>
           {subtitle}
         </p>
       )}
@@ -148,70 +129,34 @@ function StepHeading({ title, subtitle }: { step?: number; title: string; subtit
   );
 }
 
-function PrimaryButton({
-  label,
-  icon,
-  onClick,
-  disabled,
-  loading,
-}: {
-  label: string;
-  icon: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  loading?: boolean;
-}) {
+function RoundIcon({ name }: { name: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || loading}
+    <div
       style={{
-        width: "100%",
-        backgroundColor: "var(--color-accent)",
-        color: "var(--color-on-primary)",
-        border: "none",
-        borderRadius: "var(--radius-md)",
-        padding: "11px 14px",
-        fontSize: "13px",
-        fontWeight: 500,
-        cursor: disabled || loading ? "not-allowed" : "pointer",
+        width: "52px",
+        height: "52px",
+        borderRadius: "9999px",
+        backgroundColor: "var(--color-accent-tint)",
+        border: "2px solid var(--color-border-strong)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        gap: "8px",
-        transition: "background-color 0.15s",
-        opacity: disabled || loading ? 0.7 : 1,
-      }}
-      onMouseEnter={(e) => {
-        if (!disabled && !loading) e.currentTarget.style.backgroundColor = "var(--color-accent-dark)";
-      }}
-      onMouseLeave={(e) => {
-        if (!disabled && !loading) e.currentTarget.style.backgroundColor = "var(--color-accent)";
+        marginBottom: "16px",
+        color: "var(--color-accent)",
       }}
     >
-      {loading ? (
-        <>
-          procesando…
-          <span
-            style={{
-              display: "inline-block",
-              width: "14px",
-              height: "14px",
-              border: "2px solid rgba(255,255,255,0.3)",
-              borderTopColor: "#fff",
-              borderRadius: "50%",
-              animation: "spin 0.6s linear infinite",
-            }}
-          />
-        </>
-      ) : (
-        <>
-          {label}
-          <Icon name={icon} size={16} />
-        </>
-      )}
-    </button>
+      <Icon name={name} size={24} />
+    </div>
+  );
+}
+
+function FieldError({ id, children }: { id: string; children?: string }) {
+  if (!children) return null;
+  return (
+    <p id={id} className="field-error">
+      <Icon name="error" size={14} />
+      {children}
+    </p>
   );
 }
 
@@ -230,12 +175,16 @@ function Step1({
 }) {
   return (
     <>
-      <StepHeading
-        step={1}
-        title="contanos sobre tu panadería"
-      />
+      <StepHeading title="contanos sobre tu panadería" />
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "18px", width: "100%" }}>
+      <form
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          onNext();
+        }}
+        style={{ ...formStyle, gap: "18px" }}
+      >
         <div>
           <label htmlFor="ob-business-name" style={labelStyle}>
             nombre del negocio
@@ -243,115 +192,74 @@ function Step1({
           <input
             id="ob-business-name"
             type="text"
-            placeholder="panadería medianube"
+            autoComplete="organization"
+            placeholder="ej.: panadería central"
             value={data.businessName}
             onChange={(e) => onUpdate({ businessName: e.target.value })}
-            style={{
-              ...inputStyle,
-              borderColor: errors.businessName ? "var(--color-warning-text)" : "var(--color-border)",
-            }}
-            onFocus={(e) => { if (!errors.businessName) e.target.style.borderColor = "var(--color-accent)"; }}
-            onBlur={(e) => { if (!errors.businessName) e.target.style.borderColor = "var(--color-border)"; }}
+            autoFocus
+            className="input"
+            aria-invalid={!!errors.businessName || undefined}
+            aria-describedby={errors.businessName ? "ob-business-name-error" : undefined}
           />
-          {errors.businessName && <p style={errorStyle}>{errors.businessName}</p>}
+          <FieldError id="ob-business-name-error">{errors.businessName}</FieldError>
         </div>
 
         <div>
-          <label style={labelStyle}>tipo de establecimiento</label>
-          <div style={{ display: "flex", gap: "8px" }}>
-            {(["panaderia", "mixto"] as BusinessType[]).map((type) => (
-              <button
-                key={type}
-                type="button"
-                id={"ob-chip-" + type}
-                onClick={() => onUpdate({ businessType: type })}
-                style={{
-                  padding: "6px 16px",
-                  borderRadius: "9999px",
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                  border: data.businessType === type ? "none" : "1px solid var(--color-border)",
-                  backgroundColor: data.businessType === type ? "var(--color-accent)" : "var(--color-surface)",
-                  color: data.businessType === type ? "var(--color-on-primary)" : "var(--color-text-primary)",
-                }}
-              >
-                {BUSINESS_TYPE_LABELS[type]}
-              </button>
-            ))}
-          </div>
-          <p
-            style={{
-              fontSize: "12px",
-              color: "var(--color-text-secondary)",
-              marginTop: "9px",
-              lineHeight: "1.5",
-            }}
-          >
-            {data.businessType === "panaderia"
-              ? "Venta tradicional de panificados y control de producción/insumos."
-              : "Combina panadería tradicional con cafetería, pastelería o rotisería."}
-          </p>
-        </div>
-
-        <div>
-          <label htmlFor="ob-branches" style={labelStyle}>
-            sucursales
-          </label>
-          <div style={{ position: "relative" }}>
-            <input
-              id="ob-branches"
-              type="number"
-              min={1}
-              value={data.branches}
-              onChange={(e) => onUpdate({ branches: Math.max(1, parseInt(e.target.value) || 1) })}
-              style={{ ...inputStyle, paddingRight: "36px" }}
-              onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
-              onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
-            />
-            <span
-              style={{
-                position: "absolute",
-                right: "10px",
-                top: "50%",
-                transform: "translateY(-50%)",
-                pointerEvents: "none",
-                color: "var(--color-text-muted)",
-                fontSize: "18px",
-                fontFamily: "Material Symbols Outlined",
-                fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
-              }}
-            >
-              storefront
-            </span>
-          </div>
-        </div>
-
-        <div
-          style={{
-            width: "100%",
-            backgroundColor: "var(--color-accent-tint)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            padding: "10px 12px",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "8px",
-          }}
-        >
-          <span style={{ color: "var(--color-accent-dark)", flexShrink: 0, marginTop: "1px", display: "flex" }}>
-            <Icon name="auto_awesome" size={16} />
+          <span id="ob-type-label" style={labelStyle}>
+            tipo de establecimiento
           </span>
-          <p style={{ fontSize: "11px", color: "var(--color-text-callout)", margin: 0, lineHeight: "1.5" }}>
-            ajustaremos los algoritmos de costos e inflación según los índices del sector en Argentina.
-          </p>
+          <div role="radiogroup" aria-labelledby="ob-type-label" style={{ display: "flex", gap: "8px" }}>
+            {(["panaderia", "mixto"] as BusinessType[]).map((type) => {
+              const selected = data.businessType === type;
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  id={"ob-chip-" + type}
+                  onClick={() => onUpdate({ businessType: type })}
+                  style={{
+                    padding: "6px 16px",
+                    borderRadius: "9999px",
+                    fontSize: "12px",
+                    lineHeight: "16px",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    transition: "background-color 0.15s, border-color 0.15s, color 0.15s",
+                    border: `1px solid ${selected ? "var(--color-accent)" : "var(--color-border)"}`,
+                    backgroundColor: selected ? "var(--color-accent)" : "var(--color-surface)",
+                    color: selected ? "var(--color-on-primary)" : "var(--color-text-primary)",
+                  }}
+                >
+                  {BUSINESS_TYPE_LABELS[type]}
+                </button>
+              );
+            })}
+          </div>
+          <p className="field-help">{BUSINESS_TYPE_HELP[data.businessType]}</p>
         </div>
 
-        <div style={{ paddingTop: "4px" }}>
-          <PrimaryButton label="continuar" icon="arrow_forward" onClick={onNext} />
+        <div>
+          <span style={labelStyle}>sucursales</span>
+          <Stepper
+            id="ob-branches"
+            label="sucursales"
+            value={data.branches}
+            min={1}
+            max={10}
+            onChange={(branches) => onUpdate({ branches })}
+          />
         </div>
-      </div>
+
+        <p className="field-help" style={{ margin: 0 }}>
+          usamos los índices de inflación del sector en Argentina para estimar tus costos.
+        </p>
+
+        <Button type="submit" variant="primary" block iconEnd="arrow_forward" style={submitStyle}>
+          continuar
+        </Button>
+      </form>
     </>
   );
 }
@@ -363,6 +271,7 @@ function Step2({
   errors,
   onUpdate,
   onNext,
+  onBack,
   loading,
   authError,
 }: {
@@ -370,39 +279,28 @@ function Step2({
   errors: FieldErrors;
   onUpdate: (patch: Partial<FormData>) => void;
   onNext: () => void;
+  onBack: () => void;
   loading: boolean;
   authError: string;
 }) {
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
 
   return (
     <>
-      <StepHeading
-        step={2}
-        title="creá tu cuenta"
-        subtitle="vas a usar este email para ingresar a medianube"
-      />
+      <StepHeading title="creá tu cuenta" subtitle="vas a usar este email para ingresar a medianube" />
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "18px", width: "100%" }}>
-        {/* Auth error from Cognito */}
+      <form
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          onNext();
+        }}
+        style={formStyle}
+      >
         {authError && (
-          <div
-            style={{
-              backgroundColor: "rgba(239, 68, 68, 0.08)",
-              border: "1px solid rgba(239, 68, 68, 0.25)",
-              borderRadius: "var(--radius-md)",
-              padding: "10px 14px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <Icon name="error" size={16} />
-            <span style={{ fontSize: "13px", color: "var(--color-warning-text)" }}>
-              {authError}
-            </span>
-          </div>
+          <Alert tone="warning" icon="error">
+            {authError}
+          </Alert>
         )}
 
         <div>
@@ -417,91 +315,62 @@ function Step2({
             value={data.email}
             onChange={(e) => onUpdate({ email: e.target.value })}
             disabled={loading}
-            style={{
-              ...inputStyle,
-              borderColor: errors.email ? "var(--color-warning-text)" : "var(--color-border)",
-              opacity: loading ? 0.6 : 1,
-            }}
-            onFocus={(e) => { if (!errors.email) e.target.style.borderColor = "var(--color-accent)"; }}
-            onBlur={(e) => { if (!errors.email) e.target.style.borderColor = "var(--color-border)"; }}
+            autoFocus
+            className="input"
+            aria-invalid={!!errors.email || undefined}
+            aria-describedby={errors.email ? "ob-email-error" : undefined}
           />
-          {errors.email && <p style={errorStyle}>{errors.email}</p>}
+          <FieldError id="ob-email-error">{errors.email}</FieldError>
         </div>
 
         <div>
           <label htmlFor="ob-password" style={labelStyle}>
             contraseña
           </label>
-          <div style={{ position: "relative" }}>
-            <input
-              id="ob-password"
-              type={showPassword ? "text" : "password"}
-              autoComplete="new-password"
-              placeholder="mínimo 8 caracteres"
-              value={data.password}
-              onChange={(e) => onUpdate({ password: e.target.value })}
-              disabled={loading}
-              style={{
-                ...inputStyle,
-                paddingRight: "40px",
-                borderColor: errors.password ? "var(--color-warning-text)" : "var(--color-border)",
-                opacity: loading ? 0.6 : 1,
-              }}
-              onFocus={(e) => { if (!errors.password) e.target.style.borderColor = "var(--color-accent)"; }}
-              onBlur={(e) => { if (!errors.password) e.target.style.borderColor = "var(--color-border)"; }}
-            />
-            <button
-              type="button"
-              id="ob-toggle-password"
-              onClick={() => setShowPassword((v) => !v)}
-              style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--color-text-muted)", display: "flex", alignItems: "center" }}
-              aria-label={showPassword ? "ocultar contraseña" : "mostrar contraseña"}
-            >
-              <Icon name={showPassword ? "visibility_off" : "visibility"} size={16} />
-            </button>
-          </div>
-          {errors.password && <p style={errorStyle}>{errors.password}</p>}
+          <PasswordInput
+            id="ob-password"
+            autoComplete="new-password"
+            value={data.password}
+            onChange={(e) => onUpdate({ password: e.target.value })}
+            disabled={loading}
+            visible={showPassword}
+            onToggleVisible={() => setShowPassword((v) => !v)}
+            invalid={!!errors.password}
+            aria-describedby={errors.password ? "ob-password-error" : undefined}
+          />
+          <PasswordRequirements password={data.password} />
+          <FieldError id="ob-password-error">{errors.password}</FieldError>
         </div>
 
         <div>
           <label htmlFor="ob-confirm-password" style={labelStyle}>
             confirmar contraseña
           </label>
-          <div style={{ position: "relative" }}>
-            <input
-              id="ob-confirm-password"
-              type={showConfirm ? "text" : "password"}
-              autoComplete="new-password"
-              placeholder="repetí tu contraseña"
-              value={data.confirmPassword}
-              onChange={(e) => onUpdate({ confirmPassword: e.target.value })}
-              disabled={loading}
-              style={{
-                ...inputStyle,
-                paddingRight: "40px",
-                borderColor: errors.confirmPassword ? "var(--color-warning-text)" : "var(--color-border)",
-                opacity: loading ? 0.6 : 1,
-              }}
-              onFocus={(e) => { if (!errors.confirmPassword) e.target.style.borderColor = "var(--color-accent)"; }}
-              onBlur={(e) => { if (!errors.confirmPassword) e.target.style.borderColor = "var(--color-border)"; }}
-            />
-            <button
-              type="button"
-              id="ob-toggle-confirm-password"
-              onClick={() => setShowConfirm((v) => !v)}
-              style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--color-text-muted)", display: "flex", alignItems: "center" }}
-              aria-label={showConfirm ? "ocultar contraseña" : "mostrar contraseña"}
-            >
-              <Icon name={showConfirm ? "visibility_off" : "visibility"} size={16} />
-            </button>
-          </div>
-          {errors.confirmPassword && <p style={errorStyle}>{errors.confirmPassword}</p>}
+          <PasswordInput
+            id="ob-confirm-password"
+            autoComplete="new-password"
+            placeholder="repetí tu contraseña"
+            value={data.confirmPassword}
+            onChange={(e) => onUpdate({ confirmPassword: e.target.value })}
+            disabled={loading}
+            visible={showPassword}
+            onToggleVisible={() => setShowPassword((v) => !v)}
+            invalid={!!errors.confirmPassword}
+            aria-describedby={errors.confirmPassword ? "ob-confirm-password-error" : undefined}
+          />
+          <FieldError id="ob-confirm-password-error">{errors.confirmPassword}</FieldError>
         </div>
 
-        <div style={{ paddingTop: "4px" }}>
-          <PrimaryButton label="crear cuenta" icon="arrow_forward" onClick={onNext} loading={loading} />
+        <Button type="submit" variant="primary" block disabled={loading} iconEnd={loading ? undefined : "arrow_forward"} style={submitStyle}>
+          {loading ? "creando tu cuenta…" : "crear cuenta"}
+        </Button>
+
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <Button id="ob-back" variant="text" size="sm" icon="arrow_back" onClick={onBack} disabled={loading} style={{ background: "none" }}>
+            volver al paso anterior
+          </Button>
         </div>
-      </div>
+      </form>
     </>
   );
 }
@@ -511,61 +380,43 @@ function Step2({
 function StepConfirmation({
   email,
   onConfirm,
+  onResend,
+  onChangeEmail,
   loading,
   authError,
+  info,
+  esperaReenvio,
 }: {
   email: string;
   onConfirm: (code: string) => void;
+  onResend: () => void;
+  onChangeEmail: () => void;
   loading: boolean;
   authError: string;
+  info: string;
+  esperaReenvio: number;
 }) {
   const [code, setCode] = useState("");
 
   return (
     <>
-      <div
-        style={{
-          width: "56px",
-          height: "56px",
-          borderRadius: "9999px",
-          backgroundColor: "var(--color-accent-tint)",
-          border: "2px solid var(--color-border-strong)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          marginBottom: "16px",
-          alignSelf: "center",
+      <RoundIcon name="mark_email_read" />
+      <StepHeading title="verificá tu email" subtitle={`enviamos un código de 6 dígitos a ${email}`} />
+
+      <form
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (code.length === 6) onConfirm(code);
         }}
+        style={formStyle}
       >
-        <span style={{ color: "var(--color-accent)", display: "flex" }}>
-          <Icon name="mark_email_read" size={24} />
-        </span>
-      </div>
-
-      <StepHeading
-        title="verificá tu email"
-        subtitle={`enviamos un código de 6 dígitos a ${email}`}
-      />
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "18px", width: "100%" }}>
         {authError && (
-          <div
-            style={{
-              backgroundColor: "rgba(239, 68, 68, 0.08)",
-              border: "1px solid rgba(239, 68, 68, 0.25)",
-              borderRadius: "var(--radius-md)",
-              padding: "10px 14px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <Icon name="error" size={16} />
-            <span style={{ fontSize: "13px", color: "var(--color-warning-text)" }}>
-              {authError}
-            </span>
-          </div>
+          <Alert tone="warning" icon="error">
+            {authError}
+          </Alert>
         )}
+        {info && <Alert tone="success">{info}</Alert>}
 
         <div>
           <label htmlFor="ob-confirmation-code" style={labelStyle}>
@@ -581,33 +432,36 @@ function StepConfirmation({
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
             disabled={loading}
-            style={{
-              ...inputStyle,
-              textAlign: "center",
-              fontSize: "20px",
-              fontWeight: 600,
-              letterSpacing: "0.3em",
-              opacity: loading ? 0.6 : 1,
-            }}
-            onFocus={(e) => (e.target.style.borderColor = "var(--color-accent)")}
-            onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+            autoFocus
+            className="input"
+            aria-invalid={!!authError || undefined}
+            style={{ textAlign: "center", fontSize: "20px", lineHeight: "24px", fontWeight: 500, letterSpacing: "0.3em" }}
           />
         </div>
 
-        <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0, textAlign: "center" }}>
-          ¿no recibiste el código? revisá tu carpeta de spam
-        </p>
+        <Button type="submit" variant="primary" block disabled={code.length < 6 || loading} iconEnd={loading ? undefined : "check"} style={submitStyle}>
+          {loading ? "verificando…" : "verificar"}
+        </Button>
 
-        <div style={{ paddingTop: "4px" }}>
-          <PrimaryButton
-            label="verificar"
-            icon="check"
-            onClick={() => onConfirm(code)}
-            disabled={code.length < 6}
-            loading={loading}
-          />
+        {/* Si el mail no llega, hay salida: reenviar o cambiar el email */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", fontSize: "12px", lineHeight: "16px", color: "var(--color-text-secondary)" }}>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", justifyContent: "center", gap: "6px" }}>
+            <span>¿no te llegó?</span>
+            {esperaReenvio > 0 ? (
+              <span role="timer">reenviar en {esperaReenvio} s</span>
+            ) : (
+              <Button id="ob-resend" variant="text" size="sm" onClick={onResend} disabled={loading} style={{ padding: 0, background: "none" }}>
+                reenviar código
+              </Button>
+            )}
+            <span aria-hidden="true">·</span>
+            <Button id="ob-change-email" variant="text" size="sm" onClick={onChangeEmail} disabled={loading} style={{ padding: 0, background: "none" }}>
+              cambiar email
+            </Button>
+          </div>
+          <p style={{ margin: 0 }}>revisá también la carpeta de spam.</p>
         </div>
-      </div>
+      </form>
     </>
   );
 }
@@ -624,42 +478,15 @@ function StepSummary({ data, onFinish, loading }: { data: FormData; onFinish: ()
 
   return (
     <>
-      <div
-        style={{
-          width: "56px",
-          height: "56px",
-          borderRadius: "9999px",
-          backgroundColor: "var(--color-accent-tint)",
-          border: "2px solid var(--color-border-strong)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          marginBottom: "16px",
-          alignSelf: "center",
-        }}
-      >
-        <span style={{ color: "var(--color-accent)", display: "flex" }}>
-          <Icon name="check" size={24} />
-        </span>
-      </div>
+      <RoundIcon name="check" />
+      <StepHeading title="¡todo listo!" subtitle="tu cuenta está configurada. así quedó tu panadería:" />
 
-      <div style={{ textAlign: "center", marginBottom: "20px", width: "100%" }}>
-        <h1 style={{ fontSize: "18px", fontWeight: 500, color: "var(--color-text-primary)", margin: "0 0 6px", letterSpacing: "-0.01em" }}>
-          ¡todo listo!
-        </h1>
-        <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", margin: 0 }}>
-          tu cuenta está configurada. así quedó tu panadería:
-        </p>
-      </div>
-
-      <div
+      <dl
         style={{
-          width: "100%",
-          backgroundColor: "var(--color-surface)",
           border: "1px solid var(--color-border)",
           borderRadius: "var(--radius-md)",
           overflow: "hidden",
-          marginBottom: "20px",
+          margin: "0 0 20px",
         }}
       >
         {summaryRows.map((row, i) => (
@@ -668,24 +495,21 @@ function StepSummary({ data, onFinish, loading }: { data: FormData; onFinish: ()
             style={{
               display: "flex",
               justifyContent: "space-between",
-              alignItems: "center",
+              alignItems: "baseline",
+              gap: "16px",
               padding: "10px 14px",
               borderTop: i === 0 ? "none" : "1px solid var(--color-border-divider)",
             }}
           >
-            <span style={{ fontSize: "12px", color: "var(--color-text-secondary)", fontWeight: 500 }}>
-              {row.label}
-            </span>
-            <span style={{ fontSize: "13px", color: "var(--color-text-primary)" }}>
-              {row.value}
-            </span>
+            <dt style={{ fontSize: "12px", color: "var(--color-text-secondary)", fontWeight: 500 }}>{row.label}</dt>
+            <dd style={{ fontSize: "13px", color: "var(--color-text-primary)", margin: 0, textAlign: "right", overflowWrap: "anywhere" }}>{row.value}</dd>
           </div>
         ))}
-      </div>
+      </dl>
 
-      <div style={{ width: "100%" }}>
-        <PrimaryButton label="ir al panel" icon="arrow_forward" onClick={onFinish} loading={loading} />
-      </div>
+      <Button variant="primary" block disabled={loading} iconEnd={loading ? undefined : "arrow_forward"} onClick={onFinish} style={submitStyle}>
+        {loading ? "ingresando…" : "ir al panel"}
+      </Button>
     </>
   );
 }
@@ -694,7 +518,7 @@ function StepSummary({ data, onFinish, loading }: { data: FormData; onFinish: ()
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { signUp, confirmSignUp, signIn } = useAuth();
+  const { signUp, confirmSignUp, resendSignUpCode, signIn } = useAuth();
 
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<FormData>({
@@ -707,7 +531,18 @@ export default function OnboardingPage() {
   });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [authError, setAuthError] = useState("");
+  const [info, setInfo] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [esperaReenvio, setEsperaReenvio] = useState(0);
+  // Cuenta ya creada en Cognito durante este flujo (pendiente de verificar)
+  const [registrada, setRegistrada] = useState<{ email: string; password: string } | null>(null);
+
+  // Cuenta regresiva para volver a pedir el código
+  useEffect(() => {
+    if (esperaReenvio <= 0) return;
+    const timer = setTimeout(() => setEsperaReenvio((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [esperaReenvio]);
 
   function updateData(patch: Partial<FormData>) {
     setFormData((prev) => ({ ...prev, ...patch }));
@@ -734,15 +569,15 @@ export default function OnboardingPage() {
     if (!formData.email.trim()) {
       newErrors.email = "ingresá tu email";
     } else if (!emailRegex.test(formData.email)) {
-      newErrors.email = "el formato del email no es válido";
+      newErrors.email = "revisá el email: falta el dominio, por ejemplo @gmail.com";
     }
     if (!formData.password) {
       newErrors.password = "ingresá una contraseña";
-    } else if (formData.password.length < 8) {
-      newErrors.password = "la contraseña debe tener al menos 8 caracteres";
+    } else if (!cumpleRequisitos(formData.password)) {
+      newErrors.password = "la contraseña todavía no cumple todos los requisitos";
     }
     if (!formData.confirmPassword) {
-      newErrors.confirmPassword = "confirmá tu contraseña";
+      newErrors.confirmPassword = "repetí tu contraseña";
     } else if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = "las contraseñas no coinciden";
     }
@@ -750,36 +585,54 @@ export default function OnboardingPage() {
     return Object.keys(newErrors).length === 0;
   }
 
+  function irAVerificar() {
+    setInfo("");
+    setEsperaReenvio(ESPERA_REENVIO);
+    setStep(3);
+  }
+
   async function handleNext() {
     if (step === 1 && validateStep1()) {
       setStep(2);
     } else if (step === 2 && validateStep2()) {
-      // Register with Cognito
       setIsSubmitting(true);
       setAuthError("");
       try {
+        // Volvió desde "cambiar email" sin cambiarlo: la cuenta ya existe, solo falta el código
+        if (registrada && registrada.email === formData.email) {
+          await resendSignUpCode(formData.email);
+          irAVerificar();
+          return;
+        }
+
         // Note: custom attributes (businessName, businessType) are not sent
         // to Cognito because they're not defined in the User Pool schema.
         // They will be stored in the app's own database once the backend is available.
         const result = await signUp(formData.email, formData.password);
+        setRegistrada({ email: formData.email, password: formData.password });
+        // El nombre del negocio todavía no viaja a Cognito: queda en este navegador
+        // para que el Dashboard y Configuración muestren el mismo (plan 0.14).
+        guardarNombreNegocio(formData.businessName);
+        guardarTipoNegocio(BUSINESS_TYPE_LABELS[formData.businessType]);
         if (result.userConfirmed) {
-          // No confirmation needed — skip to summary
-          setStep(4);
+          setStep(4); // no hace falta verificar: directo al resumen
         } else {
-          // Needs email confirmation
-          setStep(3);
+          irAVerificar();
         }
       } catch (err: unknown) {
-        const cognitoError = err as { code?: string; message?: string };
+        const cognitoError = err as { code?: string };
         switch (cognitoError.code) {
           case "UsernameExistsException":
-            setAuthError("ya existe una cuenta con este email.");
+            setErrors({ email: "ya existe una cuenta con este email" });
             break;
           case "InvalidPasswordException":
-            setAuthError("la contraseña no cumple los requisitos de seguridad (mayúscula, minúscula, número y símbolo).");
+            setErrors({ password: "la contraseña no cumple los requisitos de seguridad" });
+            break;
+          case "LimitExceededException":
+            setAuthError("hiciste demasiados intentos. esperá unos minutos y volvé a probar.");
             break;
           default:
-            setAuthError(cognitoError.message || "ocurrió un error al crear la cuenta.");
+            setAuthError("no pudimos crear la cuenta. probá de nuevo en unos segundos.");
         }
       } finally {
         setIsSubmitting(false);
@@ -790,34 +643,61 @@ export default function OnboardingPage() {
   async function handleConfirmCode(code: string) {
     setIsSubmitting(true);
     setAuthError("");
+    setInfo("");
     try {
       await confirmSignUp(formData.email, code);
       setStep(4);
     } catch (err: unknown) {
-      const cognitoError = err as { code?: string; message?: string };
+      const cognitoError = err as { code?: string };
       switch (cognitoError.code) {
         case "CodeMismatchException":
           setAuthError("el código ingresado es incorrecto.");
           break;
         case "ExpiredCodeException":
-          setAuthError("el código expiró. solicitá uno nuevo.");
+          setAuthError("el código venció. pedí uno nuevo con «reenviar código».");
           break;
         default:
-          setAuthError(cognitoError.message || "ocurrió un error al verificar el código.");
+          setAuthError("no pudimos verificar el código. probá de nuevo en unos segundos.");
       }
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  async function handleResendCode() {
+    setIsSubmitting(true);
+    setAuthError("");
+    setInfo("");
+    try {
+      await resendSignUpCode(formData.email);
+      setInfo("te enviamos un código nuevo.");
+      setEsperaReenvio(ESPERA_REENVIO);
+    } catch (err: unknown) {
+      const cognitoError = err as { code?: string };
+      setAuthError(
+        cognitoError.code === "LimitExceededException"
+          ? "hiciste demasiados intentos. esperá unos minutos y volvé a probar."
+          : "no pudimos reenviar el código. probá de nuevo en unos segundos."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function handleChangeEmail() {
+    setAuthError("");
+    setInfo("");
+    setStep(2);
+  }
+
   async function handleFinish() {
     setIsSubmitting(true);
     try {
-      // Auto-login after registration
-      await signIn(formData.email, formData.password);
+      // Ingreso automático después del registro
+      await signIn(formData.email, registrada?.password ?? formData.password);
       router.push("/dashboard");
     } catch {
-      // If auto-login fails, redirect to login page
+      // Si falla, que ingrese a mano
       router.push("/login");
     } finally {
       setIsSubmitting(false);
@@ -828,24 +708,21 @@ export default function OnboardingPage() {
     <main
       id="onboarding-page"
       className="min-h-screen flex items-center justify-center px-4"
-      style={{ backgroundColor: "var(--color-bg)" }}
+      style={{ backgroundColor: "var(--color-bg)", paddingTop: "24px", paddingBottom: "24px" }}
     >
       <div
         id="onboarding-card"
         style={{
           width: "100%",
-          maxWidth: "410px",
+          maxWidth: "400px",
           backgroundColor: "var(--color-surface)",
           border: "1px solid var(--color-border)",
           borderRadius: "var(--radius-2xl)",
-          padding: "36px 32px 28px",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
+          padding: "36px 36px 30px",
         }}
       >
         <BrandMark />
-        <ProgressBar step={step} />
+        <StepProgress step={step} total={TOTAL_STEPS} />
 
         {step === 1 && (
           <Step1 data={formData} errors={errors} onUpdate={updateData} onNext={handleNext} />
@@ -856,6 +733,10 @@ export default function OnboardingPage() {
             errors={errors}
             onUpdate={updateData}
             onNext={handleNext}
+            onBack={() => {
+              setAuthError("");
+              setStep(1);
+            }}
             loading={isSubmitting}
             authError={authError}
           />
@@ -864,8 +745,12 @@ export default function OnboardingPage() {
           <StepConfirmation
             email={formData.email}
             onConfirm={handleConfirmCode}
+            onResend={handleResendCode}
+            onChangeEmail={handleChangeEmail}
             loading={isSubmitting}
             authError={authError}
+            info={info}
+            esperaReenvio={esperaReenvio}
           />
         )}
         {step === 4 && (
@@ -878,7 +763,7 @@ export default function OnboardingPage() {
               fontSize: "13px",
               textAlign: "center",
               color: "var(--color-text-secondary)",
-              margin: "24px 0 0",
+              margin: "20px 0 0",
             }}
           >
             ¿ya tenés una cuenta?{" "}
@@ -886,7 +771,7 @@ export default function OnboardingPage() {
               id="onboarding-login-link"
               href="/login"
               style={{
-                color: "var(--color-accent)",
+                color: "var(--color-accent-dark)",
                 fontWeight: 500,
                 textDecoration: "none",
               }}
@@ -896,9 +781,6 @@ export default function OnboardingPage() {
           </p>
         )}
       </div>
-
-      {/* Spinner keyframe */}
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </main>
   );
 }

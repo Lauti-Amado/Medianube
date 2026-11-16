@@ -509,3 +509,38 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Verificación en consola y URL pública:** se probó primero la Lambda desde la consola y luego el endpoint público `GET /clima?usuarioID=user_test_123`, comprobando que devuelve los 7 días de pronóstico de Open-Meteo para La Plata y escribe la caché en `Medianube-Clima`.
 - **Prueba de degradación elegante:** se probó en el navegador apuntando temporalmente a una URL inválida (`/climaX`), confirmando que el bloque de clima muestra el estado de error con opción de reintentar mientras las predicciones de demanda y el gráfico se siguen renderizando sin romperse.
 - **Limpieza visual en `/demanda`:** se quitó el ítem "Histórico" de la leyenda del gráfico (ya que solo se grafican los días predichos) y se renombró el botón "Recalcular con IA" a "Actualizar" para no prometer una corrida del modelo que ocurre por lote. Se documentó el estado de los recursos manuales en `docs/DESPLIEGUE-MANUAL.md`.
+
+## 15/11/2026 - Despliegue manual de la predicción de demanda (`predecirDemanda`)
+
+**Problema abordado:** `/demanda` mostraba predicciones cargadas a mano y vencidas, porque `predecirDemanda` nunca se había desplegado. El código asumía tablas que no existían en AWS (`Medianube-Productos` con `usuarioID`, `Medianube-Ventas`) y `deploy.sh` no se podía usar: CloudShell está bloqueado y el script chocaría con las tablas, rutas y la Lambda `sugerirPrecios-dev` (Gemini) creadas a mano.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic) en Claude Code.
+*Prompt:* "Sigamos con la tarea 3 en una rama nueva. Una vez que quede el código te voy a pedir ayuda paso por paso para los pasos de la consola, hasta culminar la tarea 3." Se le pasaron los `.zip` de las Lambdas y capturas de la consola de AWS.
+
+**Código / Arquitectura generada:**
+- **Catálogo real:** `listarProductos` pasa de una Query por `usuarioID` a un Scan proyectado y paginado sobre la tabla `Producto` (global, PK `productoID`), la misma que usa el motor de precios. Nuevo parámetro `TablaCatalogoNombre` en `template.yaml` y permiso `dynamodb:Scan` sobre esa tabla.
+- **Datos de prueba:** `seed-ventas.mjs` usa los `productoID` reales de `Producto`, para que Demanda y Precios muestren los mismos productos.
+- **Guía de consola:** tabla `Medianube-Ventas`, función `predecirDemanda-dev` (arm64, 256 MB, 5 min, 10 variables de entorno), rol con política en línea de mínimo privilegio y regla programada clásica `cron(30 8 * * ? *)`. Quedó documentado en `docs/DESPLIEGUE-MANUAL.md`.
+
+**Validación y Corrección Humana:**
+- **Permisos excesivos:** la consola creó la función con un rol que tenía `PowerUserAccess`. Como el rol era exclusivo de la función, se agregó la política en línea con los permisos del template y se quitó `PowerUserAccess`.
+- **Política equivocada:** al adjuntar la política de logs se eligió `AWSLambdaBasicDurableExecutionRolePolicy`; se reemplazó por `AWSLambdaBasicExecutionRole`.
+- **Sin CloudShell para el seed:** se usó un usuario IAM temporal desde la PC y se eliminó, junto con su clave, al terminar la carga.
+- **Bus en lugar de regla:** en EventBridge se creó primero un bus de eventos personalizado, que no programa nada. Se borró y se creó una regla programada en el bus `default`.
+- **Disparador "faltante":** después de crear la regla, la Lambda mostraba 0 desencadenadores. Antes de agregar otro desde la Lambda, que habría duplicado el destino y corrido el modelo dos veces por noche, se revisó la pestaña Destinos de la regla: el destino estaba bien y, al volver a cargar la Lambda, apareció el desencadenador.
+- **Verificación real:** `GET /demanda?usuarioID=user_test_123` devuelve 49 predicciones (7 productos × 7 días) con una precisión de backtest de 0,946, calculada por el modelo y no cargada a mano.
+- **Pendiente:** `template.yaml` sigue sin coincidir con lo desplegado a mano (nombres de tablas, rutas, Lambdas de consola), así que `deploy.sh` no se puede correr hasta alinearlo o importar los recursos al stack.
+
+## 15/11/2026 - Refresco programado del clima a las 05:00 (`obtenerClima`)
+
+**Problema abordado:** la predicción de demanda de las 05:30 usa el pronóstico guardado en `Medianube-Clima`, pero en AWS no existía la regla de las 05:00 que lo refresca: la tabla solo se actualizaba cuando alguien abría `/clima`.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic) en Claude Code. *Prompt:* "Tarea 5 (clima)", con el `.zip` de la Lambda desplegada y capturas de la consola.
+
+**Código / Arquitectura generada:** sin cambios de código. Se revisó el bundle desplegado de `obtenerClima` (reconoce `source: aws.events` y ejecuta `refrescarTodos`), se comparó su rol con `RolObtenerClima` del template y se guió la creación de la regla `medianube-refresco-clima-dev` con `cron(0 8 * * ? *)`.
+
+**Validación y Corrección Humana:**
+- **Timeout como condición silenciosa:** el refresco corta cuando quedan menos de 10 s de ejecución. Con el timeout por defecto de Lambda (3 s) habría devuelto `pendientes: 1` sin actualizar a nadie y sin error visible. Se verificó que la función tiene 20 s, como el template, antes de crear la regla.
+- **Política compartida:** la política de DynamoDB del rol está asociada a dos entidades. Se revisó su JSON en lugar de editarla; ya tenía el `Scan` sobre Configuración que necesita el refresco, así que no se tocó.
+- **Entrada de la regla:** la guía anterior proponía cargar `refresco-programado.json` como entrada personalizada. Se descartó: la regla clásica ya envía `source: aws.events`, y ese archivo solo se usó como evento de prueba.
+- **Prueba antes de programar:** se probó la Lambda con el evento programado antes de crear la regla: `actualizados 1, pendientes 0, fallidos []`.

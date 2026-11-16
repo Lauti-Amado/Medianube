@@ -1,1628 +1,703 @@
-
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
-import { useAuth } from "../../lib/auth-context";
 import {
   sugerirPreciosConIA,
   aplicarPrecioIndividual,
   type ResultadoPrecios,
   type SugerenciaPrecio,
-  type ResultadoAplicarPrecio,
 } from "../../lib/precios";
-import EstadoApi from "../../src/src/components/ui/EstadoApi";
+import { formatMoneda } from "../../lib/formato";
+import PageHeader from "../../src/src/components/ui/PageHeader";
+import Badge from "../../src/src/components/ui/Badge";
+import Button from "../../src/src/components/ui/Button";
+import Alert from "../../src/src/components/ui/Alert";
+import ConfirmDialog from "../../src/src/components/ui/ConfirmDialog";
+import Icon from "../../src/src/components/ui/Icon";
+import KpiCard from "../../src/src/components/ui/KpiCard";
+import Segmented from "../../src/src/components/ui/Segmented";
+import { SkeletonRows } from "../../src/src/components/ui/Skeleton";
+import { useToast } from "../../src/src/components/ui/Toast";
 
-// ── Estilos compartidos ──────────────────────────────────────────────────────
+type Filtro = "todos" | "revisar" | "estables";
 
-const iconStyle: React.CSSProperties = {
-  fontFamily: "Material Symbols Outlined",
-  fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
-  fontSize: "16px",
-  lineHeight: 1,
-  userSelect: "none",
+// Igual a lo que dura en pantalla un toast con acción: mientras se puede "deshacer",
+// el precio todavía no se mandó al servidor (la API no tiene forma de revertirlo).
+const VENTANA_DESHACER_MS = 8000;
+
+const GRID = "minmax(0, 2fr) 96px 96px 104px 92px 130px 170px";
+
+const th: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: "16px",
+  fontWeight: 500,
+  color: "var(--color-text-secondary)",
+  textAlign: "right",
+  whiteSpace: "nowrap",
 };
 
-const badgeStyle = (bg: string, text: string): React.CSSProperties => ({
-  backgroundColor: bg,
-  color: text,
-  fontSize: "11px",
-  fontWeight: 600,
-  padding: "3px 8px",
-  borderRadius: "var(--radius-full)",
-  display: "inline-flex",
+const groupHeader: React.CSSProperties = {
+  display: "flex",
   alignItems: "center",
-  gap: "4px",
-  whiteSpace: "nowrap",
-});
-
-const sectionCard: React.CSSProperties = {
-  backgroundColor: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "18px 20px",
-  boxSizing: "border-box",
+  justifyContent: "space-between",
+  gap: 12,
+  minHeight: 44,
+  padding: "6px 16px",
+  borderTop: "1px solid var(--color-border)",
+  backgroundColor: "var(--color-bg)",
+  fontSize: 12,
+  lineHeight: "16px",
+  fontWeight: 500,
 };
 
 // ── Funciones auxiliares ─────────────────────────────────────────────────────
 
-function formatARS(val: number | null | undefined): string {
-  if (val === null || val === undefined || !Number.isFinite(val)) {
-    return "-";
-  }
-
-  return new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    maximumFractionDigits: 0,
-  }).format(val);
+function formatPct(val: number | null | undefined, conSigno = true): string {
+  if (val == null || !Number.isFinite(val)) return "—";
+  const abs = Math.abs(val).toFixed(1).replace(".", ",");
+  if (!conSigno) return `${val < 0 ? "−" : ""}${abs}%`;
+  if (Math.abs(val) < 0.05) return "0%";
+  return `${val > 0 ? "+" : "−"}${abs}%`;
 }
 
-function formatPct(val: number | null | undefined): string {
-  if (val === null || val === undefined || !Number.isFinite(val)) {
-    return "-";
-  }
-
-  const sign = val > 0 ? "+" : "";
-
-  return `${sign}${val.toFixed(1)}%`;
-}
-
-function formatFecha(fecha: string): string {
+function formatActualizado(fecha: string): string {
   const date = new Date(fecha);
+  if (Number.isNaN(date.getTime())) return "";
+  const dia = new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit" }).format(date);
+  const hora = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  return `actualizado ${dia}, ${hora}`;
+}
 
-  if (Number.isNaN(date.getTime())) {
-    return fecha;
-  }
-
-  return new Intl.DateTimeFormat("es-AR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
+/** Margen sobre el precio de venta, en %. */
+function margen(precio: number, costo: number): number | null {
+  return precio > 0 ? ((precio - costo) / precio) * 100 : null;
 }
 
 function esAjusteRecomendado(item: SugerenciaPrecio): boolean {
-  return (
-    Math.abs(item.variacionPrecio) >= 2 ||
-    item.superaTopeSuba ||
-    item.precioActual < item.costoActual
-  );
+  return Math.abs(item.variacionPrecio) >= 2 || item.superaTopeSuba || item.precioActual < item.costoActual;
 }
 
-function colorConfianza(confianza: string): {
-  background: string;
-  text: string;
-} {
-  switch (confianza) {
-    case "alta":
-      return {
-        background: "var(--color-success-bg)",
-        text: "var(--color-success-text)",
-      };
-
-    case "media":
-      return {
-        background: "var(--color-neutral-bg)",
-        text: "var(--color-neutral-text)",
-      };
-
-    default:
-      return {
-        background: "var(--color-warning-bg)",
-        text: "var(--color-warning-text)",
-      };
-  }
+/** "te-con-leche" → "te con leche": de los productos sin costo solo llega el identificador. */
+function nombreDesdeId(id: string): string {
+  return id.replace(/[-_]+/g, " ");
 }
 
-// ── Página de sugerencias de precios ─────────────────────────────────────────
+// ── Página ───────────────────────────────────────────────────────────────────
 
 export default function PreciosPage() {
-  const { user } = useAuth();
+  const toast = useToast();
 
-  // Resultado de la Lambda.
   const [resultado, setResultado] = useState<ResultadoPrecios | null>(null);
-
-  // Estados de carga y errores.
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Productos que se están aplicando.
-  const [productosAplicando, setProductosAplicando] = useState<Set<string>>(
-    new Set()
-  );
 
-  // Productos que ya fueron aplicados correctamente.
-  const [productosAplicados, setProductosAplicados] = useState<Set<string>>(
-    new Set()
-  );
+  const [busqueda, setBusqueda] = useState("");
+  const [filtro, setFiltro] = useState<Filtro>("todos");
+  const [abierto, setAbierto] = useState<string | null>(null); // fila con "por qué" desplegado
+  const [porConfirmar, setPorConfirmar] = useState<SugerenciaPrecio[] | null>(null);
 
-  // Mensaje de resultado de la aplicación.
-  const [mensajeAplicacion, setMensajeAplicacion] = useState<{
-    tipo: "success" | "error";
-    texto: string;
-  } | null>(null);
+  // Precios aplicados en esta visita. Se marcan apenas se confirma; el envío real
+  // espera a que pase la ventana de "deshacer".
+  const [aplicados, setAplicados] = useState<Set<string>>(new Set());
+  const [enviosPendientes, setEnviosPendientes] = useState(0);
+  const lotes = useRef(new Set<{ timer: ReturnType<typeof setTimeout>; enviar: () => Promise<void> }>());
+  const montado = useRef(true);
 
-  // Filtros y búsqueda.
-  const [busqueda, setBusqueda] = useState<string>("");
-  const [filtroEstado, setFiltroEstado] = useState<
-    "todos" | "ajustar" | "estable"
-  >("todos");
-
-  // ── Consulta a AWS ─────────────────────────────────────────────────────────
+  // ── Consulta ───────────────────────────────────────────────────────────────
 
   const consultarSugerencias = useCallback(async () => {
     setLoading(true);
     setError(null);
-
     try {
-      const res = await sugerirPreciosConIA(undefined, user?.sub);
-
-      setResultado(res);
+      setResultado(await sugerirPreciosConIA());
+      setAplicados(new Set());
+      setAbierto(null);
     } catch (err: unknown) {
-      const mensaje =
-        err instanceof Error
-          ? err.message
-          : "Error al conectar con el servicio de precios.";
-
-      setError(mensaje);
+      setError(err instanceof Error ? err.message : "No pudimos conectar con el servicio de precios.");
     } finally {
       setLoading(false);
     }
-  }, [user?.sub]);
+  }, []);
 
-  // Primera consulta al entrar en la pantalla.
   useEffect(() => {
     void consultarSugerencias();
   }, [consultarSugerencias]);
 
-  const handleAplicarPrecio = async (productoID: string) => {
-    if (!resultado?.sugerenciaPrecioID) {
-      setMensajeAplicacion({
-        tipo: "error",
-        texto: "No se encontró el identificador de la sugerencia."
+  // Al salir de la pantalla, lo que estaba esperando la ventana de "deshacer" se envía ya
+  useEffect(() => {
+    montado.current = true;
+    const pendientes = lotes.current;
+    return () => {
+      montado.current = false;
+      pendientes.forEach((lote) => {
+        clearTimeout(lote.timer);
+        void lote.enviar();
       });
+      pendientes.clear();
+    };
+  }, []);
+
+  // ── Aplicar precios ────────────────────────────────────────────────────────
+
+  function aplicar(items: SugerenciaPrecio[]) {
+    const sugerenciaID = resultado?.sugerenciaPrecioID;
+    setPorConfirmar(null);
+    if (!sugerenciaID) {
+      toast({ tone: "error", message: "No pudimos aplicar el precio. Recalculá las sugerencias y probá de nuevo." });
       return;
     }
 
-    if (productosAplicados.has(productoID)) {
-      return;
-    }
+    const ids = items.map((i) => i.productoID);
+    const marcar = (aplicado: boolean, cuales: string[]) =>
+      setAplicados((prev) => {
+        const next = new Set(prev);
+        cuales.forEach((id) => (aplicado ? next.add(id) : next.delete(id)));
+        return next;
+      });
 
-    setProductosAplicando((prev) => {
-      const next = new Set(prev);
-      next.add(productoID);
-      return next;
+    const lote = {
+      timer: setTimeout(() => void lote.enviar(), VENTANA_DESHACER_MS),
+      enviar: async () => {
+        lotes.current.delete(lote);
+        const fallidos: SugerenciaPrecio[] = [];
+        for (const item of items) {
+          try {
+            await aplicarPrecioIndividual(sugerenciaID, item.productoID);
+          } catch {
+            fallidos.push(item);
+          }
+        }
+        if (!montado.current) return;
+        setEnviosPendientes((n) => n - 1);
+        if (fallidos.length > 0) {
+          marcar(false, fallidos.map((i) => i.productoID));
+          toast({
+            tone: "error",
+            message:
+              fallidos.length === 1
+                ? `No pudimos aplicar el precio de ${fallidos[0].nombre}. Probá de nuevo.`
+                : `No pudimos aplicar ${fallidos.length} precios. Probá de nuevo.`,
+          });
+        }
+      },
+    };
+    lotes.current.add(lote);
+    setEnviosPendientes((n) => n + 1);
+    marcar(true, ids);
+
+    toast({
+      message:
+        items.length === 1 ? (
+          <>Precio de <strong>{items[0].nombre}</strong> aplicado: {formatMoneda(items[0].precioSugerido)}</>
+        ) : (
+          `${items.length} precios aplicados`
+        ),
+      action: {
+        label: "deshacer",
+        onClick: () => {
+          if (!lotes.current.delete(lote)) return; // ya se envió
+          clearTimeout(lote.timer);
+          setEnviosPendientes((n) => n - 1);
+          marcar(false, ids);
+        },
+      },
     });
-
-    setMensajeAplicacion(null);
-
-    try {
-      const respuesta = await aplicarPrecioIndividual(
-        resultado.sugerenciaPrecioID,
-        productoID
-      );
-
-      setProductosAplicados((prev) => {
-        const next = new Set(prev);
-        next.add(productoID);
-        return next;
-      });
-
-      setMensajeAplicacion({
-        tipo: "success",
-        texto: `${productoID}: precio actualizado correctamente a ${formatARS(
-          respuesta.precioNuevo
-        )}.`
-      });
-
-    } catch (err: unknown) {
-      const mensaje =
-        err instanceof Error
-          ? err.message
-          : "No se pudo aplicar el precio.";
-
-      setMensajeAplicacion({
-        tipo: "error",
-        texto: mensaje
-      });
-
-    } finally {
-      setProductosAplicando((prev) => {
-        const next = new Set(prev);
-        next.delete(productoID);
-        return next;
-      });
-    }
-  };
+  }
 
   // ── Datos derivados ────────────────────────────────────────────────────────
 
-  const sugerencias = resultado?.sugerencias ?? [];
+  const sugerencias = useMemo(() => resultado?.sugerencias ?? [], [resultado]);
   const productosSinCosto = resultado?.productosSinCosto ?? [];
 
-  const totalAjustar = useMemo(
-    () => sugerencias.filter(esAjusteRecomendado).length,
-    [sugerencias]
+  const requiereRevision = useCallback(
+    (item: SugerenciaPrecio) => esAjusteRecomendado(item) && !aplicados.has(item.productoID),
+    [aplicados]
   );
 
-  const totalEstable = sugerencias.length - totalAjustar;
+  const aRevisar = useMemo(() => sugerencias.filter(requiereRevision), [sugerencias, requiereRevision]);
+  const totalEstables = sugerencias.length - aRevisar.length;
 
-  const promedioAumento = useMemo(() => {
-    const productosConAumento = sugerencias.filter(
-      (item) => item.variacionPrecio > 0
-    );
+  const margenPromedio = useMemo(() => {
+    const margenes = sugerencias
+      .map((i) => (aplicados.has(i.productoID) ? i.margenResultante : margen(i.precioActual, i.costoActual)))
+      .filter((m): m is number => m != null);
+    return margenes.length > 0 ? margenes.reduce((a, b) => a + b, 0) / margenes.length : null;
+  }, [sugerencias, aplicados]);
 
-    if (productosConAumento.length === 0) {
-      return 0;
-    }
+  const aumentos = aRevisar.filter((i) => i.variacionPrecio > 0);
+  const aumentoPromedio =
+    aumentos.length > 0 ? aumentos.reduce((a, i) => a + i.variacionPrecio, 0) / aumentos.length : null;
 
-    const suma = productosConAumento.reduce(
-      (acumulado, item) => acumulado + item.variacionPrecio,
-      0
-    );
-
-    return suma / productosConAumento.length;
-  }, [sugerencias]);
-
-  const sugerenciasFiltradas = useMemo(() => {
+  const visibles = useMemo(() => {
+    const query = busqueda.trim().toLowerCase();
     return sugerencias.filter((item) => {
-      const requiereAjuste = esAjusteRecomendado(item);
-
-      if (filtroEstado === "ajustar" && !requiereAjuste) {
-        return false;
-      }
-
-      if (filtroEstado === "estable" && requiereAjuste) {
-        return false;
-      }
-
-      if (busqueda.trim()) {
-        const query = busqueda.trim().toLowerCase();
-
-        const coincideNombre = item.nombre
-          .toLowerCase()
-          .includes(query);
-
-        const coincideID = item.productoID
-          .toLowerCase()
-          .includes(query);
-
-        const coincideRazonamiento = item.razonamiento
-          .toLowerCase()
-          .includes(query);
-
-        if (
-          !coincideNombre &&
-          !coincideID &&
-          !coincideRazonamiento
-        ) {
-          return false;
-        }
-      }
-
-      return true;
+      const revisar = requiereRevision(item);
+      if (filtro === "revisar" && !revisar) return false;
+      if (filtro === "estables" && revisar) return false;
+      return !query || item.nombre.toLowerCase().includes(query);
     });
-  }, [sugerencias, filtroEstado, busqueda]);
+  }, [sugerencias, filtro, busqueda, requiereRevision]);
 
-  // ── Renderizado ────────────────────────────────────────────────────────────
+  const visiblesRevisar = visibles.filter(requiereRevision);
+  const visiblesEstables = visibles.filter((i) => !requiereRevision(i));
+  const hayResultados = !loading && sugerencias.length > 0;
 
-  return (
-    <AppLayout activeTab="precios">
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "20px",
-          maxWidth: "1200px",
-        }}
-      >
-        {/* ── 1. Encabezado ──────────────────────────────────────────────── */}
+  // ── Filas ──────────────────────────────────────────────────────────────────
 
+  function fila(item: SugerenciaPrecio, primera: boolean) {
+    const revisar = requiereRevision(item);
+    const aplicado = aplicados.has(item.productoID);
+    const expandido = abierto === item.productoID;
+    const precioVigente = aplicado ? item.precioSugerido : item.precioActual;
+    const margenVigente = aplicado ? item.margenResultante : margen(item.precioActual, item.costoActual);
+    const fondo = revisar ? "var(--color-surface-flag)" : undefined;
+    const detalleId = `porque-${item.productoID}`;
+
+    return (
+      <Fragment key={item.productoID}>
         <div
+          role="row"
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            flexWrap: "wrap",
-            gap: "12px",
+            display: "grid",
+            gridTemplateColumns: GRID,
+            columnGap: 16,
+            alignItems: "center",
+            padding: "10px 16px",
+            borderTop: primera ? "none" : "1px solid var(--color-border-subtle)",
+            backgroundColor: fondo,
+            fontSize: 13,
+            lineHeight: "18px",
+            color: "var(--color-text-primary)",
           }}
         >
-          <div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                flexWrap: "wrap",
-              }}
-            >
-              <h1
-                style={{
-                  fontSize: "22px",
-                  fontWeight: 600,
-                  color: "var(--color-text-primary)",
-                  margin: 0,
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                Sugerencias de Precios con IA
-              </h1>
-
-              <span
-                style={badgeStyle(
-                  "var(--color-accent-tint)",
-                  "var(--color-accent-dark)"
-                )}
-              >
-                <span style={{ ...iconStyle, fontSize: "13px" }}>
-                  auto_awesome
-                </span>
-                Gemini
-              </span>
-            </div>
-
-            <p
-              style={{
-                fontSize: "13px",
-                color: "var(--color-text-secondary)",
-                margin: "4px 0 0",
-              }}
-            >
-              Precios sugeridos según recetas, costos de ingredientes y
-              márgenes de rentabilidad.
-            </p>
+          <div role="cell" style={{ minWidth: 0 }}>
+            <p style={{ margin: 0, fontWeight: revisar ? 500 : 400, overflowWrap: "anywhere" }}>{item.nombre}</p>
+            {item.unidadProducto && (
+              <p style={{ margin: "2px 0 0", fontSize: 12, lineHeight: "16px", color: "var(--color-text-secondary)" }}>
+                por {item.unidadProducto.toLowerCase()}
+              </p>
+            )}
           </div>
 
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => void consultarSugerencias()}
+          <div role="cell" className="num" style={{ textAlign: "right" }}>
+            {formatMoneda(item.costoActual)}
+            {item.variacionCosto != null && Math.abs(item.variacionCosto) >= 0.05 && (
+              <p
+                style={{
+                  margin: "2px 0 0",
+                  fontSize: 11,
+                  lineHeight: "14px",
+                  color: item.variacionCosto > 0 ? "var(--color-warning-text)" : "var(--color-text-secondary)",
+                }}
+              >
+                <span className="sr-only">variación del costo: </span>
+                {formatPct(item.variacionCosto)}
+              </p>
+            )}
+          </div>
+
+          <span role="cell" className="num" style={{ textAlign: "right" }}>{formatMoneda(precioVigente)}</span>
+
+          <span
+            role="cell"
+            className="num"
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-              padding: "8px 16px",
-              backgroundColor: "var(--color-accent)",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              color: "#FFFFFF",
-              fontSize: "13px",
-              fontWeight: 500,
-              cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading ? 0.7 : 1,
+              textAlign: "right",
+              fontWeight: revisar ? 500 : 400,
+              color: revisar ? "var(--color-accent-dark)" : "var(--color-text-secondary)",
             }}
           >
-            <span style={{ ...iconStyle, fontSize: "15px" }}>
-              refresh
-            </span>
+            {formatMoneda(item.precioSugerido)}
+          </span>
 
-            {loading ? "Calculando sugerencias..." : "Recalcular con IA"}
-          </button>
+          <span
+            role="cell"
+            className="num"
+            style={{
+              textAlign: "right",
+              fontWeight: revisar ? 500 : 400,
+              color: revisar && item.variacionPrecio > 0 ? "var(--color-warning-text)" : "var(--color-text-secondary)",
+            }}
+          >
+            {aplicado ? "0%" : formatPct(item.variacionPrecio)}
+          </span>
+
+          <span role="cell" className="num" style={{ textAlign: "right" }}>
+            {formatPct(margenVigente, false)}
+            {revisar && (
+              <>
+                {" "}
+                <span aria-hidden="true">→</span>
+                <span className="sr-only"> pasa a </span>{" "}
+                <span style={{ fontWeight: 500, color: "var(--color-success-text)" }}>{formatPct(item.margenResultante, false)}</span>
+              </>
+            )}
+          </span>
+
+          <div role="cell" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+            {revisar ? (
+              <>
+                <Button
+                  id={`btn-porque-${item.productoID}`}
+                  variant="text"
+                  size="sm"
+                  iconEnd={expandido ? "expand_less" : "expand_more"}
+                  aria-expanded={expandido}
+                  aria-controls={detalleId}
+                  onClick={() => setAbierto(expandido ? null : item.productoID)}
+                >
+                  por qué
+                </Button>
+                <Button
+                  id={`btn-aplicar-${item.productoID}`}
+                  variant="accent"
+                  size="sm"
+                  aria-label={`aplicar ${formatMoneda(item.precioSugerido)} a ${item.nombre}`}
+                  onClick={() => setPorConfirmar([item])}
+                >
+                  aplicar
+                </Button>
+              </>
+            ) : aplicado ? (
+              <Badge tone="success">aplicado</Badge>
+            ) : (
+              <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>al día</span>
+            )}
+          </div>
         </div>
 
-        {/* ── 2. Información de la última generación ─────────────────────── */}
-
-        {resultado && (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "8px",
-              padding: "10px 14px",
-              backgroundColor: "var(--color-success-bg)",
-              borderLeft: "4px solid var(--color-success-text)",
-              borderRadius: "var(--radius-md)",
-              fontSize: "12px",
-              color: "var(--color-success-text)",
-            }}
-          >
+        {revisar && expandido && (
+          <div id={detalleId} style={{ padding: "0 16px 12px", backgroundColor: fondo }}>
             <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
+                padding: "12px 14px",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-lg)",
+                backgroundColor: "var(--color-accent-tint)",
+                color: "var(--color-text-callout)",
+                fontSize: 13,
+                lineHeight: "19px",
               }}
             >
-              <span style={iconStyle}>check_circle</span>
-
-              <span>
-                <strong>Generación completada:</strong>{" "}
-                {resultado.mensaje}
-              </span>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "flex-end",
-                gap: "3px",
-              }}
-            >
-              <span>
-                {resultado.fechaGeneracion
-                  ? formatFecha(resultado.fechaGeneracion)
-                  : "Fecha no disponible"}
-              </span>
-
-              {resultado.sugerenciaPrecioID && (
-                <span
-                  style={{
-                    fontSize: "10px",
-                    opacity: 0.8,
-                  }}
-                  title={resultado.sugerenciaPrecioID}
-                >
-                  ID: {resultado.sugerenciaPrecioID.slice(0, 18)}...
-                </span>
+              <p style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 0 4px", fontWeight: 500, color: "var(--color-accent-dark)" }}>
+                <Icon name="auto_awesome" size={14} />
+                Por qué este precio
+              </p>
+              <p style={{ margin: 0, maxWidth: "80ch" }}>
+                {item.razonamiento || "La IA no dio una explicación para esta sugerencia."}
+              </p>
+              {item.superaTopeSuba && (
+                <p style={{ margin: "6px 0 0", fontWeight: 500, color: "var(--color-warning-text)" }}>
+                  La suba supera el tope de aumento que usamos como referencia.
+                </p>
               )}
             </div>
           </div>
         )}
+      </Fragment>
+    );
+  }
 
-        {/* ── 3. Indicadores principales ─────────────────────────────────── */}
+  // ── Renderizado ────────────────────────────────────────────────────────────
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-            gap: "12px",
-          }}
-        >
-          {/* Productos que requieren revisión */}
+  const uno = porConfirmar?.length === 1 ? porConfirmar[0] : null;
 
-          <div style={sectionCard}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "8px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  color: "var(--color-text-secondary)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}
+  return (
+    <AppLayout activeTab="precios">
+      <div style={{ maxWidth: 1200 }}>
+        <PageHeader
+          title="Precios sugeridos"
+          badge={<Badge tone="ia">IA</Badge>}
+          subtitle="Calculados con tus recetas, el costo de tus insumos y tu margen objetivo."
+          action={
+            <>
+              {resultado?.fechaGeneracion && !loading && (
+                <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+                  {formatActualizado(resultado.fechaGeneracion)}
+                </span>
+              )}
+              <Button
+                id="btn-recalcular"
+                variant="primary"
+                icon="refresh"
+                disabled={loading || enviosPendientes > 0}
+                onClick={() => void consultarSugerencias()}
               >
-                Requieren revisión
-              </span>
+                {loading ? "calculando…" : "recalcular con IA"}
+              </Button>
+            </>
+          }
+        />
 
-              <span
-                style={{
-                  ...iconStyle,
-                  color:
-                    totalAjustar > 0
-                      ? "var(--color-warning-text)"
-                      : "var(--color-success-text)",
-                }}
-              >
-                warning
-              </span>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: "8px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "24px",
-                  fontWeight: 700,
-                  color: "var(--color-text-primary)",
-                }}
-              >
-                {loading ? "..." : totalAjustar}
-              </span>
-
-              <span
-                style={{
-                  fontSize: "12px",
-                  color: "var(--color-text-muted)",
-                }}
-              >
-                productos
-              </span>
-            </div>
-
-            <p
-              style={{
-                fontSize: "11px",
-                color: "var(--color-text-secondary)",
-                margin: "4px 0 0",
-              }}
-            >
-              Variaciones relevantes o productos con pérdida.
-            </p>
-          </div>
-
-          {/* Productos estables */}
-
-          <div style={sectionCard}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "8px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  color: "var(--color-text-secondary)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}
-              >
-                Precios estables
-              </span>
-
-              <span
-                style={{
-                  ...iconStyle,
-                  color: "var(--color-success-text)",
-                }}
-              >
-                check
-              </span>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: "8px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "24px",
-                  fontWeight: 700,
-                  color: "var(--color-text-primary)",
-                }}
-              >
-                {loading ? "..." : totalEstable}
-              </span>
-
-              <span
-                style={{
-                  fontSize: "12px",
-                  color: "var(--color-text-muted)",
-                }}
-              >
-                productos
-              </span>
-            </div>
-
-            <p
-              style={{
-                fontSize: "11px",
-                color: "var(--color-text-secondary)",
-                margin: "4px 0 0",
-              }}
-            >
-              Variación inferior al umbral de revisión.
-            </p>
-          </div>
-
-          {/* Aumento promedio */}
-
-          <div style={sectionCard}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "8px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  color: "var(--color-text-secondary)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}
-              >
-                Aumento promedio
-              </span>
-
-              <span
-                style={{
-                  ...iconStyle,
-                  color: "var(--color-accent)",
-                }}
-              >
-                trending_up
-              </span>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: "8px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "24px",
-                  fontWeight: 700,
-                  color: "var(--color-text-primary)",
-                }}
-              >
-                {loading
-                  ? "..."
-                  : promedioAumento > 0
-                    ? `+${promedioAumento.toFixed(1)}%`
-                    : "0%"}
-              </span>
-            </div>
-
-            <p
-              style={{
-                fontSize: "11px",
-                color: "var(--color-text-secondary)",
-                margin: "4px 0 0",
-              }}
-            >
-              Promedio de las variaciones positivas sugeridas.
-            </p>
-          </div>
-
-          {/* Productos sin costo */}
-
-          <div style={sectionCard}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "8px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  color: "var(--color-text-secondary)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}
-              >
-                Sin costo calculable
-              </span>
-
-              <span
-                style={{
-                  ...iconStyle,
-                  color:
-                    productosSinCosto.length > 0
-                      ? "var(--color-warning-text)"
-                      : "var(--color-text-muted)",
-                }}
-              >
-                inventory_2
-              </span>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: "8px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "24px",
-                  fontWeight: 700,
-                  color: "var(--color-text-primary)",
-                }}
-              >
-                {loading ? "..." : productosSinCosto.length}
-              </span>
-
-              <span
-                style={{
-                  fontSize: "12px",
-                  color: "var(--color-text-muted)",
-                }}
-              >
-                productos
-              </span>
-            </div>
-
-            <p
-              style={{
-                fontSize: "11px",
-                color: "var(--color-text-secondary)",
-                margin: "4px 0 0",
-              }}
-            >
-              No pudieron recibir una sugerencia de precio.
-            </p>
-          </div>
+        {/* ── Indicadores ──────────────────────────────────────────────────── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 16 }}>
+          <KpiCard
+            id="kpi-revisar"
+            label="Requieren revisión"
+            loading={loading}
+            isAlert={aRevisar.length > 0}
+            value={<>{aRevisar.length} <small>{aRevisar.length === 1 ? "producto" : "productos"}</small></>}
+            footer={aRevisar.length > 0 ? "la IA sugiere cambiar su precio" : "ningún precio para cambiar"}
+            onClick={aRevisar.length > 0 ? () => setFiltro("revisar") : undefined}
+          />
+          <KpiCard
+            id="kpi-margen"
+            label="Margen promedio"
+            loading={loading}
+            value={formatPct(margenPromedio, false)}
+            footer="con tus precios de hoy"
+          />
+          <KpiCard
+            id="kpi-aumento"
+            label="Aumento promedio sugerido"
+            ia
+            loading={loading}
+            value={aumentoPromedio != null ? formatPct(aumentoPromedio) : "—"}
+            footer={
+              aumentos.length === 0
+                ? "sin aumentos sugeridos"
+                : aumentos.length === 1
+                  ? "en 1 producto a revisar"
+                  : `en ${aumentos.length} productos a revisar`
+            }
+          />
         </div>
 
-        {/* ── 4. Error de conexión ───────────────────────────────────────── */}
-
+        {/* ── Error ────────────────────────────────────────────────────────── */}
         {error && (
-          <div
-            style={{
-              ...sectionCard,
-              backgroundColor: "var(--color-warning-bg)",
-              borderColor: "var(--color-warning-text)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-start",
-                gap: "10px",
-              }}
+          <div style={{ marginBottom: 16 }}>
+            <Alert
+              tone="warning"
+              icon="error"
+              action={
+                <Button variant="warning" size="sm" disabled={loading} onClick={() => void consultarSugerencias()}>
+                  reintentar
+                </Button>
+              }
             >
-              <span
-                style={{
-                  ...iconStyle,
-                  color: "var(--color-warning-text)",
-                  fontSize: "20px",
-                }}
-              >
-                error
+              <strong>No pudimos calcular los precios sugeridos.</strong> {error}
+            </Alert>
+          </div>
+        )}
+
+        {/* ── Todo al día ──────────────────────────────────────────────────── */}
+        {hayResultados && aRevisar.length === 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <Alert id="precios-al-dia" tone="success">
+              Todos tus precios están al día: la IA no sugiere ningún cambio.
+            </Alert>
+          </div>
+        )}
+
+        {/* ── Filtros ──────────────────────────────────────────────────────── */}
+        {hayResultados && (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+            <Segmented
+              label="estado del precio"
+              value={filtro}
+              onChange={setFiltro}
+              options={[
+                { value: "todos", label: "todos", count: sugerencias.length },
+                { value: "revisar", label: "requieren revisión", count: aRevisar.length },
+                { value: "estables", label: "estables", count: totalEstables },
+              ]}
+            />
+            <div style={{ position: "relative", width: 260, maxWidth: "100%" }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", display: "flex", color: "var(--color-text-secondary)", pointerEvents: "none" }}>
+                <Icon name="search" size={16} />
               </span>
+              <input
+                id="buscar-producto"
+                type="text"
+                role="searchbox"
+                aria-label="buscar producto"
+                placeholder="buscar producto"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                className="input"
+                style={{ padding: "7px 10px 7px 32px" }}
+              />
+            </div>
+          </div>
+        )}
 
-              <div style={{ flex: 1 }}>
-                <h3
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: 600,
-                    color: "var(--color-warning-text)",
-                    margin: "0 0 4px",
-                  }}
-                >
-                  Error al obtener las sugerencias
-                </h3>
+        {/* ── Tabla ────────────────────────────────────────────────────────── */}
+        {(loading || hayResultados) && (
+          <section id="tabla-precios" className="card" style={{ overflow: "hidden" }}>
+            <div style={{ overflowX: "auto" }}>
+              <div role="table" aria-label="Precios sugeridos por producto" style={{ minWidth: 860 }}>
+                <div role="row" style={{ display: "grid", gridTemplateColumns: GRID, columnGap: 16, padding: "10px 16px" }}>
+                  <span role="columnheader" style={{ ...th, textAlign: "left" }}>Producto</span>
+                  <span role="columnheader" style={th}>Costo</span>
+                  <span role="columnheader" style={th}>Actual</span>
+                  <span role="columnheader" style={th}>Sugerido</span>
+                  <span role="columnheader" style={th}>Variación</span>
+                  <span role="columnheader" style={th}>Margen</span>
+                  <span role="columnheader" className="sr-only">Acciones</span>
+                </div>
 
-                <p
-                  style={{
-                    fontSize: "12px",
-                    color: "var(--color-warning-text)",
-                    margin: 0,
-                  }}
-                >
-                  {error}
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => void consultarSugerencias()}
-                  disabled={loading}
-                  style={{
-                    marginTop: "10px",
-                    padding: "6px 12px",
-                    backgroundColor: "var(--color-warning-text)",
-                    color: "#FFFFFF",
-                    border: "none",
-                    borderRadius: "var(--radius-sm)",
-                    fontSize: "12px",
-                    fontWeight: 500,
-                    cursor: "pointer",
-                  }}
-                >
-                  Reintentar consulta
-                </button>
+                {loading ? (
+                  <div style={{ borderTop: "1px solid var(--color-border)" }}>
+                    <p style={{ margin: 0, padding: "14px 16px 2px", fontSize: 13, color: "var(--color-text-secondary)" }}>
+                      Calculando precios sugeridos… puede tardar unos segundos.
+                    </p>
+                    <SkeletonRows rows={5} label="Calculando precios sugeridos" />
+                  </div>
+                ) : visibles.length === 0 ? (
+                  <div className="empty-state" style={{ borderTop: "1px solid var(--color-border)" }}>
+                    <p>No hay productos con esos filtros.</p>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setFiltro("todos");
+                        setBusqueda("");
+                      }}
+                    >
+                      limpiar filtros
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {visiblesRevisar.length > 0 && (
+                      <>
+                        <div style={{ ...groupHeader, color: "var(--color-warning-text)" }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <Icon name="warning" size={14} />
+                            Requieren revisión ({visiblesRevisar.length})
+                          </span>
+                          {visiblesRevisar.length > 1 && (
+                            <Button id="btn-aplicar-todos" variant="text" size="sm" onClick={() => setPorConfirmar(visiblesRevisar)}>
+                              aplicar los {visiblesRevisar.length} sugeridos
+                            </Button>
+                          )}
+                        </div>
+                        {visiblesRevisar.map((item, i) => fila(item, i === 0))}
+                      </>
+                    )}
+                    {visiblesEstables.length > 0 && (
+                      <>
+                        <div style={{ ...groupHeader, color: "var(--color-success-text)" }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <Icon name="check_circle" size={14} />
+                            Estables ({visiblesEstables.length}): la IA no sugiere cambios
+                          </span>
+                        </div>
+                        {visiblesEstables.map((item, i) => fila(item, i === 0))}
+                      </>
+                    )}
+                  </>
+                )}
               </div>
             </div>
-          </div>
+          </section>
         )}
 
-        {mensajeAplicacion && (
-          <div
-            style={{
-              padding: "12px 16px",
-              borderRadius: "var(--radius-md)",
-              backgroundColor:
-                mensajeAplicacion.tipo === "success"
-                  ? "var(--color-success-bg)"
-                  : "var(--color-warning-bg)",
-              color:
-                mensajeAplicacion.tipo === "success"
-                  ? "var(--color-success-text)"
-                  : "var(--color-warning-text)",
-              fontSize: "13px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px"
-            }}
-          >
-            <span style={iconStyle}>
-              {mensajeAplicacion.tipo === "success"
-                ? "check_circle"
-                : "error"}
-            </span>
-
-            {mensajeAplicacion.texto}
-          </div>
+        {/* ── Sin sugerencias ──────────────────────────────────────────────── */}
+        {!loading && !error && sugerencias.length === 0 && (
+          <section className="card">
+            <div className="empty-state">
+              <p>
+                Todavía no hay precios para sugerir. Cargá tus productos con su receta y subí facturas de compra para que
+                podamos calcular los costos.
+              </p>
+              <Button variant="primary" size="sm" icon="upload_file" href="/compras/subir">
+                subir una factura
+              </Button>
+            </div>
+          </section>
         )}
 
-        {/* ── 5. Filtros y búsqueda ──────────────────────────────────────── */}
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: "12px",
-          }}
-        >
-          {/* Filtros de estado */}
-
-          <div
-            style={{
-              display: "flex",
-              gap: "6px",
-              backgroundColor: "var(--color-neutral-bg)",
-              padding: "3px",
-              borderRadius: "var(--radius-md)",
-              flexWrap: "wrap",
-            }}
-          >
-            {(
-              [
-                { value: "todos", label: `Todos (${sugerencias.length})` },
-                {
-                  value: "ajustar",
-                  label: `Requieren revisión (${totalAjustar})`,
-                },
-                {
-                  value: "estable",
-                  label: `Estables (${totalEstable})`,
-                },
-              ] as const
-            ).map((filtro) => {
-              const activo = filtroEstado === filtro.value;
-
-              return (
-                <button
-                  key={filtro.value}
-                  type="button"
-                  onClick={() => setFiltroEstado(filtro.value)}
-                  style={{
-                    padding: "6px 12px",
-                    fontSize: "12px",
-                    fontWeight: activo ? 600 : 400,
-                    backgroundColor: activo
-                      ? "var(--color-surface)"
-                      : "transparent",
-                    color: activo
-                      ? "var(--color-text-primary)"
-                      : "var(--color-text-secondary)",
-                    border: "none",
-                    borderRadius: "var(--radius-sm)",
-                    cursor: "pointer",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  {filtro.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Buscador */}
-
-          <div
-            style={{
-              position: "relative",
-              minWidth: "220px",
-              maxWidth: "100%",
-            }}
-          >
-            <input
-              type="text"
-              placeholder="Buscar producto..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "7px 10px 7px 30px",
-                fontSize: "12px",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-sm)",
-                backgroundColor: "var(--color-surface)",
-                color: "var(--color-text-primary)",
-                boxSizing: "border-box",
-              }}
-            />
-
-            <span
-              style={{
-                ...iconStyle,
-                position: "absolute",
-                left: "8px",
-                top: "50%",
-                transform: "translateY(-50%)",
-                color: "var(--color-text-muted)",
-                fontSize: "15px",
-              }}
-            >
-              search
-            </span>
-          </div>
-        </div>
-
-        {/* ── 6. Indicador de carga ──────────────────────────────────────── */}
-
-        {loading && (
-          <div
-            style={{
-              ...sectionCard,
-              textAlign: "center",
-              padding: "40px",
-            }}
-          >
-            <span
-              style={{
-                ...iconStyle,
-                fontSize: "28px",
-                color: "var(--color-accent)",
-              }}
-            >
-              auto_awesome
-            </span>
-
-            <p
-              style={{
-                fontSize: "14px",
-                fontWeight: 500,
-                color: "var(--color-text-primary)",
-                marginTop: "12px",
-              }}
-            >
-              Analizando productos con Gemini...
-            </p>
-
-            <p
-              style={{
-                fontSize: "12px",
-                color: "var(--color-text-muted)",
-                margin: "4px 0 0",
-              }}
-            >
-              Evaluando recetas, gastos registrados y márgenes de
-              rentabilidad.
-            </p>
-          </div>
-        )}
-
-        {/* ── 7. Estado vacío ───────────────────────────────────────────── */}
-
-        {!loading && !error && sugerenciasFiltradas.length === 0 && (
-          <div
-            style={{
-              ...sectionCard,
-              textAlign: "center",
-              padding: "40px",
-            }}
-          >
-            <span
-              style={{
-                ...iconStyle,
-                fontSize: "32px",
-                color: "var(--color-text-muted)",
-              }}
-            >
-              sell
-            </span>
-
-            <p
-              style={{
-                fontSize: "14px",
-                fontWeight: 500,
-                color: "var(--color-text-primary)",
-                marginTop: "8px",
-              }}
-            >
-              No se encontraron sugerencias.
-            </p>
-
-            <p
-              style={{
-                fontSize: "12px",
-                color: "var(--color-text-muted)",
-                margin: "4px 0 12px",
-              }}
-            >
-              Probá restableciendo los filtros o generando un nuevo análisis.
-            </p>
-
-            <button
-              type="button"
-              onClick={() => {
-                setFiltroEstado("todos");
-                setBusqueda("");
-              }}
-              style={{
-                padding: "6px 14px",
-                backgroundColor: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-sm)",
-                fontSize: "12px",
-                color: "var(--color-text-primary)",
-                cursor: "pointer",
-              }}
-            >
-              Restablecer filtros
-            </button>
-          </div>
-        )}
-
-        {/* ── 8. Tarjetas de sugerencias ─────────────────────────────────── */}
-
-        {!loading && sugerenciasFiltradas.length > 0 && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-              gap: "16px",
-            }}
-          >
-            {sugerenciasFiltradas.map((item) => {
-              const requiereAjuste = esAjusteRecomendado(item);
-
-              const colorEstado = requiereAjuste
-                ? {
-                    background: "var(--color-warning-bg)",
-                    text: "var(--color-warning-text)",
-                  }
-                : {
-                    background: "var(--color-success-bg)",
-                    text: "var(--color-success-text)",
-                  };
-
-              const colorNivel = colorConfianza(item.confianza);
-
-              return (
-                <div
-                  key={item.productoID}
-                  style={{
-                    ...sectionCard,
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "space-between",
-                    gap: "14px",
-                    borderLeft: requiereAjuste
-                      ? "4px solid var(--color-warning-text)"
-                      : "4px solid var(--color-success-text)",
-                  }}
-                >
-                  {/* Encabezado de la tarjeta */}
-
-                  <div>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        gap: "8px",
-                        marginBottom: "8px",
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: "10px",
-                          fontWeight: 700,
-                          color: "var(--color-text-muted)",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.08em",
-                        }}
-                      >
-                        {item.unidadProducto || "Producto"}
-                      </span>
-
-                      <div
-                        style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          justifyContent: "flex-end",
-                          gap: "5px",
-                        }}
-                      >
-                        <span
-                          style={badgeStyle(
-                            colorEstado.background,
-                            colorEstado.text
-                          )}
-                        >
-                          {requiereAjuste ? "Revisar precio" : "Estable"}
-                        </span>
-
-                        <span
-                          style={badgeStyle(
-                            colorNivel.background,
-                            colorNivel.text
-                          )}
-                          title={`Confianza del análisis: ${item.confianza}`}
-                        >
-                          Confianza {item.confianza}
-                        </span>
-                      </div>
-                    </div>
-
-                    <h2
-                      style={{
-                        fontSize: "16px",
-                        fontWeight: 600,
-                        color: "var(--color-text-primary)",
-                        margin: "0 0 4px",
-                      }}
-                    >
-                      {item.nombre}
-                    </h2>
-
-                    <p
-                      style={{
-                        fontSize: "10px",
-                        color: "var(--color-text-muted)",
-                        margin: 0,
-                      }}
-                    >
-                      ID: {item.productoID}
-                    </p>
-                  </div>
-
-                  {/* Comparación de costos y precios */}
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                      gap: "6px",
-                      backgroundColor: "var(--color-bg)",
-                      padding: "10px 8px",
-                      borderRadius: "var(--radius-md)",
-                      border: "1px solid var(--color-border-subtle)",
-                      textAlign: "center",
-                    }}
-                  >
-                    {/* Costo actual */}
-
-                    <div>
-                      <p
-                        style={{
-                          fontSize: "10px",
-                          fontWeight: 600,
-                          color: "var(--color-text-muted)",
-                          textTransform: "uppercase",
-                          margin: "0 0 4px",
-                        }}
-                      >
-                        Costo
-                      </p>
-
-                      <p
-                        style={{
-                          fontSize: "13px",
-                          fontWeight: 600,
-                          color: "var(--color-text-primary)",
-                          margin: 0,
-                          overflowWrap: "anywhere",
-                        }}
-                      >
-                        {formatARS(item.costoActual)}
-                      </p>
-
-                      {item.variacionCosto !== null && (
-                        <p
-                          style={{
-                            fontSize: "10px",
-                            color:
-                              item.variacionCosto > 0
-                                ? "var(--color-warning-text)"
-                                : "var(--color-text-secondary)",
-                            margin: "3px 0 0",
-                          }}
-                        >
-                          {formatPct(item.variacionCosto)}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Precio actual */}
-
-                    <div>
-                      <p
-                        style={{
-                          fontSize: "10px",
-                          fontWeight: 600,
-                          color: "var(--color-text-muted)",
-                          textTransform: "uppercase",
-                          margin: "0 0 4px",
-                        }}
-                      >
-                        Actual
-                      </p>
-
-                      <p
-                        style={{
-                          fontSize: "13px",
-                          fontWeight: 600,
-                          color: "var(--color-text-secondary)",
-                          margin: 0,
-                          overflowWrap: "anywhere",
-                        }}
-                      >
-                        {formatARS(item.precioActual)}
-                      </p>
-
-                      <p
-                        style={{
-                          fontSize: "10px",
-                          color: "var(--color-text-muted)",
-                          margin: "3px 0 0",
-                        }}
-                      >
-                        Vigente
-                      </p>
-                    </div>
-
-                    {/* Precio sugerido */}
-
-                    <div>
-                      <p
-                        style={{
-                          fontSize: "10px",
-                          fontWeight: 600,
-                          color: "var(--color-accent-dark)",
-                          textTransform: "uppercase",
-                          margin: "0 0 4px",
-                        }}
-                      >
-                        Sugerido
-                      </p>
-
-                      <p
-                        style={{
-                          fontSize: "15px",
-                          fontWeight: 700,
-                          color: requiereAjuste
-                            ? "var(--color-warning-text)"
-                            : "var(--color-success-text)",
-                          margin: 0,
-                          overflowWrap: "anywhere",
-                        }}
-                      >
-                        {formatARS(item.precioSugerido)}
-                      </p>
-
-                      <p
-                        style={{
-                          fontSize: "10px",
-                          fontWeight: 600,
-                          color:
-                            item.variacionPrecio > 0
-                              ? "var(--color-warning-text)"
-                              : "var(--color-text-secondary)",
-                          margin: "3px 0 0",
-                        }}
-                      >
-                        {formatPct(item.variacionPrecio)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Margen resultante */}
-
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "9px 11px",
-                      backgroundColor: "var(--color-neutral-bg)",
-                      borderRadius: "var(--radius-md)",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: "11px",
-                        color: "var(--color-text-secondary)",
-                      }}
-                    >
-                      Margen resultante
-                    </span>
-
-                    <strong
-                      style={{
-                        fontSize: "14px",
-                        color: "var(--color-text-primary)",
-                      }}
-                    >
-                      {item.margenResultante.toFixed(1)}%
-                    </strong>
-                  </div>
-
-                  {/* Razonamiento de Gemini */}
-
-                  <div
-                    style={{
-                      padding: "10px 12px",
-                      backgroundColor: "var(--color-accent-tint)",
-                      borderRadius: "var(--radius-md)",
-                      fontSize: "12px",
-                      lineHeight: "1.45",
-                      color: "var(--color-text-callout)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "5px",
-                        marginBottom: "5px",
-                      }}
-                    >
-                      <span
-                        style={{
-                          ...iconStyle,
-                          fontSize: "14px",
-                          color: "var(--color-accent-dark)",
-                        }}
-                      >
-                        auto_awesome
-                      </span>
-
-                      <strong
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 600,
-                          color: "var(--color-accent-dark)",
-                        }}
-                      >
-                        Análisis de Gemini
-                      </strong>
-                    </div>
-
-                    <p style={{ margin: 0 }}>
-                      {item.razonamiento ||
-                        "No se proporcionó una explicación para esta sugerencia."}
-                    </p>
-
-                    {item.superaTopeSuba && (
-                      <p
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 600,
-                          color: "var(--color-warning-text)",
-                          marginTop: "7px",
-                          marginBottom: 0,
-                        }}
-                      >
-                        Atención: la variación supera el tope de aumento de
-                        referencia.
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Aplicación del precio */}
-
-                    
-                  {/* Aplicación del precio */}
-
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: "8px",
-                      borderTop: "1px solid var(--color-border-subtle)",
-                      paddingTop: "10px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: "11px",
-                        color: productosAplicados.has(item.productoID)
-                          ? "var(--color-success-text)"
-                          : "var(--color-text-muted)",
-                      }}
-                    >
-                      {productosAplicados.has(item.productoID)
-                        ? "Precio aplicado"
-                        : "Pendiente de aprobación"}
-                    </span>
-
-                    <button
-                      type="button"
-                      disabled={
-                        productosAplicados.has(item.productoID) ||
-                        productosAplicando.has(item.productoID)
-                      }
-                      onClick={() => void handleAplicarPrecio(item.productoID)}
-                      style={{
-                        padding: "7px 14px",
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        backgroundColor: productosAplicados.has(item.productoID)
-                          ? "var(--color-success-bg)"
-                          : "var(--color-accent)",
-                        color: productosAplicados.has(item.productoID)
-                          ? "var(--color-success-text)"
-                          : "#FFFFFF",
-                        border: "none",
-                        borderRadius: "var(--radius-sm)",
-                        cursor:
-                          productosAplicados.has(item.productoID) ||
-                          productosAplicando.has(item.productoID)
-                            ? "not-allowed"
-                            : "pointer",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "5px",
-                        opacity: productosAplicando.has(item.productoID) ? 0.7 : 1,
-                      }}
-                    >
-                      <span style={{ ...iconStyle, fontSize: "14px" }}>
-                        {productosAplicados.has(item.productoID)
-                          ? "check_circle"
-                          : productosAplicando.has(item.productoID)
-                            ? "progress_activity"
-                            : "check"}
-                      </span>
-
-                      {productosAplicados.has(item.productoID)
-                        ? "Aplicado"
-                        : productosAplicando.has(item.productoID)
-                          ? "Aplicando..."
-                          : "Aplicar precio"}
-                    </button>
-                  </div>
-
-                  
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* ── 9. Productos sin costo calculable ──────────────────────────── */}
-
+        {/* ── Productos sin costo ──────────────────────────────────────────── */}
         {!loading && productosSinCosto.length > 0 && (
-          <div
-            style={{
-              ...sectionCard,
-              borderColor: "var(--color-warning-text)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                marginBottom: "12px",
-              }}
-            >
-              <span
-                style={{
-                  ...iconStyle,
-                  color: "var(--color-warning-text)",
-                  fontSize: "20px",
-                }}
-              >
-                warning
-              </span>
-
-              <h3
-                style={{
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "var(--color-text-primary)",
-                  margin: 0,
-                }}
-              >
-                Productos sin costo calculable
-              </h3>
-            </div>
-
-            <p
-              style={{
-                fontSize: "12px",
-                color: "var(--color-text-secondary)",
-                margin: "0 0 12px",
-              }}
-            >
-              Estos productos no recibieron una sugerencia. Revisá los
-              motivos y verificá que tengan su correspondiente registro
-              en las tablas Producto y Receta-nueva.
-            </p>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "8px",
-              }}
-            >
-              {productosSinCosto.map((producto, index) => (
-                <div
-                  key={`${producto.productoID}-${index}`}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: "8px",
-                    padding: "10px 12px",
-                    backgroundColor: "var(--color-bg)",
-                    borderRadius: "var(--radius-md)",
-                    border: "1px solid var(--color-border-subtle)",
-                  }}
-                >
-                  <div>
-                    <strong
-                      style={{
-                        fontSize: "12px",
-                        color: "var(--color-text-primary)",
-                      }}
-                    >
-                      {producto.productoID}
-                    </strong>
-
-                    <p
-                      style={{
-                        fontSize: "11px",
-                        color: "var(--color-text-secondary)",
-                        margin: "3px 0 0",
-                      }}
-                    >
-                      {producto.motivo}
-                    </p>
-                  </div>
-
-                  <span
-                    style={badgeStyle(
-                      "var(--color-warning-bg)",
-                      "var(--color-warning-text)"
-                    )}
-                  >
-                    Sin analizar
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── 10. Información de la generación ───────────────────────────── */}
-
-        {resultado && !loading && (
-          <div
-            style={{
-              fontSize: "11px",
-              color: "var(--color-text-muted)",
-              textAlign: "right",
-              paddingBottom: "8px",
-            }}
-          >
-            {resultado.cantidadProductosAnalizados} productos analizados ·{" "}
-            {resultado.cantidadSugerencias} sugerencias generadas · Estado:{" "}
-            {resultado.estado}
+          <div style={{ marginTop: 16 }}>
+            <Alert id="precios-sin-costo" tone="warning">
+              <strong>
+                {productosSinCosto.length === 1
+                  ? "1 producto quedó sin precio sugerido"
+                  : `${productosSinCosto.length} productos quedaron sin precio sugerido`}
+              </strong>
+              : {productosSinCosto.map((p) => nombreDesdeId(p.productoID)).join(", ")}. Cargá la receta de{" "}
+              {productosSinCosto.length === 1 ? "este producto" : "estos productos"} para que podamos calcular su costo.
+            </Alert>
           </div>
         )}
       </div>
+
+      {/* ── Confirmación ───────────────────────────────────────────────────── */}
+      <ConfirmDialog
+        open={porConfirmar != null}
+        title={uno ? "¿Aplicar el precio sugerido?" : `¿Aplicar los ${porConfirmar?.length ?? 0} precios sugeridos?`}
+        description={uno ? `${uno.nombre}${uno.unidadProducto ? `, por ${uno.unidadProducto.toLowerCase()}` : ""}` : undefined}
+        confirmLabel={uno ? `aplicar ${formatMoneda(uno.precioSugerido)}` : `aplicar los ${porConfirmar?.length ?? 0} precios`}
+        onCancel={() => setPorConfirmar(null)}
+        onConfirm={() => porConfirmar && aplicar(porConfirmar)}
+      >
+        {uno ? (
+          <>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "12px 14px",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-lg)",
+                backgroundColor: "var(--color-bg)",
+              }}
+            >
+              <div>
+                <p style={{ margin: 0, fontSize: 12, lineHeight: "16px", color: "var(--color-text-secondary)" }}>precio actual</p>
+                <p className="num" style={{ margin: "2px 0 0", fontSize: 18, lineHeight: "24px", fontWeight: 500 }}>{formatMoneda(uno.precioActual)}</p>
+              </div>
+              <span style={{ display: "flex", color: "var(--color-text-secondary)" }}>
+                <Icon name="arrow_forward" size={20} />
+              </span>
+              <div>
+                <p style={{ margin: 0, fontSize: 12, lineHeight: "16px", color: "var(--color-text-secondary)" }}>nuevo precio</p>
+                <p className="num" style={{ margin: "2px 0 0", fontSize: 18, lineHeight: "24px", fontWeight: 500, color: "var(--color-accent-dark)" }}>
+                  {formatMoneda(uno.precioSugerido)}{" "}
+                  <span style={{ fontSize: 12, fontWeight: 400, color: uno.variacionPrecio > 0 ? "var(--color-warning-text)" : "var(--color-text-secondary)" }}>
+                    {formatPct(uno.variacionPrecio)}
+                  </span>
+                </p>
+              </div>
+            </div>
+            <p className="num" style={{ display: "flex", justifyContent: "space-between", gap: 12, margin: "14px 0 0", fontSize: 13, lineHeight: "18px" }}>
+              <span style={{ color: "var(--color-text-secondary)" }}>margen</span>
+              <span>
+                {formatPct(margen(uno.precioActual, uno.costoActual), false)} <span aria-hidden="true">→</span>
+                <span className="sr-only"> pasa a </span>{" "}
+                <span style={{ fontWeight: 500, color: "var(--color-success-text)" }}>{formatPct(uno.margenResultante, false)}</span>
+              </span>
+            </p>
+            {uno.superaTopeSuba && (
+              <p className="field-error" style={{ marginTop: 10 }}>
+                <Icon name="warning" size={14} />
+                La suba supera el tope de aumento que usamos como referencia.
+              </p>
+            )}
+          </>
+        ) : (
+          <ul className="num" style={{ display: "flex", flexDirection: "column", gap: 8, margin: 0, padding: 0, listStyle: "none", fontSize: 13, lineHeight: "18px" }}>
+            {porConfirmar?.map((item) => (
+              <li key={item.productoID} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{item.nombre}</span>
+                <span style={{ whiteSpace: "nowrap" }}>
+                  {formatMoneda(item.precioActual)} <span aria-hidden="true">→</span>
+                  <span className="sr-only"> pasa a </span>{" "}
+                  <span style={{ fontWeight: 500, color: "var(--color-accent-dark)" }}>{formatMoneda(item.precioSugerido)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="field-help" style={{ marginTop: 14 }}>
+          {uno ? "El nuevo precio se usa" : "Los nuevos precios se usan"} desde ahora en tus reportes y sugerencias. Vas a poder
+          deshacerlo durante unos segundos.
+        </p>
+      </ConfirmDialog>
     </AppLayout>
   );
 }

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Login · mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+</head>
+<body>
+<div class="auth-stage" style="padding-top:64px">
+
+  <!-- Estado normal -->
+  <div class="auth-col">
+    <div class="cap">estado normal</div>
+    <div class="auth">
+      <div class="brand anchor"><span class="pin">1</span>
+        <img src="../../../../frontend/public/medianube-logo.jpeg" alt="medianube">
+        <span>medianube</span>
+      </div>
+      <div style="text-align:center;margin-bottom:24px">
+        <h1>iniciar sesión</h1>
+        <p class="lead">accedé al panel de tu panadería</p>
+      </div>
+      <div class="col gap16">
+        <div class="field">
+          <label class="label">email</label>
+          <div class="in focus ph-text">horno@panaderia.com</div>
+        </div>
+        <div class="field">
+          <div class="row between anchor">
+            <label class="label">contraseña</label>
+            <span class="f12 tacc">¿olvidaste tu contraseña?</span>
+            <span class="pin out-r">2</span>
+          </div>
+          <div class="in ph-text">••••••••<span class="ms end">visibility</span></div>
+        </div>
+        <div class="btn btn-primary btn-block" style="margin-top:4px;padding:11px">iniciar sesión<span class="ms s14">arrow_forward</span></div>
+      </div>
+      <p class="foot">¿no tenés cuenta? <a>registrate</a></p>
+    </div>
+  </div>
+
+  <!-- Estado de error -->
+  <div class="auth-col">
+    <div class="cap">estado de error</div>
+    <div class="auth">
+      <div class="brand">
+        <img src="../../../../frontend/public/medianube-logo.jpeg" alt="medianube">
+        <span>medianube</span>
+      </div>
+      <div style="text-align:center;margin-bottom:24px">
+        <h1>iniciar sesión</h1>
+        <p class="lead">accedé al panel de tu panadería</p>
+      </div>
+      <div class="alert alert-warn anchor" style="margin-bottom:16px;align-items:flex-start;padding:10px 12px">
+        <span class="pin out-l">3</span><span class="pin out-r">4</span>
+        <span class="ms s18" style="margin-top:1px">error</span>
+        <span class="f13">email o contraseña incorrectos. revisalos o
+          <span style="font-weight:500;text-decoration:underline;text-underline-offset:2px">recuperá tu contraseña</span>.</span>
+      </div>
+      <div class="col gap16">
+        <div class="field">
+          <label class="label">email</label>
+          <div class="in">rodrigo@panaderiacentral.com</div>
+        </div>
+        <div class="field">
+          <div class="row between">
+            <label class="label">contraseña</label>
+            <span class="f12 tacc">¿olvidaste tu contraseña?</span>
+          </div>
+          <div class="in err">••••••••••<span class="ms end">visibility</span></div>
+        </div>
+        <div class="btn btn-primary btn-block" style="margin-top:4px;padding:11px">iniciar sesión<span class="ms s14">arrow_forward</span></div>
+      </div>
+      <p class="foot">¿no tenés cuenta? <a>registrate</a></p>
+    </div>
+  </div>
+
+</div>
+<script src="shell.js"></script>
+</body>
+</html>

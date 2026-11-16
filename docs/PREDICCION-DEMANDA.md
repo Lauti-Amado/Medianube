@@ -56,8 +56,15 @@ una regla de EventBridge.**
 - **Pendiente de confirmar:** todavía no hay un productor oficial de `Medianube-Ventas`. Se asume una fila por
   día y producto con `cantidad`. El adaptador también acepta `unidades` y `cantidadVendida`, y si faltan los
   atributos toma la fecha y el producto de la SK.
-- El frontend sigue con mocks. Para conectarlo alcanza una consulta por `usuarioID` y `fechaProducto BETWEEN hoy AND hoy+6`.
-  Un botón "recalcular con IA" puede reusar `predecirUsuario` detrás de una ruta HTTP.
+- El frontend ya lee las predicciones con `GET /demanda` (Lambda `leerDemanda`).
+  Un botón "recalcular" puede reusar `predecirUsuario` detrás de una ruta HTTP.
+- **Catálogo (15/11/2026):** los nombres de los productos salen de la tabla real `Producto` (PK `productoID`, sin
+  `usuarioID`), la misma que usa el motor de precios. Como es global, `listarProductos` hace un Scan proyectado en
+  lugar de una Query por usuario. `seed-ventas.mjs` usa los mismos `productoID` que esa tabla, para que Demanda y
+  Precios muestren los mismos productos. Cuando el catálogo sea por usuario, hay que volver a una Query.
+- **Despliegue:** sin CloudShell no se usa `deploy.sh`: la función, la tabla `Medianube-Ventas` y la regla de las
+  05:30 se crean a mano desde la consola, con los mismos valores que `template.yaml`. El paso a paso está en
+  `docs/DESPLIEGUE-MANUAL.md`.
 - Para evolucionar a v2: aprender el efecto real de la lluvia con el histórico de clima (hoy la cache dura
   14 días), sumar feriados y comparar cada día la predicción guardada contra la venta real. Hay que subir
   `VERSION_MODELO` en cada cambio.

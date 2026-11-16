@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../../../lib/auth-context";
+import Icon from "../ui/Icon";
 
 export type ActiveTab = "dashboard" | "compras" | "precios" | "demanda" | "configuracion";
 
@@ -19,13 +20,9 @@ const NAV_ITEMS: {
     { tab: "demanda", label: "Demanda", icon: "trending_up", href: "/demanda" },
   ];
 
-const iconStyle: React.CSSProperties = {
-  fontFamily: "Material Symbols Outlined",
-  fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
-  fontSize: "18px",
-  lineHeight: 1,
-  userSelect: "none",
-  flexShrink: 0,
+const divider: React.CSSProperties = {
+  height: "1px",
+  backgroundColor: "var(--color-sidebar-divider)",
 };
 
 export default function Sidebar({ activeTab }: { activeTab: ActiveTab }) {
@@ -39,6 +36,7 @@ export default function Sidebar({ activeTab }: { activeTab: ActiveTab }) {
 
   return (
     <aside
+      className="sidebar"
       style={{
         width: "224px",
         minWidth: "224px",
@@ -53,7 +51,7 @@ export default function Sidebar({ activeTab }: { activeTab: ActiveTab }) {
         boxSizing: "border-box",
       }}
     >
-      {/* ── Brand Mark ───────────────────────────────── */}
+      {/* ── Marca ─────────────────────────────────────── */}
       <div
         style={{
           display: "flex",
@@ -85,7 +83,7 @@ export default function Sidebar({ activeTab }: { activeTab: ActiveTab }) {
         <span
           style={{
             fontSize: "15px",
-            fontWeight: 600,
+            fontWeight: 500,
             color: "var(--color-sidebar-text)",
             letterSpacing: "0.01em",
           }}
@@ -94,113 +92,38 @@ export default function Sidebar({ activeTab }: { activeTab: ActiveTab }) {
         </span>
       </div>
 
-      {/* ── CTA: Subir Factura ────────────────────────── */}
+      {/* ── CTA global: subir factura ─────────────────── */}
       <div style={{ padding: "0 12px", marginBottom: "20px" }}>
-        <Link
-          href="/compras/subir"
-          id="sidebar-upload-invoice"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            padding: "9px 12px",
-            backgroundColor: "var(--color-sidebar-upload-bg)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: "var(--radius-md)",
-            color: "#FFFFFF",
-            fontSize: "13px",
-            fontWeight: 500,
-            textDecoration: "none",
-            transition: "background-color 0.15s",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = "var(--color-sidebar-upload-hover)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = "var(--color-sidebar-upload-bg)";
-          }}
-        >
-          <span style={{ ...iconStyle, color: "#FFFFFF", fontSize: "16px" }}>upload_file</span>
+        <Link href="/compras/subir" id="sidebar-upload-invoice" className="sb-cta">
+          <Icon name="upload_file" size={16} />
           subir factura
         </Link>
       </div>
 
-      {/* ── Divider ───────────────────────────────────── */}
-      <div
-        style={{
-          height: "1px",
-          backgroundColor: "var(--color-sidebar-divider)",
-          margin: "0 12px 14px",
-        }}
-      />
+      <div style={{ ...divider, margin: "0 12px 12px" }} />
 
-      {/* ── Navigation Items ─────────────────────────── */}
-      <nav style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px", padding: "0 8px" }}>
-        <p
-          style={{
-            fontSize: "10px",
-            fontWeight: 600,
-            color: "var(--color-sidebar-text-label)",
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
-            margin: "0 0 8px 10px",
-          }}
-        >
-          Navegación
-        </p>
-        {NAV_ITEMS.map(({ tab, label, icon, href }) => {
-          const isActive = tab === activeTab;
-          return (
-            <Link
-              key={tab}
-              href={href}
-              id={"sidebar-tab-" + tab}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "9px 10px",
-                borderRadius: "var(--radius-md)",
-                backgroundColor: isActive ? "var(--color-sidebar-active-bg)" : "transparent",
-                color: isActive ? "var(--color-sidebar-active-text)" : "var(--color-sidebar-text)",
-                fontSize: "14px",
-                fontWeight: isActive ? 600 : 400,
-                textDecoration: "none",
-                transition: "background-color 0.15s",
-                borderLeft: isActive ? "2px solid var(--color-sidebar-active-border)" : "2px solid transparent",
-              }}
-              onMouseEnter={(e) => {
-                if (!isActive) e.currentTarget.style.backgroundColor = "var(--color-sidebar-hover-bg)";
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) e.currentTarget.style.backgroundColor = "transparent";
-              }}
-            >
-              <span
-                style={{
-                  ...iconStyle,
-                  color: isActive ? "var(--color-sidebar-active-text)" : "var(--color-sidebar-text)",
-                }}
-              >
-                {icon}
-              </span>
-              {label}
-            </Link>
-          );
-        })}
+      {/* ── Navegación ────────────────────────────────── */}
+      <nav
+        aria-label="principal"
+        style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px", padding: "0 8px" }}
+      >
+        {NAV_ITEMS.map(({ tab, label, icon, href }) => (
+          <Link
+            key={tab}
+            href={href}
+            id={"sidebar-tab-" + tab}
+            className="sb-item"
+            aria-current={tab === activeTab ? "page" : undefined}
+          >
+            <Icon name={icon} size={18} />
+            {label}
+          </Link>
+        ))}
       </nav>
 
-      {/* ── Divider bottom ────────────────────────────── */}
-      <div
-        style={{
-          height: "1px",
-          backgroundColor: "var(--color-sidebar-divider)",
-          margin: "12px 12px 0",
-        }}
-      />
+      <div style={{ ...divider, margin: "12px 12px 0" }} />
 
-      {/* ── Bottom Actions ────────────────────────────── */}
+      {/* ── Cuenta ────────────────────────────────────── */}
       <div
         style={{
           display: "flex",
@@ -212,59 +135,17 @@ export default function Sidebar({ activeTab }: { activeTab: ActiveTab }) {
         <Link
           href="/configuracion"
           id="sidebar-settings"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            padding: "9px 10px",
-            borderRadius: "var(--radius-md)",
-            color: "var(--color-sidebar-text)",
-            fontSize: "14px",
-            textDecoration: "none",
-            transition: "background-color 0.15s",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = "var(--color-sidebar-hover-bg)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = "transparent";
-          }}
+          className="sb-item"
+          aria-current={activeTab === "configuracion" ? "page" : undefined}
         >
-          <span style={{ ...iconStyle, color: "var(--color-sidebar-text)" }}>settings</span>
+          <Icon name="settings" size={18} />
           Configuración
         </Link>
-        <button
-          type="button"
-          id="sidebar-logout"
-          onClick={handleLogout}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            padding: "9px 10px",
-            borderRadius: "var(--radius-md)",
-            color: "var(--color-sidebar-text)",
-            fontSize: "14px",
-            textDecoration: "none",
-            transition: "background-color 0.15s",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            width: "100%",
-            textAlign: "left",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = "var(--color-sidebar-hover-bg)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = "transparent";
-          }}
-        >
-          <span style={{ ...iconStyle, color: "var(--color-sidebar-text)" }}>logout</span>
+        <button type="button" id="sidebar-logout" className="sb-item" onClick={handleLogout}>
+          <Icon name="logout" size={18} />
           Cerrar sesión
         </button>
       </div>
     </aside>
   );
 }
-

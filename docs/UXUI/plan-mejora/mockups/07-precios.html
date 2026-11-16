@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Precios sugeridos · mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+  .pr .tr { grid-template-columns: 2fr 96px 96px 104px 92px 140px 160px; }
+  .pr .tr > :nth-child(n+2):nth-child(-n+5) { text-align: right; }
+  .pr .tr > :nth-child(7) { text-align: right; }
+  .why { margin: 0 16px 12px; padding: 12px 14px; background: var(--tint); border: 1px solid var(--border); border-radius: 10px; color: var(--callout); font-size: 13px; line-height: 19px; }
+  .apply { border-color: var(--accent) !important; color: var(--accent-dark) !important; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" data-active="precios"></aside>
+  <main class="main">
+    <div class="wrap">
+
+      <div class="ph">
+        <div>
+          <h1 class="anchor">Precios sugeridos<span class="badge b-ia"><span class="ms">auto_awesome</span>IA</span><span class="pin out-l">1</span></h1>
+          <p>Calculados con tus recetas, el costo de tus insumos y tu margen objetivo.</p>
+        </div>
+        <div class="row gap12">
+          <span class="f12 t2 anchor">actualizado 13/11, 20:45<span class="pin out-l">2</span></span>
+          <span class="btn btn-primary"><span class="ms">refresh</span>recalcular con IA</span>
+        </div>
+      </div>
+
+      <div class="kpis anchor" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+        <span class="pin">3</span>
+        <div class="kpi clickable">
+          <div class="kpi-l">Requieren revisión</div>
+          <div class="kpi-v twarn">2 <small>productos</small></div>
+          <div class="kpi-s">su margen quedó debajo del objetivo</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-l">Margen promedio</div>
+          <div class="kpi-v">55,8%</div>
+          <div class="kpi-s">objetivo según categoría: 40% a 60%</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-l"><span class="ms s14 ia-mark">auto_awesome</span>Aumento promedio sugerido</div>
+          <div class="kpi-v">+12,1%</div>
+          <div class="kpi-s">en los 2 productos a revisar</div>
+        </div>
+      </div>
+
+      <div class="row between" style="margin-bottom:12px">
+        <div class="seg"><span class="on">todos<em>7</em></span><span>requieren revisión<em>2</em></span><span>estables<em>5</em></span></div>
+        <div class="in in-sm ph-text" style="width:260px"><span class="ms">search</span>buscar producto</div>
+      </div>
+
+      <div class="card pr anchor">
+        <span class="pin">4</span>
+        <div class="tr th"><span>Producto</span><span>Costo</span><span>Actual</span><span>Sugerido</span><span>Variación</span><span style="text-align:right">Margen</span><span></span></div>
+
+        <div class="group-h" style="border-top:none">
+          <span class="row gap6 twarn"><span class="ms s14">warning</span>Requieren revisión · 2</span>
+          <span class="btn btn-text btn-sm anchor">aplicar los 2 sugeridos<span class="pin out-r" style="right:-26px">8</span></span>
+        </div>
+
+        <div class="tr flag" style="border-top:none">
+          <div><p class="fw5">Medialunas de manteca</p><p class="sub">por unidad · panadería</p></div>
+          <div><p>$582</p><p class="f11 twarn">+18%</p></div>
+          <span>$850</span>
+          <span class="fw5 tacc-d">$970</span>
+          <span class="twarn fw5">+14,1%</span>
+          <div style="text-align:right"><p>31,5% → <span class="fw5 tok">40%</span></p><p class="f11 t2">objetivo 40%</p></div>
+          <div class="row gap8" style="justify-content:flex-end">
+            <span class="btn btn-text btn-sm" style="color:var(--text-2)">por qué<span class="ms s14">expand_less</span></span>
+            <span class="btn btn-secondary btn-sm apply anchor">aplicar<span class="pin r">7</span></span>
+          </div>
+        </div>
+        <div class="flag" style="padding-bottom:1px;background:#FDF5F1">
+          <div class="why anchor"><span class="pin">5</span>
+            <p class="row gap6 fw5 tacc-d" style="margin-bottom:4px"><span class="ms s14">auto_awesome</span>Por qué este precio</p>
+            <p>La manteca subió 18% en la última compra a Lácteos La Pampa. Con $970 volvés al margen objetivo de panadería (40%) y la suba queda dentro del tope de 15%.</p>
+          </div>
+        </div>
+
+        <div class="tr flag">
+          <div><p class="fw5">Pan francés (kg)</p><p class="sub">por kilo · panadería</p></div>
+          <div><p>$792</p><p class="f11 twarn">+11%</p></div>
+          <span>$1.200</span>
+          <span class="fw5 tacc-d">$1.320</span>
+          <span class="twarn fw5">+10,0%</span>
+          <div style="text-align:right"><p>34,0% → <span class="fw5 tok">40%</span></p><p class="f11 t2">objetivo 40%</p></div>
+          <div class="row gap8" style="justify-content:flex-end">
+            <span class="btn btn-text btn-sm" style="color:var(--text-2)">por qué<span class="ms s14">expand_more</span></span>
+            <span class="btn btn-secondary btn-sm apply">aplicar</span>
+          </div>
+        </div>
+
+        <div class="group-h anchor">
+          <span class="pin">11</span>
+          <span class="row gap6 tok"><span class="ms s14">check_circle</span>Estables · 5 · cubren tu margen objetivo</span>
+          <span></span>
+        </div>
+
+        <div class="tr" style="border-top:none">
+          <div><p>Té con leche</p><p class="sub">por vaso · bebidas</p></div>
+          <span>$527</span><span>$1.318</span><span class="t2">$1.318</span><span class="t2">0%</span>
+          <div style="text-align:right"><p>60,0%</p><p class="f11 t2">objetivo 60%</p></div>
+          <span class="f12 t2">al día</span>
+        </div>
+        <div class="tr">
+          <div><p>Tarta de ricota</p><p class="sub">por porción · pastelería</p></div>
+          <span>$653</span><span>$1.633</span><span class="t2">$1.633</span><span class="t2">0%</span>
+          <div style="text-align:right"><p>60,0%</p><p class="f11 t2">objetivo 45%</p></div>
+          <span class="f12 t2">al día</span>
+        </div>
+        <div class="tr">
+          <div><p>Alfajor de maicena</p><p class="sub">por unidad · pastelería</p></div>
+          <span>$285</span><span>$800</span><span class="t2">$800</span><span class="t2">0%</span>
+          <div style="text-align:right"><p>64,4%</p><p class="f11 t2">objetivo 45%</p></div>
+          <span class="f12 t2">al día</span>
+        </div>
+        <div class="tr">
+          <div><p>Medialuna de jamón y queso</p><p class="sub">por unidad · panadería</p></div>
+          <span>$945</span><span>$2.500</span><span class="t2">$2.500</span><span class="t2">0%</span>
+          <div style="text-align:right"><p>62,2%</p><p class="f11 t2">objetivo 40%</p></div>
+          <span class="f12 t2">al día</span>
+        </div>
+        <div class="tr">
+          <div><p>Café con leche</p><p class="sub">por vaso · bebidas</p></div>
+          <span>$747</span><span>$3.500</span><span class="t2">$3.500</span><span class="t2">0%</span>
+          <div style="text-align:right"><p>78,7%</p><p class="f11 t2">objetivo 60%</p></div>
+          <span class="f12 t2">al día</span>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Popup de confirmación (se ve con ?modal) -->
+<div class="overlay">
+  <div class="dialog">
+    <span class="pin">7</span>
+    <h3>¿Aplicar el precio sugerido?</h3>
+    <p class="t2" style="margin-bottom:16px">Medialunas de manteca · por unidad</p>
+    <div class="cmp">
+      <div><p class="k">precio actual</p><p class="v">$850</p></div>
+      <span class="ms s20 t2">arrow_forward</span>
+      <div><p class="k">nuevo precio</p><p class="v tacc-d">$970 <span class="f12 twarn" style="font-weight:400">+14,1%</span></p></div>
+    </div>
+    <div class="row between" style="margin-top:14px">
+      <span class="t2">margen</span>
+      <span>31,5% → <span class="fw5 tok">40,0%</span> <span class="f12 t2">· cumple el objetivo</span></span>
+    </div>
+    <p class="help" style="margin-top:14px">El nuevo precio se usa desde ahora en tus reportes y sugerencias. Vas a poder deshacerlo durante unos segundos.</p>
+    <div class="row gap10" style="justify-content:flex-end;margin-top:20px">
+      <span class="btn btn-secondary">cancelar</span>
+      <span class="btn btn-primary">aplicar $970</span>
+    </div>
+  </div>
+</div>
+
+<script src="shell.js"></script>
+</body>
+</html>

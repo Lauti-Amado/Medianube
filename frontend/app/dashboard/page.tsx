@@ -2,255 +2,342 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
-import KpiCard from "../../src/src/components/dashboard/KpiCard";
-import DemandChart from "../../src/src/components/dashboard/DemandChart";
+import KpiCard from "../../src/src/components/ui/KpiCard";
+import PageHeader from "../../src/src/components/ui/PageHeader";
+import Card from "../../src/src/components/ui/Card";
+import Badge, { type BadgeTone } from "../../src/src/components/ui/Badge";
+import Button from "../../src/src/components/ui/Button";
+import Icon from "../../src/src/components/ui/Icon";
+import Skeleton, { SkeletonRows } from "../../src/src/components/ui/Skeleton";
+import DemandChart, { DemandLegend, type DemandDay } from "../../src/src/components/dashboard/DemandChart";
+import { useNombreNegocio } from "../../lib/negocio";
+import { formatMoneda } from "../../lib/formato";
+import { COMPRAS_URL, calcularResumen, leerGastos, mapInvoices, recientes, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
+import { DEMANDA_URL, agruparPorDia, isoLocal, resumenSemana, type DemandaApiResponse, type DiaDemanda } from "../../lib/demanda";
 
 // ── Shared styles ─────────────────────────────────────────────────────────
 
-const iconStyle: React.CSSProperties = {
-  fontFamily: "Material Symbols Outlined",
-  fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
-  fontSize: "16px",
-  lineHeight: 1,
-  userSelect: "none",
-};
-
-const sectionCard: React.CSSProperties = {
-  backgroundColor: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "16px",
-};
-
-const sectionHeader: React.CSSProperties = {
-  display: "flex",
+const row: React.CSSProperties = {
+  display: "grid",
   alignItems: "center",
-  justifyContent: "space-between",
-  marginBottom: "12px",
+  columnGap: "12px",
+  padding: "10px 0",
 };
 
-const sectionTitle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "7px",
-  fontSize: "12px",
-  fontWeight: 700,
-  color: "var(--color-text-primary)",
-  textTransform: "uppercase",
-  letterSpacing: "0.07em",
-  margin: 0,
-  paddingLeft: "8px",
-  borderLeft: "2px solid var(--color-accent)",
-};
+const rowDivider: React.CSSProperties = { borderTop: "1px solid var(--color-border-subtle)" };
 
-const badge = (bg: string, text: string): React.CSSProperties => ({
-  backgroundColor: bg,
-  color: text,
-  fontSize: "11px",
-  fontWeight: 500,
-  padding: "2px 7px",
-  borderRadius: "var(--radius-full)",
-});
+const rowTitle: React.CSSProperties = { fontSize: "13px", color: "var(--color-text-primary)", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 
-const viewAllLink: React.CSSProperties = {
-  fontSize: "12px",
-  color: "var(--color-accent)",
-  textDecoration: "none",
-  fontWeight: 500,
-};
+const rowMeta: React.CSSProperties = { fontSize: "12px", lineHeight: "16px", color: "var(--color-text-secondary)", margin: "2px 0 0" };
 
-const dividerRow: React.CSSProperties = {
-  borderTop: "1px solid var(--color-border-subtle)",
-  paddingTop: "10px",
-  marginTop: "10px",
-};
+/** Bloque sin datos o con error: un texto corto y una acción. */
+const estadoBloque: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "4px 0" };
 
-// ── Types & Data Mocks ───────────────────────────────────────────────────
+const textoEstado: React.CSSProperties = { fontSize: "13px", lineHeight: "20px", color: "var(--color-text-secondary)", margin: 0 };
 
-interface PriceSuggestion {
-  id: string;
-  product: string;
-  current: string;
-  suggested: string;
-  variation: string;
-  variationType: "warning" | "neutral" | "success";
-  actionable: boolean;
+// ── Types ─────────────────────────────────────────────────────────────────
+// Los datos salen de GET /compras y GET /demanda, con las mismas funciones que usan esas pantallas
+// (lib/compras y lib/demanda), así los números coinciden. Precios no tiene todavía una lectura sin
+// llamar a la IA (tarea 6a): hasta entonces su bloque solo lleva a la pantalla de Precios.
+
+interface EstadoCompras {
+  invoices: Invoice[];
+  resumen: Resumen | null;
+  loading: boolean;
+  error: boolean;
 }
 
-const PURCHASES = [
-  { id: "p1", supplier: "Molino San Justo", amount: "$84.200", status: "Procesada", statusType: "success" as const },
-  { id: "p2", supplier: "Envases SRL", amount: "$31.600", status: "Procesada", statusType: "success" as const },
-  { id: "p3", supplier: "Lácteos La Pampa", amount: "$47.800", status: "Revisar", statusType: "warning" as const },
-];
+interface EstadoDemanda {
+  dias: DiaDemanda[];
+  loading: boolean;
+  error: boolean;
+}
 
-const MOCK_PRICES_FROM_IA: PriceSuggestion[] = [
-  { id: "pr1", product: "Medialunas Manteca", current: "$850", suggested: "$970", variation: "-14% rentabilidad", variationType: "warning", actionable: true },
-  { id: "pr2", product: "Pan Francés (kg)", current: "$1.200", suggested: "$1.320", variation: "-10% rentabilidad", variationType: "warning", actionable: true },
-  { id: "pr3", product: "Cañoncitos", current: "$490", suggested: "$490", variation: "Estable", variationType: "neutral", actionable: false },
-];
+const STATUS_TONE: Record<InvoiceStatus, BadgeTone> = { procesada: "success", revisar: "warning", procesando: "neutral" };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function getGreeting() {
-  const h = new Date().getHours();
+const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const DIAS_CORTOS = ["do", "lu", "ma", "mi", "ju", "vi", "sá"];
+
+function getGreeting(date: Date) {
+  const h = date.getHours();
   if (h < 12) return "Buenos días";
   if (h < 19) return "Buenas tardes";
   return "Buenas noches";
 }
 
-function formatDate() {
-  return new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+function addDays(date: Date, days: number) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
 }
+
+const dosDigitos = (n: number) => String(n).padStart(2, "0");
+const fechaCorta = (d: Date) => `${dosDigitos(d.getDate())}/${dosDigitos(d.getMonth() + 1)}`;
+const hora = (d: Date) => `${dosDigitos(d.getHours())}:${dosDigitos(d.getMinutes())}`;
+
+/** "2026-11-10" → "10/11". Sin fecha ISO, "sin fecha". */
+function fechaCortaIso(iso: string) {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[2]}/${m[1]}` : "sin fecha";
+}
+
+/** Mediodía local: evita que el cambio de zona horaria corra la fecha un día. */
+const aFecha = (iso: string) => new Date(`${iso}T12:00:00`);
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [greeting, setGreeting] = useState("");
-  const [dateStr, setDateStr] = useState("");
+  const [nombreNegocio] = useNombreNegocio();
 
-  // Estados de IA
-  const [demandaDashboard, setDemandaDashboard] = useState<{ produccionPrevista: string; deltaProduccion: string; tendencia: "up" | "down" | "stable" } | null>(null);
-  const [pricesIA, setPricesIA] = useState<PriceSuggestion[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // La fecha se resuelve en el cliente: evita diferencias con el render del servidor
+  const [hoy, setHoy] = useState<Date | null>(null);
+  const [actualizado, setActualizado] = useState<Date | null>(null);
 
-  useEffect(() => {
-    setGreeting(getGreeting());
-    setDateStr(formatDate());
+  // Cada bloque carga por su cuenta: si un endpoint falla, el resto del dashboard sigue
+  const [compras, setCompras] = useState<EstadoCompras>({ invoices: [], resumen: null, loading: true, error: false });
+  const [demanda, setDemanda] = useState<EstadoDemanda>({ dias: [], loading: true, error: false });
 
-    async function fetchData() {
-        try {
-            // MOCK TEMPORAL: Simulamos la respuesta combinada de los endpoints de Demanda y Precios IA
-            await new Promise(resolve => setTimeout(resolve, 800));
-            setDemandaDashboard({
-                produccionPrevista: "2.180 u.",
-                deltaProduccion: "−180 vs. estimación previa",
-                tendencia: "down"
-            });
-            setPricesIA(MOCK_PRICES_FROM_IA);
-        } catch(error){
-            console.error(error);
-        } finally {
-            setIsLoading(false);
-        }
+  const cargarCompras = useCallback(async () => {
+    setCompras((c) => ({ ...c, loading: true, error: false }));
+    try {
+      const response = await fetch(COMPRAS_URL);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const invoices = mapInvoices(leerGastos(await response.json()));
+      setCompras({ invoices, resumen: calcularResumen(invoices, new Date()), loading: false, error: false });
+      setActualizado(new Date());
+    } catch (error) {
+      console.error("Error al cargar las compras:", error);
+      setCompras({ invoices: [], resumen: null, loading: false, error: true });
     }
-    fetchData();
   }, []);
 
-  // Lógica Dinámica para la Notificación (Semana 4)
-  const alertsCount = pricesIA.filter(p => p.variationType === "warning").length;
-  const showRentabilityAlert = alertsCount > 0;
-  const alertProductsText = pricesIA.filter(p => p.variationType === "warning").map(p => p.product).join(" y ");
+  const cargarDemanda = useCallback(async () => {
+    setDemanda((d) => ({ ...d, loading: true, error: false }));
+    try {
+      const response = await fetch(DEMANDA_URL);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = (await response.json()) as DemandaApiResponse;
+      setDemanda({ dias: agruparPorDia(data.produccion ?? []), loading: false, error: false });
+      setActualizado(new Date());
+    } catch (error) {
+      console.error("Error al cargar la predicción:", error);
+      setDemanda({ dias: [], loading: false, error: true });
+    }
+  }, []);
+
+  useEffect(() => {
+    setHoy(new Date());
+    void Promise.all([cargarCompras(), cargarDemanda()]);
+  }, [cargarCompras, cargarDemanda]);
+
+  // ── Datos derivados ──────────────────────────────────────────────────────
+  const { resumen } = compras;
+  const ultimasCompras = recientes(compras.invoices, 4);
+
+  const manana = hoy ? addDays(hoy, 1) : null;
+  const mananaIso = manana ? isoLocal(manana) : null;
+  const semana = resumenSemana(demanda.dias);
+  const produccionManana = demanda.dias.find((d) => d.fecha === mananaIso)?.total ?? null;
+  const esPicoManana = produccionManana !== null && semana.pico?.fecha === mananaIso;
+  const hayPrediccion = !demanda.error && demanda.dias.length > 0;
+
+  const demandDays: DemandDay[] = demanda.dias.map((d) => {
+    const fecha = aFecha(d.fecha);
+    return { label: `${DIAS_CORTOS[fecha.getDay()]} ${fecha.getDate()}`, value: d.total, predicted: true };
+  });
+  const diaPico = semana.pico ? aFecha(semana.pico.fecha) : null;
+
+  const subtitle = hoy
+    ? `${DIAS[hoy.getDay()]} ${hoy.getDate()} de ${hoy.toLocaleDateString("es-AR", { month: "long" })}${actualizado ? ` · actualizado ${hora(actualizado)}` : ""}`
+    : " ";
 
   return (
     <AppLayout activeTab="dashboard">
-      <div style={{ display: "flex", flexDirection: "column", gap: "20px", width: "100%" }}>
+      <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+        {/* ── 1. Encabezado ──────────────────────────────────────────────── */}
+        <PageHeader
+          title={hoy ? (nombreNegocio ? `${getGreeting(hoy)}, ${nombreNegocio}` : getGreeting(hoy)) : " "}
+          subtitle={subtitle}
+        />
 
-        {/* ── 1. Page Header ─────────────────────────────────────────────── */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-          <div>
-            <h1 style={{ fontSize: "24px", fontWeight: 700, color: "#2C1A0E", margin: "0 0 6px", letterSpacing: "-0.02em" }}>
-              {greeting}, Panadería La Espiga
-            </h1>
-            <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: 0 }}>
-              <span style={{ ...iconStyle, fontSize: "12px", verticalAlign: "middle", color: "var(--color-accent)", marginRight: "4px" }}>
-                auto_awesome
-              </span>
-              {dateStr} · actualizado hace 2 minutos
-            </p>
-          </div>
-          <Link href="/compras/subir" style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", fontSize: "13px", fontWeight: 500, color: "var(--color-text-primary)", textDecoration: "none", backgroundColor: "var(--color-surface)" }}>
-            <span style={iconStyle}>upload_file</span>
-            subir factura
-          </Link>
-        </div>
-
-        {/* ── 2. KPI Row ─────────────────────────────────────────────────── */}
-        <div style={{ display: "flex", gap: "12px" }}>
-          <KpiCard id="kpi-margin" label="margen promedio" value={isLoading ? "..." : "34.2%"} trend={{ direction: "up", delta: "+2.4% vs. mes anterior", positive: true }} />
-          <KpiCard id="kpi-alerts" label="alertas de precio" value={isLoading ? "..." : `${alertsCount} alertas`} isAlert={showRentabilityAlert} trend={{ direction: showRentabilityAlert ? "up" : "stable", delta: "Detectado por IA de costos", positive: !showRentabilityAlert }} />
-          <KpiCard id="kpi-production" label="producción prevista" value={isLoading ? "..." : demandaDashboard?.produccionPrevista || "-"} trend={{ direction: isLoading ? "stable" : demandaDashboard?.tendencia || "stable", delta: isLoading ? "Cargando..." : demandaDashboard?.deltaProduccion || "-", positive: false }} />
-          <KpiCard id="kpi-invoices" label="facturas del mes" value="28 / 32" trend={{ direction: "stable", delta: "4 pendientes de revisión", positive: true }} />
-        </div>
-
-        {/* ── 3. Priority Alert Banner (Dinámico) ────────────────────────── */}
-        {!isLoading && showRentabilityAlert && (
-          <div
-            id="dashboard-alert-banner"
-            style={{
-              display: "flex", alignItems: "center", gap: "12px", backgroundColor: "var(--color-warning-bg)", borderRadius: "var(--radius-md)", borderLeft: "3px solid var(--color-warning-text)", padding: "12px 16px"
-            }}
-          >
-            <span style={{ ...iconStyle, color: "var(--color-warning-text)", flexShrink: 0 }}>warning</span>
-            <p style={{ fontSize: "12px", color: "var(--color-warning-text)", margin: 0, flex: 1, lineHeight: "1.5" }}>
-              <strong style={{ fontWeight: 500 }}>{alertsCount} productos necesitan ajuste de precio urgente</strong>
-              {" — "}la IA detectó que la rentabilidad de {alertProductsText} caerá por debajo del objetivo debido a aumentos recientes en insumos.
-            </p>
-            <Link href="/precios" style={{ fontSize: "12px", fontWeight: 500, color: "var(--color-warning-text)", textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0 }}>
-              revisar sugerencias →
-            </Link>
-          </div>
-        )}
-
-        {/* ── 4. Two-Column Grid ──────────────────────────────────────────── */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-
-          {/* Compras Recientes */}
-          <div style={sectionCard}>
-            <div style={sectionHeader}>
-              <p style={sectionTitle}><span style={{ ...iconStyle, color: "var(--color-text-secondary)" }}>receipt_long</span>compras recientes<span style={badge("var(--color-neutral-bg)", "var(--color-neutral-text)")}>3 facturas</span></p>
-              <Link href="/compras" style={viewAllLink}>ver todas →</Link>
-            </div>
-            {PURCHASES.map((p, i) => (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", ...(i > 0 ? dividerRow : {}) }}>
-                <div>
-                  <p style={{ fontSize: "13px", color: "var(--color-text-primary)", margin: "0 0 2px", fontWeight: 400 }}>{p.supplier}</p>
-                  <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>{p.amount}</p>
-                </div>
-                <span style={badge(p.statusType === "success" ? "var(--color-success-bg)" : "var(--color-warning-bg)", p.statusType === "success" ? "var(--color-success-text)" : "var(--color-warning-text)")}>{p.status}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Precios Sugeridos por IA */}
-          <div style={sectionCard}>
-            <div style={sectionHeader}>
-              <p style={sectionTitle}><span style={{ ...iconStyle, color: "var(--color-accent)", fontSize: "14px" }}>auto_awesome</span>precios sugeridos<span style={badge("var(--color-accent-tint)", "var(--color-accent-dark)")}>IA</span></p>
-              <Link href="/precios" style={viewAllLink}>ver todos →</Link>
-            </div>
-            {isLoading ? (
-              <p style={{ fontSize: "12px", color: "var(--color-text-muted)", textAlign: "center", padding: "20px 0" }}>Analizando costos y rentabilidad...</p>
-            ) : pricesIA.map((p, i) => (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", ...(i > 0 ? dividerRow : {}) }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: "13px", color: "var(--color-text-primary)", margin: "0 0 2px", fontWeight: 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.product}</p>
-                  <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: 0 }}>{p.current}<span style={{ margin: "0 4px" }}>→</span><strong style={{ fontWeight: 500, color: "var(--color-text-primary)" }}>{p.suggested}</strong></p>
-                </div>
-                <span style={badge(p.variationType === "warning" ? "var(--color-warning-bg)" : "var(--color-neutral-bg)", p.variationType === "warning" ? "var(--color-warning-text)" : "var(--color-neutral-text)")}>{p.variation}</span>
-                {p.actionable ? (
-                  <button type="button" style={{ padding: "4px 10px", fontSize: "11px", fontWeight: 500, backgroundColor: "var(--color-accent)", color: "var(--color-on-primary)", border: "none", borderRadius: "var(--radius-sm)", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>Aplicar</button>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {/* ── 2. KPIs: margen, producción de mañana y facturas por revisar ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
+            {/* El margen sale de las sugerencias de Precios, que todavía no se pueden leer sin llamar a la IA */}
+            <KpiCard id="kpi-margin" label="Margen promedio" value="—" footer="aparece cuando Precios guarde sugerencias" />
+            <KpiCard
+              id="kpi-production"
+              label="Producción prevista para mañana"
+              ia
+              value={
+                produccionManana !== null ? (
+                  <>
+                    {produccionManana.toLocaleString("es-AR")}
+                    <small>unidades</small>
+                  </>
                 ) : (
-                  <span style={{ fontSize: "11px", color: "var(--color-text-muted)", whiteSpace: "nowrap", flexShrink: 0 }}>Al día</span>
-                )}
+                  "—"
+                )
+              }
+              loading={demanda.loading}
+              footer={
+                manana &&
+                (produccionManana !== null
+                  ? `${DIAS[manana.getDay()]} ${fechaCorta(manana)}${esPicoManana ? " · pico de la semana" : ""}`
+                  : "sin predicción para mañana")
+              }
+            />
+            <KpiCard
+              id="kpi-invoices"
+              label="Facturas por revisar"
+              href="/compras?estado=revisar"
+              isAlert={(resumen?.porRevisar ?? 0) > 0}
+              loading={compras.loading}
+              value={
+                resumen ? (
+                  <>
+                    {resumen.porRevisar}
+                    <small>de {resumen.facturasMes} este mes</small>
+                  </>
+                ) : (
+                  "—"
+                )
+              }
+              footer={
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontWeight: 500, color: "var(--color-accent-dark)" }}>
+                  ver facturas
+                  <Icon name="chevron_right" size={14} />
+                </span>
+              }
+            />
+          </div>
+
+          {/* ── 3. Dos columnas ─────────────────────────────────────────────── */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" }}>
+            {/* Compras recientes */}
+            <Card
+              title="Compras recientes"
+              icon="receipt_long"
+              action={
+                <Button variant="text" size="sm" href="/compras" iconEnd="chevron_right">
+                  ver todas
+                </Button>
+              }
+            >
+              {compras.loading ? (
+                <SkeletonRows rows={4} label="Cargando tus compras" />
+              ) : compras.error ? (
+                <div style={estadoBloque}>
+                  <p style={textoEstado}>No pudimos cargar tus compras.</p>
+                  <Button variant="warning" size="sm" icon="refresh" onClick={() => void cargarCompras()}>
+                    reintentar
+                  </Button>
+                </div>
+              ) : ultimasCompras.length === 0 ? (
+                <div style={estadoBloque}>
+                  <p style={textoEstado}>Todavía no cargaste facturas.</p>
+                  <Button variant="text" size="sm" href="/compras/subir">
+                    subir factura
+                  </Button>
+                </div>
+              ) : (
+                <div style={{ margin: "-10px 0" }}>
+                  {ultimasCompras.map((p, i) => (
+                    <div key={p.id} style={{ ...row, gridTemplateColumns: "1fr auto 96px", ...(i > 0 ? rowDivider : {}) }}>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={rowTitle}>{p.provider}</p>
+                        <p style={rowMeta}>{fechaCortaIso(p.date)}</p>
+                      </div>
+                      <span className="num" style={{ fontSize: "13px", color: "var(--color-text-primary)" }}>
+                        {formatMoneda(p.total)}
+                      </span>
+                      <span style={{ textAlign: "right" }}>
+                        {p.status === "revisar" ? (
+                          <Link href="/compras?estado=revisar" aria-label={`revisar la factura de ${p.provider}`} style={{ textDecoration: "none" }}>
+                            <Badge tone="warning">
+                              revisar
+                              <Icon name="chevron_right" size={12} />
+                            </Badge>
+                          </Link>
+                        ) : (
+                          <Badge tone={STATUS_TONE[p.status] ?? "neutral"}>{p.status}</Badge>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* Precios sugeridos por IA: sin lectura disponible todavía, el bloque solo lleva a Precios */}
+            <Card
+              title={
+                <>
+                  Precios sugeridos <Badge tone="ia">IA</Badge>
+                </>
+              }
+              icon="sell"
+              action={
+                <Button variant="text" size="sm" href="/precios" iconEnd="chevron_right">
+                  ver todos
+                </Button>
+              }
+            >
+              <div style={estadoBloque}>
+                <p style={textoEstado}>Las sugerencias se generan en Precios a partir de tus costos.</p>
+                <Button variant="secondary" size="sm" href="/precios">
+                  ver precios
+                </Button>
               </div>
-            ))}
+            </Card>
           </div>
-        </div>
 
-        {/* ── 5. Demand Forecast Panel (full-width) ───────────────────────── */}
-        <div style={sectionCard}>
-          <div style={{ ...sectionHeader, marginBottom: "4px" }}>
-            <p style={sectionTitle}><span style={{ ...iconStyle, color: "var(--color-text-secondary)" }}>trending_up</span>predicción de demanda<span style={{ ...badge("var(--color-neutral-bg)", "var(--color-neutral-text)"), fontWeight: 400, fontSize: "10px" }}>modelo v2.4</span></p>
-            <Link href="/demanda" style={viewAllLink}>ver detalle →</Link>
-          </div>
-          <p style={{ fontSize: "11px", color: "var(--color-text-muted)", margin: "0 0 14px" }}>histórico 7 días · proyección IA próximos 7 días</p>
-          <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: "0 0 14px", display: "flex", alignItems: "center", gap: "5px" }}>
-            <span style={{ ...iconStyle, fontSize: "13px", color: "var(--color-accent)" }}>auto_awesome</span>Pico proyectado el sábado <strong style={{ fontWeight: 500, color: "var(--color-text-primary)" }}>+35% sobre el promedio</strong>{" — "}<Link href="/demanda" style={{ color: "var(--color-accent)", fontWeight: 500, textDecoration: "none" }}>ver recomendación →</Link>
-          </p>
-          <DemandChart />
+          {/* ── 4. Predicción de demanda, compacta ──────────────────────────── */}
+          <Card
+            title={
+              <>
+                Predicción de demanda <Badge tone="ia">IA</Badge>
+              </>
+            }
+            icon="trending_up"
+            action={
+              <Button variant="text" size="sm" href="/demanda" iconEnd="chevron_right">
+                ver detalle
+              </Button>
+            }
+          >
+            {demanda.loading ? (
+              <div role="status" aria-label="Cargando la predicción">
+                <Skeleton height={172} />
+              </div>
+            ) : !hayPrediccion ? (
+              <div style={estadoBloque}>
+                <p style={textoEstado}>Todavía no hay predicción.</p>
+                <Button variant="text" size="sm" href="/demanda">
+                  ver demanda
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", marginBottom: "14px" }}>
+                  <p style={{ fontSize: "13px", color: "var(--color-text-primary)", margin: 0 }}>
+                    {diaPico && semana.promedio > 0 && (
+                      <>
+                        El {DIAS[diaPico.getDay()]} se espera el pico de la semana: <strong>+{semana.picoPct}% sobre el promedio</strong>.
+                      </>
+                    )}
+                  </p>
+                  <DemandLegend />
+                </div>
+                <DemandChart days={demandDays} />
+              </>
+            )}
+          </Card>
         </div>
-
       </div>
     </AppLayout>
   );

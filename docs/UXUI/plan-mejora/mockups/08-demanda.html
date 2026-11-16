@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Predicción de demanda · mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+  .rec .tr { grid-template-columns: 1fr 160px 140px; }
+  .rec .tr > :nth-child(2) { text-align: right; }
+  .rec .tr > :nth-child(3) { text-align: center; }
+  .wx { display: grid; grid-template-columns: repeat(7, 1fr); margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--divider); }
+  .wx div { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .wx .ms { font-size: 20px; color: var(--text-2); }
+  .wx b { font-weight: 500; font-size: 13px; }
+  .wx small { font-size: 11px; color: var(--text-2); display: flex; align-items: center; gap: 2px; }
+  .wx small .ms { font-size: 12px; }
+  .wx .rain small { color: var(--text); font-weight: 500; }
+  .seg.days span { padding: 6px 10px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" data-active="demanda"></aside>
+  <main class="main">
+    <div class="wrap">
+
+      <div class="ph">
+        <div>
+          <h1>Predicción de demanda</h1>
+          <p>Cuánto producir en los próximos 7 días, según tu historial de ventas y el clima.</p>
+        </div>
+        <span class="btn btn-primary"><span class="ms">autorenew</span>actualizar</span>
+      </div>
+
+      <div class="alert alert-ia anchor" style="margin-bottom:16px">
+        <span class="pin">2</span>
+        <span class="ms s18 ia-mark">auto_awesome</span>
+        <p class="grow"><span class="fw5">El sábado se espera el pico de la semana: +35% sobre el promedio.</span> Conviene reforzar medialunas de manteca y pan francés.</p>
+      </div>
+
+      <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+        <div class="kpi">
+          <div class="kpi-l">Producción prevista · próximos 7 días</div>
+          <div class="kpi-v">1.633 <small>unidades</small></div>
+          <div class="kpi-s">de sábado 14 a viernes 20</div>
+        </div>
+        <div class="kpi anchor">
+          <span class="pin">8</span>
+          <div class="kpi-l">Precisión de la predicción</div>
+          <div class="kpi-v">91,4%</div>
+          <div class="kpi-s">comparada con lo vendido los últimos 7 días</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-l">Productos en riesgo de faltante</div>
+          <div class="kpi-v">0</div>
+          <div class="kpi-s">ninguna predicción tiene confianza baja</div>
+        </div>
+      </div>
+
+      <div class="card anchor" style="margin-bottom:16px">
+        <span class="pin">3</span>
+        <div class="card-h">
+          <h2><span class="ms">bar_chart</span>Producción prevista por día</h2>
+          <span class="f12 t2 row gap4"><span class="ms s14">water_drop</span>los días con lluvia, la producción prevista baja</span>
+        </div>
+        <div class="card-b" style="padding-top:20px">
+          <div class="chart" style="height:190px">
+            <div class="grid" style="bottom:57px"></div><div class="grid" style="bottom:113px"></div>
+            <div class="c"><div class="val pk">315</div><div class="bar p" style="height:170px"></div></div>
+            <div class="c"><div class="val">130</div><div class="bar p" style="height:70px"></div></div>
+            <div class="c"><div class="val">200</div><div class="bar p" style="height:108px"></div></div>
+            <div class="c"><div class="val">190</div><div class="bar p" style="height:103px"></div></div>
+            <div class="c"><div class="val">250</div><div class="bar p" style="height:135px"></div></div>
+            <div class="c"><div class="val">240</div><div class="bar p" style="height:130px"></div></div>
+            <div class="c"><div class="val">308</div><div class="bar p" style="height:166px"></div></div>
+          </div>
+          <div class="xl"><span class="hoy">sá 14 · mañana</span><span>do 15</span><span>lu 16</span><span>ma 17</span><span>mi 18</span><span>ju 19</span><span>vi 20</span></div>
+          <div class="wx anchor">
+            <span class="pin">9</span>
+            <div><span class="ms">sunny</span><b>27°</b><small>0% lluvia</small></div>
+            <div class="rain"><span class="ms">rainy</span><b>19°</b><small><span class="ms">water_drop</span>80% lluvia</small></div>
+            <div><span class="ms">cloud</span><b>21°</b><small>20% lluvia</small></div>
+            <div><span class="ms">sunny</span><b>24°</b><small>10% lluvia</small></div>
+            <div><span class="ms">sunny</span><b>25°</b><small>0% lluvia</small></div>
+            <div><span class="ms">partly_cloudy_day</span><b>23°</b><small>30% lluvia</small></div>
+            <div><span class="ms">sunny</span><b>26°</b><small>5% lluvia</small></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card rec">
+        <div class="card-h">
+          <h2>Producción sugerida <span class="f13 t2" style="font-weight:400">· sábado 14/11</span>
+            <span class="badge b-ia anchor"><span class="ms">auto_awesome</span>IA<span class="pin out-r">1</span></span></h2>
+          <span class="btn btn-secondary btn-sm anchor"><span class="ms s14">print</span>imprimir lista<span class="pin r">7</span></span>
+        </div>
+        <div class="row" style="padding:12px 16px;border-bottom:1px solid var(--border)">
+          <div class="anchor" style="display:inline-flex"><span class="pin">5</span><div class="seg days">
+            <span class="on">sá 14</span><span>do 15</span><span>lu 16</span><span>ma 17</span><span>mi 18</span><span>ju 19</span><span>vi 20</span>
+          </div></div>
+        </div>
+        <div class="tr th"><span>Producto</span><span>Cantidad</span><span>Confianza</span></div>
+        <div class="tr"><span class="fw5">Medialunas de manteca</span><span>100 <span class="f12 t2">unidades</span></span><span><span class="badge b-ok">alta</span></span></div>
+        <div class="tr"><span class="fw5">Alfajor de maicena</span><span>80 <span class="f12 t2">unidades</span></span><span><span class="badge b-ok">alta</span></span></div>
+        <div class="tr"><span class="fw5">Medialuna de jamón y queso</span><span>60 <span class="f12 t2">unidades</span></span><span><span class="badge b-ok">alta</span></span></div>
+        <div class="tr"><span class="fw5">Tarta de ricota</span><span>40 <span class="f12 t2">porciones</span></span><span><span class="badge b-neu">media</span></span></div>
+        <div class="tr"><span class="fw5">Café con leche</span><span>20 <span class="f12 t2">vasos</span></span><span><span class="badge b-neu">media</span></span></div>
+        <div class="tr"><span class="fw5">Té con leche</span><span>15 <span class="f12 t2">vasos</span></span><span><span class="badge b-neu">sin dato</span></span></div>
+        <div class="row gap6 f12 t2" style="padding:12px 16px;border-top:1px solid var(--border)">
+          <span class="ms s14">info</span>La confianza baja cuando hay pocos datos de un producto. Si no hay información, se muestra «sin dato».
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+<script src="shell.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 
-import userPool from "./cognito";
-import type { CognitoUserSession } from "amazon-cognito-identity-js";
+import { apiUrl } from "./api";
+import { obtenerTokenAuth } from "./token";
 
 // ── Tipos del dominio ────────────────────────────────────────────────────────
 
@@ -214,61 +214,16 @@ export const TICKETS_PREDETERMINADOS: TicketPreset[] = [
 ];
 
 // ── Autenticación Cognito ────────────────────────────────────────────────────
+// El helper vive en lib/token.ts (lo usan también otras pantallas). Se re-exporta
+// desde acá para no romper los imports existentes.
 
-export async function obtenerTokenAuth(): Promise<string | null> {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  // Primero intentamos obtener el token de la cookie.
-  const match = document.cookie.match(
-    /(?:^|;\s*)cognitoIdToken=([^;]+)/
-  );
-
-  if (match?.[1]) {
-    return decodeURIComponent(match[1]);
-  }
-
-  // Si no existe la cookie, consultamos la sesión de Cognito.
-  const cognitoUser = userPool.getCurrentUser();
-
-  if (!cognitoUser) {
-    return null;
-  }
-
-  return new Promise((resolve) => {
-    cognitoUser.getSession(
-      (err: Error | null, session: CognitoUserSession | null) => {
-        if (!err && session?.isValid()) {
-          resolve(session.getIdToken().getJwtToken());
-        } else {
-          resolve(null);
-        }
-      }
-    );
-  });
-}
+export { obtenerTokenAuth };
 
 // ── Configuración del endpoint ────────────────────────────────────────────────
 
-const DEFAULT_API_BASE =
-  "https://1i2vqeifsi.execute-api.us-east-2.amazonaws.com";
-
+// La base sale de lib/api.ts (NEXT_PUBLIC_API_URL o la API de desarrollo).
 function obtenerEndpointPrecios(): string {
-  const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
-  const rawBase = envUrl || DEFAULT_API_BASE;
-
-  const baseLimpia = rawBase.replace(/\/+$/, "");
-
-  if (baseLimpia.endsWith("/precios/sugerir")) {
-    return baseLimpia;
-  }
-
-  if (baseLimpia.endsWith("/precios")) {
-    return `${baseLimpia}/sugerir`;
-  }
-
-  return `${baseLimpia}/precios/sugerir`;
+  return apiUrl("/precios/sugerir");
 }
 
 // ── Funciones auxiliares de normalización ─────────────────────────────────────
@@ -290,15 +245,29 @@ function obtenerNumero(
   return Number.isFinite(numero) ? numero : valorAlternativo;
 }
 
-function normalizarSugerencia(raw: any): SugerenciaPrecio {
-  const precioActual = obtenerNumero(raw?.precioActual);
+/** Respuesta de la API sin validar: se lee campo por campo con valores por defecto. */
+type Crudo = Record<string, unknown>;
+
+function aCrudo(valor: unknown): Crudo {
+  return valor && typeof valor === "object" ? (valor as Crudo) : {};
+}
+
+function numeroONull(valor: unknown): number | null {
+  return valor !== null && valor !== undefined && Number.isFinite(Number(valor))
+    ? Number(valor)
+    : null;
+}
+
+function normalizarSugerencia(entrada: unknown): SugerenciaPrecio {
+  const raw = aCrudo(entrada);
+  const precioActual = obtenerNumero(raw.precioActual);
   const precioSugerido = obtenerNumero(
-    raw?.precioSugerido,
+    raw.precioSugerido,
     precioActual
   );
 
   const variacionPrecio = obtenerNumero(
-    raw?.variacionPrecio,
+    raw.variacionPrecio,
     precioActual > 0
       ? Math.round(
           ((precioSugerido - precioActual) / precioActual) * 10000
@@ -306,30 +275,20 @@ function normalizarSugerencia(raw: any): SugerenciaPrecio {
       : 0
   );
 
-  const costoActual = obtenerNumero(raw?.costoActual);
+  const costoActual = obtenerNumero(raw.costoActual);
 
-  const costoAnterior =
-    raw?.costoAnterior !== null &&
-    raw?.costoAnterior !== undefined &&
-    Number.isFinite(Number(raw.costoAnterior))
-      ? Number(raw.costoAnterior)
-      : null;
+  const costoAnterior = numeroONull(raw.costoAnterior);
 
-  const variacionCosto =
-    raw?.variacionCosto !== null &&
-    raw?.variacionCosto !== undefined &&
-    Number.isFinite(Number(raw.variacionCosto))
-      ? Number(raw.variacionCosto)
-      : null;
+  const variacionCosto = numeroONull(raw.variacionCosto);
 
   const razonamiento = String(
-    raw?.razonamiento ?? raw?.justificacion ?? ""
+    raw.razonamiento ?? raw.justificacion ?? ""
   );
 
   return {
-    productoID: String(raw?.productoID ?? ""),
-    nombre: String(raw?.nombre ?? "Producto sin nombre"),
-    unidadProducto: String(raw?.unidadProducto ?? "unidad"),
+    productoID: String(raw.productoID ?? ""),
+    nombre: String(raw.nombre ?? "Producto sin nombre"),
+    unidadProducto: String(raw.unidadProducto ?? "unidad"),
 
     precioActual,
     costoActual,
@@ -340,11 +299,11 @@ function normalizarSugerencia(raw: any): SugerenciaPrecio {
     precioSugerido,
     variacionPrecio,
 
-    margenResultante: obtenerNumero(raw?.margenResultante),
+    margenResultante: obtenerNumero(raw.margenResultante),
 
     razonamiento,
-    confianza: obtenerConfianza(raw?.confianza),
-    superaTopeSuba: Boolean(raw?.superaTopeSuba),
+    confianza: obtenerConfianza(raw.confianza),
+    superaTopeSuba: Boolean(raw.superaTopeSuba),
 
     // Compatibilidad con la versión anterior de precios.tsx.
     categoria: null,
@@ -359,46 +318,39 @@ function normalizarSugerencia(raw: any): SugerenciaPrecio {
   };
 }
 
-function normalizarProductoSinCosto(raw: any): ProductoSinCosto {
-  if (typeof raw === "string") {
+function normalizarProductoSinCosto(entrada: unknown): ProductoSinCosto {
+  if (typeof entrada === "string") {
     return {
-      productoID: raw,
+      productoID: entrada,
       motivo: "No se pudo calcular el costo del producto.",
     };
   }
 
+  const raw = aCrudo(entrada);
   return {
-    productoID: String(raw?.productoID ?? ""),
-    motivo: String(raw?.motivo ?? "No se pudo calcular el costo."),
+    productoID: String(raw.productoID ?? ""),
+    motivo: String(raw.motivo ?? "No se pudo calcular el costo."),
   };
 }
 
-function normalizarInsumo(raw: any): VariacionInsumo {
+function numeroOpcional(valor: unknown): number | null {
+  return typeof valor === "number" ? valor : null;
+}
+
+function normalizarInsumo(entrada: unknown): VariacionInsumo {
+  const raw = aCrudo(entrada);
+  const unidad = raw.unidad;
   return {
-    insumo: String(raw?.insumo ?? ""),
+    insumo: String(raw.insumo ?? ""),
     descripcionTicket: String(
-      raw?.descripcionTicket ?? raw?.descripcion ?? ""
+      raw.descripcionTicket ?? raw.descripcion ?? ""
     ),
-    unidad:
-      raw?.unidad === "kg" ||
-      raw?.unidad === "l" ||
-      raw?.unidad === "u"
-        ? raw.unidad
-        : "u",
-    precioAnterior:
-      typeof raw?.precioAnterior === "number"
-        ? raw.precioAnterior
-        : null,
-    precioNuevo: obtenerNumero(raw?.precioNuevo ?? raw?.precio),
-    variacionPct:
-      typeof raw?.variacionPct === "number"
-        ? raw.variacionPct
-        : null,
-    variacionVsPromedioPct:
-      typeof raw?.variacionVsPromedioPct === "number"
-        ? raw.variacionVsPromedioPct
-        : null,
-    certeza: obtenerConfianza(raw?.certeza),
+    unidad: unidad === "kg" || unidad === "l" || unidad === "u" ? unidad : "u",
+    precioAnterior: numeroOpcional(raw.precioAnterior),
+    precioNuevo: obtenerNumero(raw.precioNuevo ?? raw.precio),
+    variacionPct: numeroOpcional(raw.variacionPct),
+    variacionVsPromedioPct: numeroOpcional(raw.variacionVsPromedioPct),
+    certeza: obtenerConfianza(raw.certeza),
   };
 }
 
@@ -439,7 +391,7 @@ export function normalizarResultadoPrecios(
   }
 
   // Algunas integraciones pueden devolver el body como JSON en texto.
-  const obj = raw as Record<string, any>;
+  const obj = aCrudo(raw);
 
   if (typeof obj.body === "string") {
     try {
@@ -518,10 +470,8 @@ export function normalizarResultadoPrecios(
 
 // ── Consumo del endpoint de sugerencias ───────────────────────────────────────
 
-export async function sugerirPreciosConIA(
-  _ticket?: Ticket,
-  _usuarioID?: string | null
-): Promise<ResultadoPrecios> {
+// La Lambda obtiene el usuario del token y los datos desde DynamoDB: no recibe parámetros.
+export async function sugerirPreciosConIA(): Promise<ResultadoPrecios> {
   const token = await obtenerTokenAuth();
   const endpoint = obtenerEndpointPrecios();
 
@@ -600,14 +550,12 @@ export async function aplicarPrecioIndividual(
     );
   }
 
-  const apiBase = (
-    process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE
-  ).replace(/\/+$/, "");
-
-  const url = `${apiBase}/precios/aplicar`;
+  const url = apiUrl("/precios/aplicar");
 
   const res = await fetch(url, {
     method: "POST",
+    // Se completa aunque se salga de la pantalla justo después de confirmar
+    keepalive: true,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
