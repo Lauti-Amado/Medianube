@@ -1,7 +1,7 @@
 // Adaptador de salida: implementa DemandaRepositorioPort sobre DynamoDB
 // (Medianube-Ventas, Medianube-Productos y Medianube-Predicciones).
 
-import { type DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { type DynamoDBDocumentClient, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import type { VentaDiaria } from "../../domain/demanda/tipos";
 import type { DemandaRepositorioPort, ProductoCatalogo } from "../../ports/demanda";
 import { crearClienteDocumentos, escribirEnLotes } from "./dynamo";
@@ -68,14 +68,23 @@ export function crearDemandaRepositorioDynamo({
       return items.map(mapearVenta).filter((v): v is VentaDiaria => v !== null);
     },
 
-    async listarProductos(usuarioID) {
-      const items = await consultarTodo({
-        TableName: tablaProductos,
-        KeyConditionExpression: "#u = :u",
-        ProjectionExpression: "#p, #n",
-        ExpressionAttributeNames: { "#u": "usuarioID", "#p": "productoID", "#n": "nombre" },
-        ExpressionAttributeValues: { ":u": usuarioID },
-      });
+    // El catálogo real es la tabla `Producto` (PK `productoID`, sin `usuarioID`): es global, así que se
+    // recorre con un Scan proyectado (tabla chica). Cuando el catálogo sea por usuario, volver a Query.
+    async listarProductos(_usuarioID) {
+      const items: Item[] = [];
+      let ExclusiveStartKey: Record<string, unknown> | undefined;
+      do {
+        const pagina = await cliente.send(
+          new ScanCommand({
+            TableName: tablaProductos,
+            ProjectionExpression: "#p, #n",
+            ExpressionAttributeNames: { "#p": "productoID", "#n": "nombre" },
+            ExclusiveStartKey,
+          })
+        );
+        items.push(...((pagina.Items ?? []) as Item[]));
+        ExclusiveStartKey = pagina.LastEvaluatedKey;
+      } while (ExclusiveStartKey);
       return items
         .filter((i) => typeof i.productoID === "string")
         .map((i): ProductoCatalogo => ({
