@@ -11,6 +11,7 @@ import Segmented from "../../src/src/components/ui/Segmented";
 import { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 import { useToast } from "../../src/src/components/ui/Toast";
 import { formatMoneda } from "../../lib/formato";
+import { obtenerTokenAuth } from "../../lib/token";
 import { COMPRAS_URL, calcularResumen, leerGastos, mapInvoices, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
 import FiltrosHistorial, { FILTROS_VACIOS, type FiltrosGastos } from "./FiltrosHistorial";
 
@@ -82,10 +83,17 @@ export default function ComprasPage() {
     const query = params.toString();
 
     try {
+      const token = await obtenerTokenAuth();
+      if (!token) throw new Error("Sesión vencida");
+
       const response = await fetch(query ? `${COMPRAS_URL}?${query}` : COMPRAS_URL, {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
       });
+      if (response.status === 401) throw new Error("Sesión vencida");
       if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
 
       const data = await response.json();
