@@ -10,12 +10,14 @@ import Card from "../../src/src/components/ui/Card";
 import Badge, { type BadgeTone } from "../../src/src/components/ui/Badge";
 import Button from "../../src/src/components/ui/Button";
 import Icon from "../../src/src/components/ui/Icon";
+import Alert from "../../src/src/components/ui/Alert";
 import Skeleton, { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 import DemandChart, { DemandLegend, type DemandDay } from "../../src/src/components/dashboard/DemandChart";
 import { useNombreNegocio } from "../../lib/negocio";
 import { formatMoneda } from "../../lib/formato";
 import { COMPRAS_URL, calcularResumen, leerGastos, mapInvoices, recientes, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
 import { DEMANDA_URL, agruparPorDia, isoLocal, resumenSemana, type DemandaApiResponse, type DiaDemanda } from "../../lib/demanda";
+import { MARGEN_OBJETIVO_PCT, esAjusteRecomendado, margen, margenPromedio, obtenerUltimaSugerencia, type SugerenciaPrecio } from "../../lib/precios";
 
 // ── Shared styles ─────────────────────────────────────────────────────────
 
@@ -38,9 +40,9 @@ const estadoBloque: React.CSSProperties = { display: "flex", alignItems: "center
 const textoEstado: React.CSSProperties = { fontSize: "13px", lineHeight: "20px", color: "var(--color-text-secondary)", margin: 0 };
 
 // ── Types ─────────────────────────────────────────────────────────────────
-// Los datos salen de GET /compras y GET /demanda, con las mismas funciones que usan esas pantallas
-// (lib/compras y lib/demanda), así los números coinciden. Precios no tiene todavía una lectura sin
-// llamar a la IA (tarea 6a): hasta entonces su bloque solo lleva a la pantalla de Precios.
+// Los datos salen de GET /compras, GET /demanda y GET /precios/sugerir (la última sugerencia guardada,
+// sin llamar a la IA), con las mismas funciones que usan esas pantallas (lib/compras, lib/demanda y
+// lib/precios), así los números coinciden.
 
 interface EstadoCompras {
   invoices: Invoice[];
@@ -51,6 +53,12 @@ interface EstadoCompras {
 
 interface EstadoDemanda {
   dias: DiaDemanda[];
+  loading: boolean;
+  error: boolean;
+}
+
+interface EstadoPrecios {
+  sugerencias: SugerenciaPrecio[];
   loading: boolean;
   error: boolean;
 }
@@ -85,6 +93,16 @@ function fechaCortaIso(iso: string) {
   return m ? `${m[2]}/${m[1]}` : "sin fecha";
 }
 
+/** "medialunas de manteca y pan francés (kg)" / "a, b y c" */
+function listar(nombres: string[]) {
+  const n = nombres.map((s) => s.charAt(0).toLowerCase() + s.slice(1));
+  if (n.length <= 1) return n[0] ?? "";
+  return `${n.slice(0, -1).join(", ")} y ${n[n.length - 1]}`;
+}
+
+/** 34.21 → "34,2%" */
+const formatPct = (n: number) => `${n.toFixed(1).replace(".", ",")}%`;
+
 /** Mediodía local: evita que el cambio de zona horaria corra la fecha un día. */
 const aFecha = (iso: string) => new Date(`${iso}T12:00:00`);
 
@@ -100,6 +118,7 @@ export default function DashboardPage() {
   // Cada bloque carga por su cuenta: si un endpoint falla, el resto del dashboard sigue
   const [compras, setCompras] = useState<EstadoCompras>({ invoices: [], resumen: null, loading: true, error: false });
   const [demanda, setDemanda] = useState<EstadoDemanda>({ dias: [], loading: true, error: false });
+  const [precios, setPrecios] = useState<EstadoPrecios>({ sugerencias: [], loading: true, error: false });
 
   const cargarCompras = useCallback(async () => {
     setCompras((c) => ({ ...c, loading: true, error: false }));
@@ -129,13 +148,34 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const cargarPrecios = useCallback(async () => {
+    setPrecios((p) => ({ ...p, loading: true, error: false }));
+    try {
+      const { sugerencias } = await obtenerUltimaSugerencia();
+      setPrecios({ sugerencias, loading: false, error: false });
+      setActualizado(new Date());
+    } catch (error) {
+      console.error("Error al cargar los precios sugeridos:", error);
+      setPrecios({ sugerencias: [], loading: false, error: true });
+    }
+  }, []);
+
   useEffect(() => {
     setHoy(new Date());
-    void Promise.all([cargarCompras(), cargarDemanda()]);
-  }, [cargarCompras, cargarDemanda]);
+    void Promise.all([cargarCompras(), cargarDemanda(), cargarPrecios()]);
+  }, [cargarCompras, cargarDemanda, cargarPrecios]);
 
   // ── Datos derivados ──────────────────────────────────────────────────────
   const { resumen } = compras;
+
+  // Precios: misma regla que la pantalla Precios para el margen y para qué conviene revisar
+  const { sugerencias } = precios;
+  const aplicadas = new Set(sugerencias.filter((s) => s.aplicada).map((s) => s.productoID));
+  const margenMedio = margenPromedio(sugerencias, aplicadas);
+  const aRevisar = sugerencias
+    .filter((s) => esAjusteRecomendado(s) && !s.aplicada)
+    .sort((a, b) => b.variacionPrecio - a.variacionPrecio);
+  const bajoObjetivo = aRevisar.filter((s) => (margen(s.precioActual, s.costoActual) ?? 0) < MARGEN_OBJETIVO_PCT);
   const ultimasCompras = recientes(compras.invoices, 4);
 
   const manana = hoy ? addDays(hoy, 1) : null;
@@ -167,8 +207,13 @@ export default function DashboardPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {/* ── 2. KPIs: margen, producción de mañana y facturas por revisar ── */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
-            {/* El margen sale de las sugerencias de Precios, que todavía no se pueden leer sin llamar a la IA */}
-            <KpiCard id="kpi-margin" label="Margen promedio" value="—" footer="aparece cuando Precios guarde sugerencias" />
+            <KpiCard
+              id="kpi-margin"
+              label="Margen promedio"
+              loading={precios.loading}
+              value={margenMedio !== null ? formatPct(margenMedio) : "—"}
+              footer={margenMedio !== null ? `objetivo ${MARGEN_OBJETIVO_PCT}%` : "aparece cuando Precios guarde sugerencias"}
+            />
             <KpiCard
               id="kpi-production"
               label="Producción prevista para mañana"
@@ -216,7 +261,27 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* ── 3. Dos columnas ─────────────────────────────────────────────── */}
+          {/* ── 3. Aviso prioritario ───────────────────────────────────────── */}
+          {!precios.loading && bajoObjetivo.length > 0 && (
+            <Alert
+              id="dashboard-alert-banner"
+              tone="warning"
+              action={
+                <Button variant="warning" size="sm" href="/precios">
+                  revisar precios
+                </Button>
+              }
+            >
+              <strong>
+                {bajoObjetivo.length === 1
+                  ? "1 producto queda por debajo de tu margen objetivo:"
+                  : `${bajoObjetivo.length} productos quedan por debajo de tu margen objetivo:`}
+              </strong>{" "}
+              {listar(bajoObjetivo.map((s) => s.nombre))}.
+            </Alert>
+          )}
+
+          {/* ── 4. Dos columnas ─────────────────────────────────────────────── */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" }}>
             {/* Compras recientes */}
             <Card
@@ -273,7 +338,7 @@ export default function DashboardPage() {
               )}
             </Card>
 
-            {/* Precios sugeridos por IA: sin lectura disponible todavía, el bloque solo lleva a Precios */}
+            {/* Precios sugeridos por IA: de la última sugerencia guardada. Aplicar se hace en Precios. */}
             <Card
               title={
                 <>
@@ -287,16 +352,59 @@ export default function DashboardPage() {
                 </Button>
               }
             >
-              <div style={estadoBloque}>
-                <p style={textoEstado}>Las sugerencias se generan en Precios a partir de tus costos.</p>
-                <Button variant="secondary" size="sm" href="/precios">
-                  ver precios
-                </Button>
-              </div>
+              {precios.loading ? (
+                <div role="status" aria-label="Cargando los precios sugeridos" style={{ display: "flex", flexDirection: "column", gap: "26px", padding: "8px 0" }}>
+                  <Skeleton width="70%" />
+                  <Skeleton width="55%" />
+                  <Skeleton width="62%" />
+                </div>
+              ) : aRevisar.length > 0 ? (
+                <div style={{ margin: "-10px 0" }}>
+                  {aRevisar.slice(0, 3).map((p, i) => {
+                    const margenActual = margen(p.precioActual, p.costoActual);
+                    const bajo = margenActual !== null && margenActual < MARGEN_OBJETIVO_PCT;
+                    return (
+                      <div key={p.productoID} style={{ ...row, gridTemplateColumns: "1fr auto 72px", ...(i > 0 ? rowDivider : {}) }}>
+                        <div style={{ minWidth: 0 }}>
+                          <p style={rowTitle}>{p.nombre}</p>
+                          <p style={rowMeta}>
+                            {formatMoneda(p.precioActual)}
+                            <span style={{ margin: "0 4px" }}>→</span>
+                            <strong style={{ color: "var(--color-text-primary)" }}>{formatMoneda(p.precioSugerido)}</strong>
+                          </p>
+                        </div>
+                        {bajo && margenActual !== null ? (
+                          <Badge tone="warning">
+                            margen {Math.round(margenActual)}% · obj. {MARGEN_OBJETIVO_PCT}%
+                          </Badge>
+                        ) : (
+                          <Badge>estable</Badge>
+                        )}
+                        <span style={{ textAlign: "right" }}>
+                          <Button variant="accent" size="sm" href="/precios" aria-label={`revisar el precio de ${p.nombre.toLowerCase()}`}>
+                            revisar
+                          </Button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={estadoBloque}>
+                  <p style={textoEstado}>
+                    {!precios.error && sugerencias.length > 0
+                      ? "Tus precios están al día con la última sugerencia."
+                      : "Las sugerencias se generan en Precios a partir de tus costos."}
+                  </p>
+                  <Button variant="secondary" size="sm" href="/precios">
+                    ver precios
+                  </Button>
+                </div>
+              )}
             </Card>
           </div>
 
-          {/* ── 4. Predicción de demanda, compacta ──────────────────────────── */}
+          {/* ── 5. Predicción de demanda, compacta ──────────────────────────── */}
           <Card
             title={
               <>
