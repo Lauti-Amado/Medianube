@@ -66,6 +66,9 @@ export interface SugerenciaPrecio {
   confianza: Confianza;
   superaTopeSuba: boolean;
 
+  /** El precio ya se aplicó desde esta sugerencia (estadoAplicacion === "aplicada"). */
+  aplicada: boolean;
+
   // Compatibilidad temporal con la pantalla anterior.
   categoria: string | null;
   costoNuevo: number | null;
@@ -304,6 +307,7 @@ function normalizarSugerencia(entrada: unknown): SugerenciaPrecio {
     razonamiento,
     confianza: obtenerConfianza(raw.confianza),
     superaTopeSuba: Boolean(raw.superaTopeSuba),
+    aplicada: raw.estadoAplicacion === "aplicada",
 
     // Compatibilidad con la versión anterior de precios.tsx.
     categoria: null,
@@ -419,7 +423,7 @@ export function normalizarResultadoPrecios(
   const fechaGeneracion =
     typeof obj.fechaGeneracion === "string"
       ? obj.fechaGeneracion
-      : new Date().toISOString();
+      : ""; // sin sugerencia guardada no hay fecha (no se muestra "actualizado")
 
   const sugerenciaPrecioID =
     typeof obj.sugerenciaPrecioID === "string"
@@ -468,7 +472,49 @@ export function normalizarResultadoPrecios(
   };
 }
 
+// ── Márgenes (compartidos por Precios y el Dashboard) ─────────────────────────
+
+/** Margen objetivo de la Lambda (MARGEN_OBJETIVO = 0.60), hasta que salga de Configuración. */
+export const MARGEN_OBJETIVO_PCT = 60;
+
+/** Margen sobre el precio de venta, en %. */
+export function margen(precio: number, costo: number): number | null {
+  return precio > 0 ? ((precio - costo) / precio) * 100 : null;
+}
+
+export function esAjusteRecomendado(item: SugerenciaPrecio): boolean {
+  return Math.abs(item.variacionPrecio) >= 2 || item.superaTopeSuba || item.precioActual < item.costoActual;
+}
+
+/** Promedio de márgenes: el resultante para lo aplicado y el actual para el resto. `null` sin datos. */
+export function margenPromedio(sugerencias: SugerenciaPrecio[], aplicados: ReadonlySet<string>): number | null {
+  const margenes = sugerencias
+    .map((i) => (aplicados.has(i.productoID) ? i.margenResultante : margen(i.precioActual, i.costoActual)))
+    .filter((m): m is number => m != null);
+  return margenes.length > 0 ? margenes.reduce((a, b) => a + b, 0) / margenes.length : null;
+}
+
 // ── Consumo del endpoint de sugerencias ───────────────────────────────────────
+
+/** Última sugerencia guardada (GET): no llama a la IA. Sin sugerencias devuelve una lista vacía. */
+export async function obtenerUltimaSugerencia(): Promise<ResultadoPrecios> {
+  const token = await obtenerTokenAuth();
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(obtenerEndpointPrecios(), { method: "GET", headers });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const errorMsg =
+      data && typeof data === "object" && typeof data.error === "string"
+        ? data.error
+        : `Error ${response.status}: no se pudo leer la última sugerencia.`;
+    throw new Error(errorMsg);
+  }
+
+  return normalizarResultadoPrecios(data);
+}
 
 // La Lambda obtiene el usuario del token y los datos desde DynamoDB: no recibe parámetros.
 export async function sugerirPreciosConIA(): Promise<ResultadoPrecios> {

@@ -4,7 +4,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import AppLayout from "../../src/src/components/layout/AppLayout";
 import {
   sugerirPreciosConIA,
+  obtenerUltimaSugerencia,
   aplicarPrecioIndividual,
+  esAjusteRecomendado,
+  margen,
+  margenPromedio as calcularMargenPromedio,
   type ResultadoPrecios,
   type SugerenciaPrecio,
 } from "../../lib/precios";
@@ -69,15 +73,6 @@ function formatActualizado(fecha: string): string {
   return `actualizado ${dia}, ${hora}`;
 }
 
-/** Margen sobre el precio de venta, en %. */
-function margen(precio: number, costo: number): number | null {
-  return precio > 0 ? ((precio - costo) / precio) * 100 : null;
-}
-
-function esAjusteRecomendado(item: SugerenciaPrecio): boolean {
-  return Math.abs(item.variacionPrecio) >= 2 || item.superaTopeSuba || item.precioActual < item.costoActual;
-}
-
 /** "te-con-leche" → "te con leche": de los productos sin costo solo llega el identificador. */
 function nombreDesdeId(id: string): string {
   return id.replace(/[-_]+/g, " ");
@@ -90,7 +85,10 @@ export default function PreciosPage() {
 
   const [resultado, setResultado] = useState<ResultadoPrecios | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recalculando, setRecalculando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Qué falló, para que "reintentar" repita lo mismo: leer la última sugerencia o recalcular con IA
+  const [fallo, setFallo] = useState<"leer" | "recalcular">("leer");
 
   const [busqueda, setBusqueda] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("todos");
@@ -106,23 +104,32 @@ export default function PreciosPage() {
 
   // ── Consulta ───────────────────────────────────────────────────────────────
 
-  const consultarSugerencias = useCallback(async () => {
+  // Al entrar se lee la última sugerencia guardada (GET, sin IA). La IA corre solo con "recalcular con IA".
+  const consultar = useCallback(async (accion: "leer" | "recalcular") => {
     setLoading(true);
+    if (accion === "recalcular") setRecalculando(true);
     setError(null);
     try {
-      setResultado(await sugerirPreciosConIA());
-      setAplicados(new Set());
+      const r = accion === "recalcular" ? await sugerirPreciosConIA() : await obtenerUltimaSugerencia();
+      setResultado(r);
+      // Lo que ya se aplicó desde esta sugerencia arranca marcado como aplicado
+      setAplicados(new Set(r.sugerencias.filter((s) => s.aplicada).map((s) => s.productoID)));
       setAbierto(null);
     } catch (err: unknown) {
+      setFallo(accion);
       setError(err instanceof Error ? err.message : "No pudimos conectar con el servicio de precios.");
     } finally {
       setLoading(false);
+      setRecalculando(false);
     }
   }, []);
 
+  const cargarUltima = useCallback(() => consultar("leer"), [consultar]);
+  const recalcular = useCallback(() => consultar("recalcular"), [consultar]);
+
   useEffect(() => {
-    void consultarSugerencias();
-  }, [consultarSugerencias]);
+    void cargarUltima();
+  }, [cargarUltima]);
 
   // Al salir de la pantalla, lo que estaba esperando la ventana de "deshacer" se envía ya
   useEffect(() => {
@@ -218,12 +225,7 @@ export default function PreciosPage() {
   const aRevisar = useMemo(() => sugerencias.filter(requiereRevision), [sugerencias, requiereRevision]);
   const totalEstables = sugerencias.length - aRevisar.length;
 
-  const margenPromedio = useMemo(() => {
-    const margenes = sugerencias
-      .map((i) => (aplicados.has(i.productoID) ? i.margenResultante : margen(i.precioActual, i.costoActual)))
-      .filter((m): m is number => m != null);
-    return margenes.length > 0 ? margenes.reduce((a, b) => a + b, 0) / margenes.length : null;
-  }, [sugerencias, aplicados]);
+  const margenPromedio = useMemo(() => calcularMargenPromedio(sugerencias, aplicados), [sugerencias, aplicados]);
 
   const aumentos = aRevisar.filter((i) => i.variacionPrecio > 0);
   const aumentoPromedio =
@@ -421,10 +423,10 @@ export default function PreciosPage() {
                 id="btn-recalcular"
                 variant="primary"
                 icon="refresh"
-                disabled={loading || enviosPendientes > 0}
-                onClick={() => void consultarSugerencias()}
+                disabled={recalculando || enviosPendientes > 0}
+                onClick={() => void recalcular()}
               >
-                {loading ? "calculando…" : "recalcular con IA"}
+                {recalculando ? "calculando…" : "recalcular con IA"}
               </Button>
             </>
           }
@@ -471,12 +473,12 @@ export default function PreciosPage() {
               tone="warning"
               icon="error"
               action={
-                <Button variant="warning" size="sm" disabled={loading} onClick={() => void consultarSugerencias()}>
+                <Button variant="warning" size="sm" disabled={loading} onClick={() => void (fallo === "recalcular" ? recalcular() : cargarUltima())}>
                   reintentar
                 </Button>
               }
             >
-              <strong>No pudimos calcular los precios sugeridos.</strong> {error}
+              <strong>{fallo === "recalcular" ? "No pudimos calcular los precios sugeridos." : "No pudimos leer los precios sugeridos."}</strong> {error}
             </Alert>
           </div>
         )}
@@ -598,11 +600,10 @@ export default function PreciosPage() {
           <section className="card">
             <div className="empty-state">
               <p>
-                Todavía no hay precios para sugerir. Cargá tus productos con su receta y subí facturas de compra para que
-                podamos calcular los costos.
+                <strong>Todavía no hay sugerencias.</strong> Calculalas con la IA a partir de tus costos actuales.
               </p>
-              <Button variant="primary" size="sm" icon="upload_file" href="/compras/subir">
-                subir una factura
+              <Button variant="primary" size="sm" icon="refresh" disabled={recalculando} onClick={() => void recalcular()}>
+                recalcular con IA
               </Button>
             </div>
           </section>
