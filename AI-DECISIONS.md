@@ -516,3 +516,17 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Disparador "faltante":** después de crear la regla, la Lambda mostraba 0 desencadenadores. Antes de agregar otro desde la Lambda, que habría duplicado el destino y corrido el modelo dos veces por noche, se revisó la pestaña Destinos de la regla: el destino estaba bien y, al volver a cargar la Lambda, apareció el desencadenador.
 - **Verificación real:** `GET /demanda?usuarioID=user_test_123` devuelve 49 predicciones (7 productos × 7 días) con una precisión de backtest de 0,946, calculada por el modelo y no cargada a mano.
 - **Pendiente:** `template.yaml` sigue sin coincidir con lo desplegado a mano (nombres de tablas, rutas, Lambdas de consola), así que `deploy.sh` no se puede correr hasta alinearlo o importar los recursos al stack.
+
+## 15/11/2026 - Refresco programado del clima a las 05:00 (`obtenerClima`)
+
+**Problema abordado:** la predicción de demanda de las 05:30 usa el pronóstico guardado en `Medianube-Clima`, pero en AWS no existía la regla de las 05:00 que lo refresca: la tabla solo se actualizaba cuando alguien abría `/clima`.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic) en Claude Code. *Prompt:* "Tarea 5 (clima)", con el `.zip` de la Lambda desplegada y capturas de la consola.
+
+**Código / Arquitectura generada:** sin cambios de código. Se revisó el bundle desplegado de `obtenerClima` (reconoce `source: aws.events` y ejecuta `refrescarTodos`), se comparó su rol con `RolObtenerClima` del template y se guió la creación de la regla `medianube-refresco-clima-dev` con `cron(0 8 * * ? *)`.
+
+**Validación y Corrección Humana:**
+- **Timeout como condición silenciosa:** el refresco corta cuando quedan menos de 10 s de ejecución. Con el timeout por defecto de Lambda (3 s) habría devuelto `pendientes: 1` sin actualizar a nadie y sin error visible. Se verificó que la función tiene 20 s, como el template, antes de crear la regla.
+- **Política compartida:** la política de DynamoDB del rol está asociada a dos entidades. Se revisó su JSON en lugar de editarla; ya tenía el `Scan` sobre Configuración que necesita el refresco, así que no se tocó.
+- **Entrada de la regla:** la guía anterior proponía cargar `refresco-programado.json` como entrada personalizada. Se descartó: la regla clásica ya envía `source: aws.events`, y ese archivo solo se usó como evento de prueba.
+- **Prueba antes de programar:** se probó la Lambda con el evento programado antes de crear la regla: `actualizados 1, pendientes 0, fallidos []`.
