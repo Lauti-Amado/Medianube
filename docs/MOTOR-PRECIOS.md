@@ -1,6 +1,8 @@
 # ADR: Motor de precios con LLM y guardas determinísticas
 
-**Estado:** Aceptada · **Fecha:** 31/10/2026 · **Rama:** `feat/motor-precios`
+**Estado:** Reemplazada por [`MOTOR-PRECIOS-DECISION.md`](MOTOR-PRECIOS-DECISION.md) (15/11/2026) · **Fecha:** 31/10/2026 · **Rama:** `feat/motor-precios`
+
+> **Este motor (con Claude) no está desplegado.** El motor oficial es la Lambda `sugerirPrecios-dev`, que usa Gemini. Este documento queda como referencia del diseño original: varias de sus piezas (respaldo por reglas, márgenes por negocio y normalización de presentaciones) se van a portar al motor con Gemini según el plan de [`MOTOR-PRECIOS-DECISION.md`](MOTOR-PRECIOS-DECISION.md).
 
 ## Contexto
 

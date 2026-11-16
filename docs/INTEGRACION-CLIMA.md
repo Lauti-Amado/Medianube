@@ -3,11 +3,13 @@
 Para quien arma la **sugerencia de producción** (motor predictivo con LLM). Explica qué datos de clima
 y de demanda ya genera el backend, dónde quedan y cómo leerlos.
 
+> **Nota sobre el entorno actual:** Debido al bloqueo de CloudShell, la tabla `Medianube-Clima`, la tabla `Medianube-Predicciones` y la Lambda `obtenerClima` (sin sufijo `-dev`) fueron desplegadas manualmente desde la consola. Ver el inventario completo en [DESPLIEGUE-MANUAL.md](DESPLIEGUE-MANUAL.md).
+
 ## Qué hay y cuándo se actualiza
 
 | Hora (ART) | Qué corre | Dónde queda |
 |---|---|---|
-| 05:00 | `obtenerClima-dev` refresca el pronóstico de 7 días de cada usuario con ubicación | `Medianube-Clima` |
+| 05:00 | `obtenerClima` refresca el pronóstico de 7 días de cada usuario con ubicación | `Medianube-Clima` |
 | 05:30 | `predecirDemanda-dev` estima la demanda de hoy a hoy+6 por producto, ajustada por lluvia | `Medianube-Predicciones` |
 
 Tu Lambda puede correr después de las 05:30 o a pedido. En los dos casos encuentra el clima y la
@@ -122,13 +124,11 @@ Con `disponible: false`, `dias` viene vacío. Leer la tabla es más rápido y no
 
 ## Permisos
 
-- **Con `LabRole` (AWS Academy):** ya tiene acceso, no hay que tocar nada.
-- **Con un rol propio:** necesita `dynamodb:Query` sobre `arn:aws:dynamodb:us-east-2:<cuenta>:table/Medianube-Clima`
-  y `.../table/Medianube-Predicciones`.
+- **En la cuenta actual (AWS estándar):** la cuenta no pertenece a AWS Academy (no existe LabRole). El rol de ejecución de tu Lambda necesita una política con dynamodb:Query sobre arn:aws:dynamodb:us-east-2:<cuenta>:table/Medianube-Clima y .../table/Medianube-Predicciones (ver [DESPLIEGUE-MANUAL.md](DESPLIEGUE-MANUAL.md)).
 
 ## Datos de prueba
 
-Desde CloudShell, en `backend/`, después de `./scripts/deploy.sh`:
+Desde CloudShell (cuando esté habilitado) o con AWS CLI local en `backend/`, después de `./scripts/deploy.sh`:
 
 ```bash
 ./scripts/preparar-demo.sh                 # user_test_123 en La Plata
