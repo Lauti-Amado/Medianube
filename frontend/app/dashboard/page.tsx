@@ -2,19 +2,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
 import KpiCard from "../../src/src/components/ui/KpiCard";
 import PageHeader from "../../src/src/components/ui/PageHeader";
 import Card from "../../src/src/components/ui/Card";
 import Badge, { type BadgeTone } from "../../src/src/components/ui/Badge";
 import Button from "../../src/src/components/ui/Button";
-import Alert from "../../src/src/components/ui/Alert";
 import Icon from "../../src/src/components/ui/Icon";
-import Skeleton from "../../src/src/components/ui/Skeleton";
+import Skeleton, { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 import DemandChart, { DemandLegend, type DemandDay } from "../../src/src/components/dashboard/DemandChart";
 import { useNombreNegocio } from "../../lib/negocio";
 import { formatMoneda } from "../../lib/formato";
+import { COMPRAS_URL, calcularResumen, leerGastos, mapInvoices, recientes, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
+import { DEMANDA_URL, agruparPorDia, isoLocal, resumenSemana, type DemandaApiResponse, type DiaDemanda } from "../../lib/demanda";
 
 // ── Shared styles ─────────────────────────────────────────────────────────
 
@@ -31,56 +32,30 @@ const rowTitle: React.CSSProperties = { fontSize: "13px", color: "var(--color-te
 
 const rowMeta: React.CSSProperties = { fontSize: "12px", lineHeight: "16px", color: "var(--color-text-secondary)", margin: "2px 0 0" };
 
-// ── Types & Data Mocks ───────────────────────────────────────────────────
-// MOCK TEMPORAL: el dashboard todavía no lee los endpoints de Compras, Precios y Demanda.
-// Los números están alineados entre sí y con los mockups del plan (3 facturas por revisar,
-// 2 precios a revisar, 315 u. para mañana). Las fechas se calculan a partir de hoy.
+/** Bloque sin datos o con error: un texto corto y una acción. */
+const estadoBloque: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "4px 0" };
 
-type PurchaseStatus = "procesada" | "revisar" | "procesando";
+const textoEstado: React.CSSProperties = { fontSize: "13px", lineHeight: "20px", color: "var(--color-text-secondary)", margin: 0 };
 
-interface Purchase {
-  id: string;
-  supplier: string;
-  amount: number;
-  /** Días hacia atrás desde hoy. */
-  daysAgo: number;
-  status: PurchaseStatus;
+// ── Types ─────────────────────────────────────────────────────────────────
+// Los datos salen de GET /compras y GET /demanda, con las mismas funciones que usan esas pantallas
+// (lib/compras y lib/demanda), así los números coinciden. Precios no tiene todavía una lectura sin
+// llamar a la IA (tarea 6a): hasta entonces su bloque solo lleva a la pantalla de Precios.
+
+interface EstadoCompras {
+  invoices: Invoice[];
+  resumen: Resumen | null;
+  loading: boolean;
+  error: boolean;
 }
 
-interface PriceSuggestion {
-  id: string;
-  product: string;
-  current: number;
-  suggested: number;
-  /** Margen con el precio actual, en %. */
-  margin: number;
-  /** Margen objetivo de la categoría, en %. */
-  targetMargin: number;
+interface EstadoDemanda {
+  dias: DiaDemanda[];
+  loading: boolean;
+  error: boolean;
 }
 
-const PURCHASES: Purchase[] = [
-  { id: "p1", supplier: "Distribuidora Sur S.A.", amount: 135123, daysAgo: 0, status: "procesando" },
-  { id: "p2", supplier: "Molino San Justo", amount: 84200, daysAgo: 1, status: "procesada" },
-  { id: "p3", supplier: "Envases SRL", amount: 31600, daysAgo: 2, status: "procesada" },
-  { id: "p4", supplier: "Lácteos La Pampa", amount: 47800, daysAgo: 3, status: "revisar" },
-];
-
-const MOCK_PRICES_FROM_IA: PriceSuggestion[] = [
-  { id: "pr1", product: "Medialunas de manteca", current: 850, suggested: 970, margin: 32, targetMargin: 40 },
-  { id: "pr2", product: "Pan francés (kg)", current: 1200, suggested: 1320, margin: 34, targetMargin: 40 },
-  { id: "pr3", product: "Cañoncitos", current: 490, suggested: 490, margin: 42, targetMargin: 40 },
-];
-
-// Unidades por día de la semana (índice 0 = domingo): el sábado es el pico, el domingo el piso.
-const MOCK_DEMAND_BY_WEEKDAY = {
-  historic: [118, 186, 172, 228, 214, 262, 296],
-  predicted: [130, 200, 190, 250, 240, 308, 315],
-};
-
-const INVOICES_TO_REVIEW = 3;
-const INVOICES_THIS_MONTH = 32;
-
-const STATUS_TONE: Record<PurchaseStatus, BadgeTone> = { procesada: "success", revisar: "warning", procesando: "neutral" };
+const STATUS_TONE: Record<InvoiceStatus, BadgeTone> = { procesada: "success", revisar: "warning", procesando: "neutral" };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -104,30 +79,14 @@ const dosDigitos = (n: number) => String(n).padStart(2, "0");
 const fechaCorta = (d: Date) => `${dosDigitos(d.getDate())}/${dosDigitos(d.getMonth() + 1)}`;
 const hora = (d: Date) => `${dosDigitos(d.getHours())}:${dosDigitos(d.getMinutes())}`;
 
-/** "medialunas de manteca y pan francés (kg)" / "a, b y c" */
-function listar(nombres: string[]) {
-  const n = nombres.map((s) => s.charAt(0).toLowerCase() + s.slice(1));
-  if (n.length <= 1) return n[0] ?? "";
-  return `${n.slice(0, -1).join(", ")} y ${n[n.length - 1]}`;
+/** "2026-11-10" → "10/11". Sin fecha ISO, "sin fecha". */
+function fechaCortaIso(iso: string) {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[2]}/${m[1]}` : "sin fecha";
 }
 
-/** Últimos 7 días (el último es hoy) y próximos 7 (el primero es mañana). */
-function buildDemandDays(hoy: Date): DemandDay[] {
-  const { historic, predicted } = MOCK_DEMAND_BY_WEEKDAY;
-  const etiqueta = (d: Date) => `${DIAS_CORTOS[d.getDay()]} ${d.getDate()}`;
-  const dias: DemandDay[] = [];
-  for (let offset = -6; offset <= 7; offset++) {
-    const d = addDays(hoy, offset);
-    const esPrediccion = offset > 0;
-    dias.push({
-      label: etiqueta(d),
-      value: (esPrediccion ? predicted : historic)[d.getDay()],
-      predicted: esPrediccion,
-      isToday: offset === 0,
-    });
-  }
-  return dias;
-}
+/** Mediodía local: evita que el cambio de zona horaria corra la fecha un día. */
+const aFecha = (iso: string) => new Date(`${iso}T12:00:00`);
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
@@ -138,88 +97,115 @@ export default function DashboardPage() {
   const [hoy, setHoy] = useState<Date | null>(null);
   const [actualizado, setActualizado] = useState<Date | null>(null);
 
-  const [prices, setPrices] = useState<PriceSuggestion[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Cada bloque carga por su cuenta: si un endpoint falla, el resto del dashboard sigue
+  const [compras, setCompras] = useState<EstadoCompras>({ invoices: [], resumen: null, loading: true, error: false });
+  const [demanda, setDemanda] = useState<EstadoDemanda>({ dias: [], loading: true, error: false });
+
+  const cargarCompras = useCallback(async () => {
+    setCompras((c) => ({ ...c, loading: true, error: false }));
+    try {
+      const response = await fetch(COMPRAS_URL);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const invoices = mapInvoices(leerGastos(await response.json()));
+      setCompras({ invoices, resumen: calcularResumen(invoices, new Date()), loading: false, error: false });
+      setActualizado(new Date());
+    } catch (error) {
+      console.error("Error al cargar las compras:", error);
+      setCompras({ invoices: [], resumen: null, loading: false, error: true });
+    }
+  }, []);
+
+  const cargarDemanda = useCallback(async () => {
+    setDemanda((d) => ({ ...d, loading: true, error: false }));
+    try {
+      const response = await fetch(DEMANDA_URL);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = (await response.json()) as DemandaApiResponse;
+      setDemanda({ dias: agruparPorDia(data.produccion ?? []), loading: false, error: false });
+      setActualizado(new Date());
+    } catch (error) {
+      console.error("Error al cargar la predicción:", error);
+      setDemanda({ dias: [], loading: false, error: true });
+    }
+  }, []);
 
   useEffect(() => {
     setHoy(new Date());
-
-    async function fetchData() {
-      try {
-        // MOCK TEMPORAL: simula la respuesta combinada de los endpoints de Demanda y Precios IA
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        setPrices(MOCK_PRICES_FROM_IA);
-        setActualizado(new Date());
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    fetchData();
-  }, []);
+    void Promise.all([cargarCompras(), cargarDemanda()]);
+  }, [cargarCompras, cargarDemanda]);
 
   // ── Datos derivados ──────────────────────────────────────────────────────
-  const needsReview = prices.filter((p) => p.suggested !== p.current);
+  const { resumen } = compras;
+  const ultimasCompras = recientes(compras.invoices, 4);
 
   const manana = hoy ? addDays(hoy, 1) : null;
-  const demandDays = hoy ? buildDemandDays(hoy) : [];
-  const predicted = demandDays.filter((d) => d.predicted).map((d) => d.value);
-  const produccionManana = predicted[0] ?? 0;
-  const pico = Math.max(...predicted, 0);
-  const promedio = predicted.length ? predicted.reduce((a, b) => a + b, 0) / predicted.length : 1;
-  const diaPico = hoy && predicted.length ? addDays(hoy, predicted.indexOf(pico) + 1) : null;
-  const sobrePromedio = Math.round((pico / promedio - 1) * 100);
+  const mananaIso = manana ? isoLocal(manana) : null;
+  const semana = resumenSemana(demanda.dias);
+  const produccionManana = demanda.dias.find((d) => d.fecha === mananaIso)?.total ?? null;
+  const esPicoManana = produccionManana !== null && semana.pico?.fecha === mananaIso;
+  const hayPrediccion = !demanda.error && demanda.dias.length > 0;
+
+  const demandDays: DemandDay[] = demanda.dias.map((d) => {
+    const fecha = aFecha(d.fecha);
+    return { label: `${DIAS_CORTOS[fecha.getDay()]} ${fecha.getDate()}`, value: d.total, predicted: true };
+  });
+  const diaPico = semana.pico ? aFecha(semana.pico.fecha) : null;
 
   const subtitle = hoy
     ? `${DIAS[hoy.getDay()]} ${hoy.getDate()} de ${hoy.toLocaleDateString("es-AR", { month: "long" })}${actualizado ? ` · actualizado ${hora(actualizado)}` : ""}`
-    : " ";
+    : " ";
 
   return (
     <AppLayout activeTab="dashboard">
       <div style={{ maxWidth: 1120, margin: "0 auto" }}>
         {/* ── 1. Encabezado ──────────────────────────────────────────────── */}
         <PageHeader
-          title={hoy ? (nombreNegocio ? `${getGreeting(hoy)}, ${nombreNegocio}` : getGreeting(hoy)) : " "}
+          title={hoy ? (nombreNegocio ? `${getGreeting(hoy)}, ${nombreNegocio}` : getGreeting(hoy)) : " "}
           subtitle={subtitle}
         />
 
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {/* ── 2. KPIs: margen, producción de mañana y facturas por revisar ── */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
-            <KpiCard
-              id="kpi-margin"
-              label="Margen promedio"
-              value="34,2%"
-              loading={isLoading}
-              trend={{ direction: "up", delta: "+2,4 pts vs. el mes anterior", positive: true }}
-            />
+            {/* El margen sale de las sugerencias de Precios, que todavía no se pueden leer sin llamar a la IA */}
+            <KpiCard id="kpi-margin" label="Margen promedio" value="—" footer="aparece cuando Precios guarde sugerencias" />
             <KpiCard
               id="kpi-production"
               label="Producción prevista para mañana"
               ia
               value={
-                <>
-                  {produccionManana}
-                  <small>unidades</small>
-                </>
+                produccionManana !== null ? (
+                  <>
+                    {produccionManana.toLocaleString("es-AR")}
+                    <small>unidades</small>
+                  </>
+                ) : (
+                  "—"
+                )
               }
-              loading={isLoading}
+              loading={demanda.loading}
               footer={
                 manana &&
-                `${DIAS[manana.getDay()]} ${fechaCorta(manana)}${produccionManana === pico ? " · pico de la semana" : ""}`
+                (produccionManana !== null
+                  ? `${DIAS[manana.getDay()]} ${fechaCorta(manana)}${esPicoManana ? " · pico de la semana" : ""}`
+                  : "sin predicción para mañana")
               }
             />
             <KpiCard
               id="kpi-invoices"
               label="Facturas por revisar"
               href="/compras?estado=revisar"
-              isAlert={INVOICES_TO_REVIEW > 0}
+              isAlert={(resumen?.porRevisar ?? 0) > 0}
+              loading={compras.loading}
               value={
-                <>
-                  {INVOICES_TO_REVIEW}
-                  <small>de {INVOICES_THIS_MONTH} este mes</small>
-                </>
+                resumen ? (
+                  <>
+                    {resumen.porRevisar}
+                    <small>de {resumen.facturasMes} este mes</small>
+                  </>
+                ) : (
+                  "—"
+                )
               }
               footer={
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontWeight: 500, color: "var(--color-accent-dark)" }}>
@@ -230,27 +216,7 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* ── 3. Aviso prioritario ───────────────────────────────────────── */}
-          {!isLoading && needsReview.length > 0 && (
-            <Alert
-              id="dashboard-alert-banner"
-              tone="warning"
-              action={
-                <Button variant="warning" size="sm" href="/precios">
-                  revisar precios
-                </Button>
-              }
-            >
-              <strong>
-                {needsReview.length === 1
-                  ? "1 producto queda por debajo de tu margen objetivo:"
-                  : `${needsReview.length} productos quedan por debajo de tu margen objetivo:`}
-              </strong>{" "}
-              {listar(needsReview.map((p) => p.product))}. Subieron sus insumos.
-            </Alert>
-          )}
-
-          {/* ── 4. Dos columnas ─────────────────────────────────────────────── */}
+          {/* ── 3. Dos columnas ─────────────────────────────────────────────── */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" }}>
             {/* Compras recientes */}
             <Card
@@ -262,34 +228,52 @@ export default function DashboardPage() {
                 </Button>
               }
             >
-              <div style={{ margin: "-10px 0" }}>
-                {PURCHASES.map((p, i) => (
-                  <div key={p.id} style={{ ...row, gridTemplateColumns: "1fr auto 96px", ...(i > 0 ? rowDivider : {}) }}>
-                    <div style={{ minWidth: 0 }}>
-                      <p style={rowTitle}>{p.supplier}</p>
-                      <p style={rowMeta}>{hoy ? fechaCorta(addDays(hoy, -p.daysAgo)) : " "}</p>
+              {compras.loading ? (
+                <SkeletonRows rows={4} label="Cargando tus compras" />
+              ) : compras.error ? (
+                <div style={estadoBloque}>
+                  <p style={textoEstado}>No pudimos cargar tus compras.</p>
+                  <Button variant="warning" size="sm" icon="refresh" onClick={() => void cargarCompras()}>
+                    reintentar
+                  </Button>
+                </div>
+              ) : ultimasCompras.length === 0 ? (
+                <div style={estadoBloque}>
+                  <p style={textoEstado}>Todavía no cargaste facturas.</p>
+                  <Button variant="text" size="sm" href="/compras/subir">
+                    subir factura
+                  </Button>
+                </div>
+              ) : (
+                <div style={{ margin: "-10px 0" }}>
+                  {ultimasCompras.map((p, i) => (
+                    <div key={p.id} style={{ ...row, gridTemplateColumns: "1fr auto 96px", ...(i > 0 ? rowDivider : {}) }}>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={rowTitle}>{p.provider}</p>
+                        <p style={rowMeta}>{fechaCortaIso(p.date)}</p>
+                      </div>
+                      <span className="num" style={{ fontSize: "13px", color: "var(--color-text-primary)" }}>
+                        {formatMoneda(p.total)}
+                      </span>
+                      <span style={{ textAlign: "right" }}>
+                        {p.status === "revisar" ? (
+                          <Link href="/compras?estado=revisar" aria-label={`revisar la factura de ${p.provider}`} style={{ textDecoration: "none" }}>
+                            <Badge tone="warning">
+                              revisar
+                              <Icon name="chevron_right" size={12} />
+                            </Badge>
+                          </Link>
+                        ) : (
+                          <Badge tone={STATUS_TONE[p.status] ?? "neutral"}>{p.status}</Badge>
+                        )}
+                      </span>
                     </div>
-                    <span className="num" style={{ fontSize: "13px", color: "var(--color-text-primary)" }}>
-                      {formatMoneda(p.amount)}
-                    </span>
-                    <span style={{ textAlign: "right" }}>
-                      {p.status === "revisar" ? (
-                        <Link href="/compras?estado=revisar" aria-label={`revisar la factura de ${p.supplier}`} style={{ textDecoration: "none" }}>
-                          <Badge tone="warning">
-                            revisar
-                            <Icon name="chevron_right" size={12} />
-                          </Badge>
-                        </Link>
-                      ) : (
-                        <Badge tone={STATUS_TONE[p.status]}>{p.status}</Badge>
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </Card>
 
-            {/* Precios sugeridos por IA */}
+            {/* Precios sugeridos por IA: sin lectura disponible todavía, el bloque solo lleva a Precios */}
             <Card
               title={
                 <>
@@ -303,59 +287,16 @@ export default function DashboardPage() {
                 </Button>
               }
             >
-              {isLoading ? (
-                <div role="status" aria-label="Calculando precios sugeridos" style={{ display: "flex", flexDirection: "column", gap: "26px", padding: "8px 0" }}>
-                  <Skeleton width="70%" />
-                  <Skeleton width="55%" />
-                  <Skeleton width="62%" />
-                </div>
-              ) : (
-                <div style={{ margin: "-10px 0" }}>
-                  {prices.map((p, i) => {
-                    const stable = p.suggested === p.current;
-                    const belowTarget = p.margin < p.targetMargin;
-
-                    return (
-                      <div key={p.id} style={{ ...row, gridTemplateColumns: "1fr auto 72px", ...(i > 0 ? rowDivider : {}) }}>
-                        <div style={{ minWidth: 0 }}>
-                          <p style={rowTitle}>{p.product}</p>
-                          <p style={rowMeta}>
-                            {formatMoneda(p.current)}
-                            {!stable && (
-                              <>
-                                <span style={{ margin: "0 4px" }}>→</span>
-                                <strong style={{ color: "var(--color-text-primary)" }}>{formatMoneda(p.suggested)}</strong>
-                              </>
-                            )}
-                          </p>
-                        </div>
-                        {belowTarget ? (
-                          <Badge tone="warning">
-                            margen {p.margin}% · obj. {p.targetMargin}%
-                          </Badge>
-                        ) : (
-                          <Badge>estable</Badge>
-                        )}
-                        {/* Aplicar un precio se hace en Precios, donde están las sugerencias reales.
-                            Acá los datos todavía son de ejemplo: el botón lleva, no aplica. */}
-                        <span style={{ textAlign: "right" }}>
-                          {stable ? (
-                            <span style={{ fontSize: "12px", color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>al día</span>
-                          ) : (
-                            <Button variant="accent" size="sm" href="/precios" aria-label={`revisar el precio de ${p.product.toLowerCase()}`}>
-                              revisar
-                            </Button>
-                          )}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <div style={estadoBloque}>
+                <p style={textoEstado}>Las sugerencias se generan en Precios a partir de tus costos.</p>
+                <Button variant="secondary" size="sm" href="/precios">
+                  ver precios
+                </Button>
+              </div>
             </Card>
           </div>
 
-          {/* ── 5. Predicción de demanda, compacta ──────────────────────────── */}
+          {/* ── 4. Predicción de demanda, compacta ──────────────────────────── */}
           <Card
             title={
               <>
@@ -369,17 +310,32 @@ export default function DashboardPage() {
               </Button>
             }
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", marginBottom: "14px" }}>
-              <p style={{ fontSize: "13px", color: "var(--color-text-primary)", margin: 0 }}>
-                {diaPico && (
-                  <>
-                    El {DIAS[diaPico.getDay()]} se espera el pico de la semana: <strong>+{sobrePromedio}% sobre el promedio</strong>.
-                  </>
-                )}
-              </p>
-              <DemandLegend />
-            </div>
-            {hoy ? <DemandChart days={demandDays} /> : <div style={{ height: 172 }} />}
+            {demanda.loading ? (
+              <div role="status" aria-label="Cargando la predicción">
+                <Skeleton height={172} />
+              </div>
+            ) : !hayPrediccion ? (
+              <div style={estadoBloque}>
+                <p style={textoEstado}>Todavía no hay predicción.</p>
+                <Button variant="text" size="sm" href="/demanda">
+                  ver demanda
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", marginBottom: "14px" }}>
+                  <p style={{ fontSize: "13px", color: "var(--color-text-primary)", margin: 0 }}>
+                    {diaPico && semana.promedio > 0 && (
+                      <>
+                        El {DIAS[diaPico.getDay()]} se espera el pico de la semana: <strong>+{semana.picoPct}% sobre el promedio</strong>.
+                      </>
+                    )}
+                  </p>
+                  <DemandLegend />
+                </div>
+                <DemandChart days={demandDays} />
+              </>
+            )}
           </Card>
         </div>
       </div>
