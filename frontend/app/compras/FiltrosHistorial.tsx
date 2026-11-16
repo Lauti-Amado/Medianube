@@ -43,6 +43,16 @@ export default function FiltrosHistorial({ filtros, onChange, onBuscar }: Props)
     if (debounce.current) clearTimeout(debounce.current);
   }, []);
 
+  // Si el padre borra los filtros, cancela la búsqueda pendiente para que no los vuelva a aplicar.
+  useEffect(() => {
+    if (filtros.proveedor || filtros.desde || filtros.hasta) return;
+    if (debounce.current) {
+      clearTimeout(debounce.current);
+      debounce.current = null;
+    }
+    setErrorFechas(null);
+  }, [filtros.proveedor, filtros.desde, filtros.hasta]);
+
   function rangoValido(f: FiltrosGastos) {
     // Las fechas AAAA-MM-DD se pueden comparar como texto
     return !(f.desde && f.hasta && f.desde > f.hasta);

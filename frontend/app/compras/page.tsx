@@ -134,10 +134,12 @@ export default function ComprasPage() {
     setExpandedId(null);
   }
 
-  function limpiarFiltros() {
+  function borrarFiltros() {
     setFiltros(FILTROS_VACIOS);
     setStatusFilter("todos");
-    if (hayFiltrosAplicados) fetchHistorial(FILTROS_VACIOS);
+    if (hayFiltrosAplicados || filtros.proveedor || filtros.desde || filtros.hasta) {
+      fetchHistorial(FILTROS_VACIOS);
+    }
   }
 
   // La búsqueda por proveedor y fechas la hace el backend; acá solo se filtra por estado
@@ -215,6 +217,15 @@ export default function ComprasPage() {
               ]}
             />
             <span style={{ flex: 1 }} />
+            <Button
+              id="btn-borrar-filtros"
+              size="sm"
+              icon="filter_alt_off"
+              disabled={!hayFiltros && !filtros.proveedor && !filtros.desde && !filtros.hasta}
+              onClick={borrarFiltros}
+            >
+              Borrar filtros
+            </Button>
             <Button id="btn-exportar-csv" size="sm" icon="download" disabled={filtered.length === 0} onClick={() => exportarCsv(filtered)}>
               exportar CSV
             </Button>
@@ -251,8 +262,8 @@ export default function ComprasPage() {
             ) : filtered.length === 0 ? (
               <div className="empty-state">
                 <p>No hay facturas con esos filtros.</p>
-                <Button size="sm" icon="filter_alt_off" onClick={limpiarFiltros}>
-                  limpiar filtros
+                <Button size="sm" icon="filter_alt_off" onClick={borrarFiltros}>
+                  Borrar filtros
                 </Button>
               </div>
             ) : (
