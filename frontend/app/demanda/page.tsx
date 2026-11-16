@@ -11,27 +11,13 @@ import Icon from "../../src/src/components/ui/Icon";
 import Segmented from "../../src/src/components/ui/Segmented";
 import Skeleton, { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 import { apiUrl } from "../../lib/api";
+import { DEMANDA_URL, agruparPorDia, isoLocal, resumenSemana, type DemandaApiResponse, type ProductoApi } from "../../lib/demanda";
 
 // ── API ───────────────────────────────────────────────────────────────────────
 
 // Usuario de prueba fijo hasta unificar la identidad con Cognito (ver PENDIENTES-INTEGRACION, P1-1)
-const API_URL = apiUrl("/demanda?usuarioID=user_test_123");
 const CLIMA_URL = apiUrl("/clima?usuarioID=user_test_123");
 
-interface ProductoApi {
-  productoID: string;
-  nombre: string;
-  unidadProducto?: string;
-  cantidad: number;
-  confianza?: string;
-  fecha?: string;
-}
-
-interface DemandaApiResponse {
-  origen?: string;
-  produccion?: ProductoApi[];
-  precision?: number | null;
-}
 
 interface DiaClima {
   fecha: string;
@@ -72,11 +58,6 @@ function asConfianza(valor: string | undefined): Confianza | null {
 
 function aFecha(iso: string): Date {
   return new Date(`${iso}T12:00:00`);
-}
-
-function isoLocal(date: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
 }
 
 /** "sá 14" */
@@ -142,7 +123,7 @@ export default function DemandaPage() {
 
     const prediccion = (async () => {
       try {
-        const response = await fetch(API_URL);
+        const response = await fetch(DEMANDA_URL);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = (await response.json()) as DemandaApiResponse;
         setProductos((data.produccion ?? []).filter((p) => p.fecha));
@@ -179,20 +160,7 @@ export default function DemandaPage() {
 
   // ── Datos derivados ────────────────────────────────────────────────────────
 
-  const dias = useMemo(() => {
-    const porFecha = new Map<string, ProductoApi[]>();
-    for (const p of productos) {
-      if (!p.fecha) continue;
-      porFecha.set(p.fecha, [...(porFecha.get(p.fecha) ?? []), p]);
-    }
-    return [...porFecha.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([fecha, items]) => ({
-        fecha,
-        total: items.reduce((acc, p) => acc + p.cantidad, 0),
-        items: [...items].sort((a, b) => b.cantidad - a.cantidad),
-      }));
-  }, [productos]);
+  const dias = useMemo(() => agruparPorDia(productos), [productos]);
 
   const manana = useMemo(() => {
     const d = new Date();
@@ -203,11 +171,8 @@ export default function DemandaPage() {
   // Por defecto, mañana; si la predicción no lo incluye, el primer día que haya
   const dia = dias.find((d) => d.fecha === diaElegido) ?? dias.find((d) => d.fecha === manana) ?? dias[0];
 
-  const total = dias.reduce((acc, d) => acc + d.total, 0);
+  const { total, pico, picoPct } = resumenSemana(dias);
   const maximo = Math.max(1, ...dias.map((d) => d.total));
-  const promedio = dias.length > 0 ? total / dias.length : 0;
-  const pico = dias.reduce<(typeof dias)[number] | null>((max, d) => (!max || d.total > max.total ? d : max), null);
-  const picoPct = pico && promedio > 0 ? Math.round((pico.total / promedio - 1) * 100) : 0;
 
   const enRiesgo = new Set(productos.filter((p) => asConfianza(p.confianza) === "baja").map((p) => p.productoID)).size;
   const climaPorFecha = new Map(clima.map((d) => [d.fecha, d]));
