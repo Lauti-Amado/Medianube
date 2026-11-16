@@ -496,6 +496,20 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Datos de prueba:** se cargaron a mano en DynamoDB, porque `predecirDemanda` y sus tablas de entrada (Ventas, Clima) todavía no están desplegadas.
 - **Deuda técnica y pendientes:** el adaptador de entrada consulta DynamoDB directamente; para respetar la arquitectura hexagonal habría que extraer un puerto de lectura y un caso de uso, como en `servicioClima`. Falta conectar `GET /clima` (hoy responde `Not Found`) y activar la autenticación JWT cuando esté lista.
 
+## 11/11/2026 - Conexión de GET /clima en /demanda y despliegue manual de obtenerClima
+
+**Problema abordado:** `GET /clima` daba `Not Found`: la Lambda, la tabla y la ruta no existían en AWS (CloudShell bloqueado con "La verificación de su cuenta está en curso", `deploy.sh` inutilizable). Había que desplegarlos a mano y mostrar el pronóstico en `/demanda` sin romper las predicciones si el clima falla.
+
+**Prompt / Herramienta utilizada:** Claude (Anthropic), con el código de clima, el template y los ADRs del repo.
+
+**Código / Arquitectura generada:** pasos de consola para crear la tabla `Medianube-Clima`, compilar el bundle con `npm run build` (`dist/obtenerClima/index.mjs`), subirlo a la Lambda `obtenerClima`, configurar las variables de entorno y permisos IAM del rol, y exponer la ruta `GET /clima` en la HTTP API `1i2vqeifsi`; además, tira de 7 días en `frontend/app/demanda/page.tsx` desacoplada de la carga de predicciones y reutilizando `EstadoApi`.
+
+**Validación y Corrección Humana:**
+- **Entorno real vs. supuesto por la IA:** la documentación previa y la IA asumían AWS Academy con `LabRole` y el nombre `obtenerClima-dev`. La cuenta es una cuenta AWS estándar en plan gratuito; se creó la función como `obtenerClima` y se agregaron manualmente en IAM los permisos sobre `Medianube-Clima` y `Medianube-Configuracion`.
+- **Verificación en consola y URL pública:** se probó primero la Lambda desde la consola y luego el endpoint público `GET /clima?usuarioID=user_test_123`, comprobando que devuelve los 7 días de pronóstico de Open-Meteo para La Plata y escribe la caché en `Medianube-Clima`.
+- **Prueba de degradación elegante:** se probó en el navegador apuntando temporalmente a una URL inválida (`/climaX`), confirmando que el bloque de clima muestra el estado de error con opción de reintentar mientras las predicciones de demanda y el gráfico se siguen renderizando sin romperse.
+- **Limpieza visual en `/demanda`:** se quitó el ítem "Histórico" de la leyenda del gráfico (ya que solo se grafican los días predichos) y se renombró el botón "Recalcular con IA" a "Actualizar" para no prometer una corrida del modelo que ocurre por lote. Se documentó el estado de los recursos manuales en `docs/DESPLIEGUE-MANUAL.md`.
+
 ## 15/11/2026 - Despliegue manual de la predicción de demanda (`predecirDemanda`)
 
 **Problema abordado:** `/demanda` mostraba predicciones cargadas a mano y vencidas, porque `predecirDemanda` nunca se había desplegado. El código asumía tablas que no existían en AWS (`Medianube-Productos` con `usuarioID`, `Medianube-Ventas`) y `deploy.sh` no se podía usar: CloudShell está bloqueado y el script chocaría con las tablas, rutas y la Lambda `sugerirPrecios-dev` (Gemini) creadas a mano.
