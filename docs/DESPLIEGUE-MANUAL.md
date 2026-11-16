@@ -71,3 +71,19 @@ madrugada. El diseño está en `docs/PREDICCION-DEMANDA.md`.
 - El grupo de logs lo crea Lambda sin vencimiento; el template lo deja en 14 días.
 - `deploy.sh` intentaría crear de nuevo `Medianube-Ventas`, la función y la regla, así que también chocaría con estos
   recursos (ver la advertencia anterior).
+
+## Refresco programado del clima (`obtenerClima`, 15/11/2026)
+
+La predicción de las 05:30 lee el pronóstico de `Medianube-Clima`. Sin un refresco programado, esa tabla solo se
+actualizaba cuando alguien abría `/clima`, y la predicción podía quedar sin pronóstico (sin factor de lluvia y con
+menos confianza). Se agregó la regla de las 05:00 que define `template.yaml` (`ReglaRefrescoClima`).
+
+| Recurso | Configuración |
+|---|---|
+| Lambda `obtenerClima` | Sin cambios de código: el bundle desplegado ya reconoce el evento programado (`source: aws.events`) y recorre los usuarios de `Medianube-Configuracion`. Timeout de 20 s, necesario porque el refresco corta con 10 s de margen antes del timeout. |
+| Rol de `obtenerClima` | `AWSLambdaBasicExecutionRole` y la política administrada por el cliente `obtenerClima-role-…Policy`: `Query` + `BatchWriteItem` en Clima, `GetItem` + `Scan` en Configuración. Coincide con `RolObtenerClima`, no hubo que cambiarla. |
+| Regla `medianube-refresco-clima-dev` | Regla programada clásica en el bus `default`, `cron(0 8 * * ? *)` (05:00 ART), destino `obtenerClima` con el evento coincidente como entrada. La Lambda la muestra como desencadenador junto a la ruta `GET /clima`. |
+
+**Verificación:** prueba en la consola con `backend/events/refresco-programado.json` → `total 1, actualizados 1,
+omitidos 0, pendientes 0, fallidos []`. Al día siguiente, `GET /clima` tiene que mostrar un `actualizadoEn` cercano a
+las 08:00 UTC.
