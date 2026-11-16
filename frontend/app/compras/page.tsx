@@ -11,56 +11,11 @@ import Segmented from "../../src/src/components/ui/Segmented";
 import { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 import { useToast } from "../../src/src/components/ui/Toast";
 import { formatMoneda } from "../../lib/formato";
-import { apiUrl } from "../../lib/api";
+import { COMPRAS_URL, calcularResumen, leerGastos, mapInvoices, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
 import FiltrosHistorial, { FILTROS_VACIOS, type FiltrosGastos } from "./FiltrosHistorial";
 
-type InvoiceStatus = "procesada" | "revisar" | "procesando";
 type StatusFilter = InvoiceStatus | "todos";
 
-interface InvoiceItem {
-  description: string;
-  quantity: number | null;
-  unitPrice: number | null;
-}
-
-interface Invoice {
-  id: string;
-  provider: string;
-  /** Fecha AAAA-MM-DD tal como viene de la API, o "" si no vino. */
-  date: string;
-  items: number;
-  itemsDetail: string;
-  itemList: InvoiceItem[];
-  total: number;
-  status: InvoiceStatus;
-  alert?: string;
-}
-
-// Forma de cada gasto que devuelve el endpoint /compras (campos opcionales por mapeo defensivo)
-interface GastoApi {
-  gastoID?: string;
-  proveedor?: string;
-  fecha?: string;
-  monto?: number | string;
-  categoria?: string;
-  usuarioID?: string;
-  descripcion?: string;
-  cantidadItems?: number;
-  items?: { descripcion?: string; cantidad?: number | string; precio_unitario?: number | string; precioUnitario?: number | string }[];
-  estado?: string;
-  alerta?: string;
-}
-
-/** Totales del historial completo (sin filtros de búsqueda), para los KPIs. */
-interface Resumen {
-  totalMes: number;
-  facturasMes: number;
-  /** Variación contra el mes anterior, en %. `null` si no hay con qué comparar. */
-  variacion: number | null;
-  porRevisar: number;
-}
-
-const COMPRAS_URL = apiUrl("/compras");
 const PAGE_SIZE = 10;
 
 const STATUS_TONE: Record<InvoiceStatus, BadgeTone> = { procesada: "success", revisar: "warning", procesando: "neutral" };
@@ -77,52 +32,6 @@ const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "
 function formatFecha(fecha: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(fecha);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : fecha || "sin fecha";
-}
-
-function toNumber(v: number | string | undefined) {
-  const n = Number(v);
-  return v != null && v !== "" && Number.isFinite(n) ? n : null;
-}
-
-function mapInvoices(gastos: GastoApi[]): Invoice[] {
-  return gastos.map((item, index) => {
-    const itemList: InvoiceItem[] = Array.isArray(item.items)
-      ? item.items.map((i) => ({
-          description: i.descripcion || "ítem sin descripción",
-          quantity: toNumber(i.cantidad),
-          unitPrice: toNumber(i.precio_unitario ?? i.precioUnitario),
-        }))
-      : [];
-
-    return {
-      id: item.gastoID || `temp-id-${index}`,
-      provider: item.proveedor || "Proveedor desconocido",
-      date: item.fecha || "",
-      items: itemList.length || item.cantidadItems || 1,
-      itemsDetail: itemList.length
-        ? itemList.map((i) => i.description).join(", ")
-        : item.categoria || item.descripcion || "insumos varios",
-      itemList,
-      total: Number(item.monto) || 0,
-      status: (item.estado || "procesada") as InvoiceStatus,
-      alert: item.alerta || undefined,
-    };
-  });
-}
-
-function calcularResumen(invoices: Invoice[], hoy: Date): Resumen {
-  const clave = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  const mesActual = clave(hoy);
-  const mesAnterior = clave(new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1));
-  const delMes = invoices.filter((i) => i.date.startsWith(mesActual));
-  const totalMes = delMes.reduce((acc, i) => acc + i.total, 0);
-  const totalAnterior = invoices.filter((i) => i.date.startsWith(mesAnterior)).reduce((acc, i) => acc + i.total, 0);
-  return {
-    totalMes,
-    facturasMes: delMes.length,
-    variacion: totalAnterior > 0 ? (totalMes / totalAnterior - 1) * 100 : null,
-    porRevisar: invoices.filter((i) => i.status === "revisar").length,
-  };
 }
 
 function exportarCsv(invoices: Invoice[]) {
@@ -182,8 +91,7 @@ export default function ComprasPage() {
       const data = await response.json();
       if (busquedaId !== ultimaBusqueda.current) return; // llegó una búsqueda más nueva
 
-      const gastos: GastoApi[] = Array.isArray(data?.gastos) ? data.gastos : Array.isArray(data) ? data : [];
-      const mapped = mapInvoices(gastos);
+      const mapped = mapInvoices(leerGastos(data));
 
       setInvoices(mapped);
       setHayFiltrosAplicados(query !== "");

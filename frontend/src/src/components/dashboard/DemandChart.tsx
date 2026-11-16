@@ -1,4 +1,4 @@
-// Gráfico compacto de demanda: últimos 7 días + próximos 7 días.
+// Gráfico compacto de demanda: los próximos 7 días predichos (la API no devuelve ventas pasadas).
 // En el dashboard alcanza con la tendencia; el detalle está en /demanda.
 
 export interface DemandDay {
@@ -87,10 +87,7 @@ export default function DemandChart({ days }: { days: DemandDay[] }) {
 }
 
 export function DemandLegend() {
-  const items = [
-    { color: "var(--color-bar-historic)", label: "últimos 7 días" },
-    { color: "var(--color-bar-predicted)", label: "próximos 7 días" },
-  ];
+  const items = [{ color: "var(--color-bar-predicted)", label: "próximos 7 días" }];
   return (
     <div style={{ display: "flex", gap: 16, flexShrink: 0, fontSize: 12, lineHeight: "16px", color: "var(--color-text-secondary)" }}>
       {items.map((it) => (
