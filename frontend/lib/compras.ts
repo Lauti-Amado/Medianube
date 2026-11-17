@@ -50,6 +50,15 @@ export interface Resumen {
 
 export const COMPRAS_URL = apiUrl("/compras");
 
+/** Header de GET /compras. API Gateway exige el ID token de Cognito; sin él responde 401. */
+export async function headersCompras(): Promise<Record<string, string>> {
+  const { obtenerTokenAuth } = await import("./token");
+  const token = await obtenerTokenAuth();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
 function toNumber(v: number | string | undefined) {
   const n = Number(v);
   return v != null && v !== "" && Number.isFinite(n) ? n : null;

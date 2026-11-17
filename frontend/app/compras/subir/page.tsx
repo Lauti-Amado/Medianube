@@ -11,6 +11,7 @@ import StepIndicator from "../../../src/src/components/invoices/StepIndicator";
 import { uploadInvoice } from "../../../lib/upload";
 import { validarArchivo } from "../../../lib/validarArchivo";
 import { formatMoneda } from "../../../lib/formato";
+import { headersCompras } from "../../../lib/compras";
 import { apiUrl } from "../../../lib/api";
 import PageHeader from "../../../src/src/components/ui/PageHeader";
 import Alert from "../../../src/src/components/ui/Alert";
@@ -76,7 +77,7 @@ async function esperarExtraccionOcr(s3Key: string, nombreArchivo: string, sigue:
     await esperar(POLL_INTERVAL_MS);
     if (!sigue()) throw new LecturaCancelada();
 
-    const res = await fetch(COMPRAS_URL, { method: "GET" });
+    const res = await fetch(COMPRAS_URL, { method: "GET", headers: await headersCompras() });
     if (!res.ok) continue;
 
     const data = await res.json();

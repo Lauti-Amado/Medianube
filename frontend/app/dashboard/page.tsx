@@ -15,7 +15,7 @@ import Skeleton, { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 import DemandChart, { DemandLegend, type DemandDay } from "../../src/src/components/dashboard/DemandChart";
 import { useNombreNegocio } from "../../lib/negocio";
 import { formatMoneda } from "../../lib/formato";
-import { COMPRAS_URL, calcularResumen, leerGastos, mapInvoices, recientes, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
+import { COMPRAS_URL, calcularResumen, headersCompras, leerGastos, mapInvoices, recientes, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
 import { DEMANDA_URL, agruparPorDia, isoLocal, resumenSemana, type DemandaApiResponse, type DiaDemanda } from "../../lib/demanda";
 import { MARGEN_OBJETIVO_PCT, esAjusteRecomendado, margen, margenPromedio, obtenerUltimaSugerencia, type SugerenciaPrecio } from "../../lib/precios";
 
@@ -123,7 +123,7 @@ export default function DashboardPage() {
   const cargarCompras = useCallback(async () => {
     setCompras((c) => ({ ...c, loading: true, error: false }));
     try {
-      const response = await fetch(COMPRAS_URL);
+      const response = await fetch(COMPRAS_URL, { headers: await headersCompras() });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const invoices = mapInvoices(leerGastos(await response.json()));
       setCompras({ invoices, resumen: calcularResumen(invoices, new Date()), loading: false, error: false });
