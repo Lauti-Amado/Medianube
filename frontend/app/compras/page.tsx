@@ -14,6 +14,7 @@ import { formatMoneda } from "../../lib/formato";
 import { obtenerTokenAuth } from "../../lib/token";
 import { COMPRAS_URL, calcularResumen, leerGastos, mapInvoices, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
 import FiltrosHistorial, { FILTROS_VACIOS, type FiltrosGastos } from "./FiltrosHistorial";
+import DesgloseFactura from "./DesgloseFactura";
 
 type StatusFilter = InvoiceStatus | "todos";
 
@@ -276,9 +277,7 @@ export default function ComprasPage() {
               </div>
             ) : (
               shown.map((inv, idx) => {
-                const expanded = expandedId === inv.id;
-                const detailId = `detalle-${inv.id}`;
-                const toggle = () => setExpandedId(expanded ? null : inv.id);
+                const abrirDesglose = () => setExpandedId(inv.id);
                 return (
                   <Fragment key={inv.id}>
                     <div
@@ -312,41 +311,16 @@ export default function ComprasPage() {
                         {inv.status === "procesando" ? (
                           <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>leyendo…</span>
                         ) : inv.status === "revisar" ? (
-                          <Button id={"btn-revisar-" + inv.id} variant="warning" size="sm" aria-expanded={expanded} aria-controls={detailId} onClick={toggle}>
-                            {expanded ? "cerrar" : "revisar"}
+                          <Button id={"btn-revisar-" + inv.id} variant="warning" size="sm" aria-haspopup="dialog" onClick={abrirDesglose}>
+                            revisar
                           </Button>
                         ) : inv.itemList.length > 0 ? (
-                          <Button id={"btn-detalle-" + inv.id} variant="text" size="sm" iconEnd={expanded ? "expand_less" : "chevron_right"} aria-expanded={expanded} aria-controls={detailId} onClick={toggle}>
-                            {expanded ? "ocultar" : "ver detalle"}
+                          <Button id={"btn-desglose-" + inv.id} variant="text" size="sm" iconEnd="chevron_right" aria-haspopup="dialog" onClick={abrirDesglose}>
+                            Ver desglose
                           </Button>
                         ) : null}
                       </span>
                     </div>
-
-                    {expanded && (
-                      <div id={detailId} style={{ padding: "12px 16px 16px", borderTop: "1px solid var(--color-border-subtle)", backgroundColor: "var(--color-bg)" }}>
-                        {inv.itemList.length === 0 ? (
-                          <p style={{ fontSize: 13, color: "var(--color-text-secondary)", margin: 0 }}>
-                            Esta factura no tiene el detalle de ítems cargado.
-                          </p>
-                        ) : (
-                          <ul style={{ listStyle: "none", margin: 0, padding: 0, maxWidth: 640 }}>
-                            {inv.itemList.map((it, i) => (
-                              <li key={i} style={{ display: "flex", justifyContent: "space-between", gap: 16, padding: "6px 0", borderTop: i > 0 ? "1px solid var(--color-border)" : "none", fontSize: 13 }}>
-                                <span style={{ color: "var(--color-text-primary)" }}>{it.description}</span>
-                                <span className="num" style={{ color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>
-                                  {it.quantity != null && it.unitPrice != null
-                                    ? `${it.quantity} × ${formatMoneda(it.unitPrice)}`
-                                    : it.quantity != null
-                                      ? `${it.quantity} u.`
-                                      : ""}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
                   </Fragment>
                 );
               })
@@ -368,6 +342,13 @@ export default function ComprasPage() {
           )}
         </section>
       </div>
+
+      {/* expandedId es la factura con el modal de desglose abierto */}
+      <DesgloseFactura
+        factura={invoices.find((i) => i.id === expandedId) ?? null}
+        formatearFecha={formatFecha}
+        onClose={() => setExpandedId(null)}
+      />
     </AppLayout>
   );
 }
