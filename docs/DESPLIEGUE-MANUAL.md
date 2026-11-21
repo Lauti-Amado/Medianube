@@ -12,7 +12,7 @@ Para destrabar la integración de punta a punta de `/demanda` y `/clima`, los si
 | `Medianube-Clima` | `usuarioID` (S) | `fecha` (S) | `expiraEn` | Cache de pronóstico de 7 días (Open-Meteo). |
 | `Medianube-Predicciones` | `usuarioID` (S) | `fechaProducto` (S) | `expiraEn` | Demanda estimada por día y producto (`<YYYY-MM-DD>#<productoID>`). Reemplaza a la tabla `Prediccion-demanda` que tenía clave simple mal tipada. |
 | `Medianube-Configuracion` | `usuarioID` (S) | — | — | Configuración general y ubicación del negocio. |
-| `Gastos` | `gastoID` (S) | — | — | Facturas procesadas por `procesarFactura` y leídas por `listarGastos`. |
+| `Gastos` | `gastoID` (S) | — | — | Facturas procesadas por `procesarFactura` y leídas por `listarGastos`. Índice global `usuarioID-fecha-index` (`usuarioID` S, `fecha` S) para paginar el historial (ver `backend/lambdas-consola/README.md`). |
 
 ### 2. Funciones AWS Lambda
 | Nombre en consola | Runtime / Arq. | Código fuente en el repo | Variables de entorno configuradas |

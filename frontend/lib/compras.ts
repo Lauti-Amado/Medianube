@@ -112,6 +112,31 @@ export function leerGastos(data: unknown): GastoApi[] {
   return Array.isArray(gastos) ? (gastos as GastoApi[]) : [];
 }
 
+export interface PaginaGastos {
+  gastos: GastoApi[];
+  /** Cursor de la próxima página, o `null` si es la última. */
+  siguiente: string | null;
+  /** KPIs de todo el historial, calculados por el backend. Solo viene en la primera página. */
+  resumen: Resumen | null;
+}
+
+const esNumero = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** Lee la respuesta de GET /compras?limite=N. Un `resumen` incompleto se descarta en lugar de mostrar NaN. */
+export function leerPagina(data: unknown): PaginaGastos {
+  const d = (data ?? {}) as { siguiente?: unknown; resumen?: Partial<Record<keyof Resumen, unknown>> | null };
+  const r = d.resumen;
+  const resumen =
+    r && esNumero(r.totalMes) && esNumero(r.facturasMes) && esNumero(r.porRevisar) && (r.variacion === null || esNumero(r.variacion))
+      ? { totalMes: r.totalMes, facturasMes: r.facturasMes, porRevisar: r.porRevisar, variacion: r.variacion }
+      : null;
+  return {
+    gastos: leerGastos(data),
+    siguiente: typeof d.siguiente === "string" && d.siguiente ? d.siguiente : null,
+    resumen,
+  };
+}
+
 /** Las `n` facturas más recientes; las que no tienen fecha van al final. No modifica la lista recibida. */
 export function recientes(invoices: Invoice[], n: number): Invoice[] {
   return [...invoices].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, n);
