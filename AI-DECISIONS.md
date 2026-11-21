@@ -544,3 +544,23 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Política compartida:** la política de DynamoDB del rol está asociada a dos entidades. Se revisó su JSON en lugar de editarla; ya tenía el `Scan` sobre Configuración que necesita el refresco, así que no se tocó.
 - **Entrada de la regla:** la guía anterior proponía cargar `refresco-programado.json` como entrada personalizada. Se descartó: la regla clásica ya envía `source: aws.events`, y ese archivo solo se usó como evento de prueba.
 - **Prueba antes de programar:** se probó la Lambda con el evento programado antes de crear la regla: `actualizados 1, pendientes 0, fallidos []`.
+
+## 21/11/2026 - Paginación del historial de compras y KPIs calculados en el backend
+
+**Problema abordado:** `listarGastos` devolvía todas las facturas en una sola respuesta y la pantalla de Compras las paginaba en el navegador. Los KPIs también se calculaban en el front, así que al paginar en el backend iban a quedar calculados sobre las 10 facturas de la página.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5). *Prompt:* "Quiero que devuelva de a 10 usando la paginación de DynamoDB (Limit y LastEvaluatedKey), y que la tabla del front tenga botones Anterior y Siguiente. [...] los totales tienen que calcularse sobre TODAS las facturas en el backend, no solo con las 10 de la página."
+
+**Código / Arquitectura generada:**
+- **`backend/lambdas-consola/listarGastos/index.mjs`:** el código de la Lambda no estaba en el repositorio; se reescribió a partir del comportamiento documentado el 31/10 (filtros `proveedor`, `desde`, `hasta`, `400` con fechas inválidas, `{ gastos, count }`) y se versionó junto a las demás Lambdas de consola.
+- **Query sobre un índice nuevo** (`usuarioID-fecha-index`) en lugar de `Scan`: devuelve las facturas del usuario ya ordenadas de la más nueva a la más vieja, y el rango de fechas pasa a ser condición de clave.
+- **Paginación con `Limit` + `ExclusiveStartKey`:** se pide un ítem de más para saber si hay otra página, así "Siguiente" nunca lleva a una página vacía. El cursor es la clave del último gasto en base64url y se rechaza si es de otro usuario.
+- **`resumen`** (total del mes, cantidad, variación contra el mes anterior y facturas por revisar) calculado sobre todo el historial, ignorando filtros y paginación, solo en la primera página. El mes se toma en la hora de Argentina.
+- **Frontend:** pila de cursores con botones Anterior/Siguiente, KPIs tomados del `resumen` y filtro de estado enviado al backend.
+
+**Validación y Corrección Humana:**
+- **`Scan` con `Limit` descartado:** `Limit` se aplica antes del filtro por usuario y la tabla solo tiene `gastoID` como clave, así que las páginas habrían salido con menos de 10 facturas y sin orden por fecha.
+- **Compatibilidad:** sin `limite` la Lambda devuelve todo, como antes, porque el Dashboard y el polling de la subida buscan la factura recién procesada en la lista completa.
+- **Filtro de estado en el backend:** filtrar en el navegador solo habría mostrado las facturas por revisar de la página actual.
+- **Pruebas:** 13 tests de la Lambda con un índice simulado (orden, límites, página justa, filtros, cursor ajeno, 401/400) y 3 de `leerPagina` en el front. Se probó en el navegador contra un mock local que ejecuta la Lambda real: 23 facturas en páginas de 10, 10 y 3, Anterior/Siguiente y KPIs fijos al cambiar de página.
+- **Pendiente:** crear el índice y el permiso en la consola antes de subir la Lambda (pasos en `backend/lambdas-consola/README.md`), y probarla con la cuenta real.
