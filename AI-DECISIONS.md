@@ -544,3 +544,17 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Política compartida:** la política de DynamoDB del rol está asociada a dos entidades. Se revisó su JSON en lugar de editarla; ya tenía el `Scan` sobre Configuración que necesita el refresco, así que no se tocó.
 - **Entrada de la regla:** la guía anterior proponía cargar `refresco-programado.json` como entrada personalizada. Se descartó: la regla clásica ya envía `source: aws.events`, y ese archivo solo se usó como evento de prueba.
 - **Prueba antes de programar:** se probó la Lambda con el evento programado antes de crear la regla: `actualizados 1, pendientes 0, fallidos []`.
+
+## 21/11/2026 - Modal "Ver desglose" en el historial de compras
+
+**Problema abordado:** el detalle de los productos de cada factura (el array `items` que extrae Gemini) se mostraba expandiendo la fila de la tabla, con la cantidad y el precio en un solo texto y sin subtotales.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5). *Prompt:* "Botón 'Ver desglose': que abra un modal con el array `items` (los productos que extrajo Gemini) de esa factura."
+
+**Código / Arquitectura generada:**
+- **`app/compras/DesgloseFactura.tsx`:** modal con `<dialog>` nativo, como `ConfirmDialog` (atrapa el foco, cierra con Esc y con clic en el fondo). Muestra proveedor, fecha, total, la alerta de la IA si la hay, y una tabla con producto, cantidad, precio unitario y subtotal.
+- **Tabla de compras:** "ver detalle" pasa a "Ver desglose" y abre el modal; "revisar" abre el mismo modal. Se quitó la fila expandible.
+
+**Validación y Corrección Humana:**
+- **Sin cambios en la API:** el modal usa `itemList`, que `mapInvoices` ya arma desde `items`; un ítem sin cantidad o precio muestra "—" en lugar de un subtotal incorrecto.
+- **Pruebas:** `tsc`, lint y tests del front. En el navegador, contra un mock local, se abrió el modal desde "Ver desglose" y desde "revisar", y se cerró con Esc y con el botón.
