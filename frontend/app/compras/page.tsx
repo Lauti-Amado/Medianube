@@ -12,11 +12,17 @@ import { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 import { useToast } from "../../src/src/components/ui/Toast";
 import { formatMoneda } from "../../lib/formato";
 import { obtenerTokenAuth } from "../../lib/token";
-import { COMPRAS_URL, calcularResumen, leerGastos, mapInvoices, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
+import { COMPRAS_URL, leerPagina, mapInvoices, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
 import FiltrosHistorial, { FILTROS_VACIOS, type FiltrosGastos } from "./FiltrosHistorial";
 import DesgloseFactura from "./DesgloseFactura";
 
 type StatusFilter = InvoiceStatus | "todos";
+
+/** Lo que se le pide al backend: los filtros de búsqueda y el estado elegido. */
+interface Consulta {
+  filtros: FiltrosGastos;
+  estado: StatusFilter;
+}
 
 const PAGE_SIZE = 10;
 
@@ -59,7 +65,6 @@ export default function ComprasPage() {
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos");
   const [filtros, setFiltros] = useState<FiltrosGastos>(FILTROS_VACIOS);
-  const [visible, setVisible] = useState(PAGE_SIZE);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -67,27 +72,39 @@ export default function ComprasPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [hayFiltrosAplicados, setHayFiltrosAplicados] = useState(false);
+  // Paginación del backend: la página que se ve y si hay otra después
+  const [pagina, setPagina] = useState(0);
+  const [haySiguiente, setHaySiguiente] = useState(false);
+  // cursores[i] es el cursor con el que se pide la página i (la primera no lleva)
+  const cursores = useRef<(string | null)[]>([null]);
   const ultimaBusqueda = useRef(0);
-  const ultimosFiltros = useRef<FiltrosGastos>(FILTROS_VACIOS);
+  const ultimaConsulta = useRef<Consulta>({ filtros: FILTROS_VACIOS, estado: "todos" });
+  const ultimaPagina = useRef(0);
 
-  // Trae los gastos del backend, agregando solo los filtros completos
-  const fetchHistorial = useCallback(async (f: FiltrosGastos = FILTROS_VACIOS) => {
+  // Trae una página de gastos del backend, que también filtra por proveedor, fechas y estado
+  const cargarPagina = useCallback(async (consulta: Consulta, indice: number) => {
     const busquedaId = ++ultimaBusqueda.current;
-    ultimosFiltros.current = f;
+    ultimaConsulta.current = consulta;
+    ultimaPagina.current = indice;
     setIsLoading(true);
     setFetchError(false);
 
+    const { filtros: f, estado } = consulta;
     const params = new URLSearchParams();
     if (f.proveedor) params.set("proveedor", f.proveedor);
     if (f.desde) params.set("desde", f.desde);
     if (f.hasta) params.set("hasta", f.hasta);
-    const query = params.toString();
+    if (estado !== "todos") params.set("estado", estado);
+    const hayFiltrosEnConsulta = params.toString() !== "";
+    params.set("limite", String(PAGE_SIZE));
+    const cursor = cursores.current[indice];
+    if (cursor) params.set("cursor", cursor);
 
     try {
       const token = await obtenerTokenAuth();
       if (!token) throw new Error("Sesión vencida");
 
-      const response = await fetch(query ? `${COMPRAS_URL}?${query}` : COMPRAS_URL, {
+      const response = await fetch(`${COMPRAS_URL}?${params}`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -97,17 +114,17 @@ export default function ComprasPage() {
       if (response.status === 401) throw new Error("Sesión vencida");
       if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
 
-      const data = await response.json();
+      const data = leerPagina(await response.json());
       if (busquedaId !== ultimaBusqueda.current) return; // llegó una búsqueda más nueva
 
-      const mapped = mapInvoices(leerGastos(data));
-
-      setInvoices(mapped);
-      setHayFiltrosAplicados(query !== "");
-      setVisible(PAGE_SIZE);
+      cursores.current = [...cursores.current.slice(0, indice + 1), data.siguiente];
+      setInvoices(mapInvoices(data.gastos));
+      setPagina(indice);
+      setHaySiguiente(data.siguiente !== null);
+      setHayFiltrosAplicados(hayFiltrosEnConsulta);
       setExpandedId(null);
-      // Los KPIs describen todo el historial: solo se recalculan con la consulta sin filtros
-      if (query === "") setResumen(calcularResumen(mapped, new Date()));
+      // Los KPIs los calcula el backend sobre todo el historial; vienen solo con la primera página
+      if (data.resumen) setResumen(data.resumen);
     } catch (error) {
       if (busquedaId !== ultimaBusqueda.current) return;
       console.error("Error al cargar las compras:", error);
@@ -118,18 +135,26 @@ export default function ComprasPage() {
     }
   }, []);
 
-  // Carga inicial
-  useEffect(() => {
-    fetchHistorial();
-  }, [fetchHistorial]);
+  /** Búsqueda nueva: vuelve a la primera página. */
+  const buscar = useCallback(
+    (consulta: Consulta) => {
+      cursores.current = [null];
+      cargarPagina(consulta, 0);
+    },
+    [cargarPagina]
+  );
 
-  // Parámetros de llegada: ?estado=revisar (atajo del dashboard) y ?subida=ok (después de subir una factura)
+  // Carga inicial. ?estado=revisar es el atajo del dashboard
+  useEffect(() => {
+    const estado = new URLSearchParams(window.location.search).get("estado");
+    const inicial: StatusFilter = estado === "revisar" || estado === "procesada" || estado === "procesando" ? estado : "todos";
+    setStatusFilter(inicial);
+    buscar({ filtros: FILTROS_VACIOS, estado: inicial });
+  }, [buscar]);
+
+  // ?subida=ok: llegada después de subir una factura
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const estado = params.get("estado");
-    if (estado === "revisar" || estado === "procesada" || estado === "procesando") {
-      setStatusFilter(estado);
-    }
     if (params.get("subida") === "ok") {
       const archivo = params.get("archivo");
       toast({ message: archivo ? <>Factura subida: <strong>{archivo}</strong></> : "Factura subida" });
@@ -139,24 +164,25 @@ export default function ComprasPage() {
 
   function cambiarEstado(estado: StatusFilter) {
     setStatusFilter(estado);
-    setVisible(PAGE_SIZE);
-    setExpandedId(null);
+    buscar({ filtros: ultimaConsulta.current.filtros, estado });
+  }
+
+  function buscarConFiltros(f: FiltrosGastos) {
+    buscar({ filtros: f, estado: statusFilter });
   }
 
   function borrarFiltros() {
     setFiltros(FILTROS_VACIOS);
     setStatusFilter("todos");
     if (hayFiltrosAplicados || filtros.proveedor || filtros.desde || filtros.hasta) {
-      fetchHistorial(FILTROS_VACIOS);
+      buscar({ filtros: FILTROS_VACIOS, estado: "todos" });
     }
   }
 
-  // La búsqueda por proveedor y fechas la hace el backend; acá solo se filtra por estado
-  const contar = (estado: InvoiceStatus) => invoices.filter((i) => i.status === estado).length;
-  const filtered = invoices.filter((inv) => statusFilter === "todos" || inv.status === statusFilter);
-  const shown = filtered.slice(0, visible);
+  // Todos los filtros los aplica el backend: `invoices` ya es la página a mostrar
+  const shown = invoices;
   const hayFiltros = hayFiltrosAplicados || statusFilter !== "todos";
-  const sinFacturas = !isLoading && !fetchError && invoices.length === 0 && !hayFiltrosAplicados;
+  const sinFacturas = !isLoading && !fetchError && invoices.length === 0 && !hayFiltrosAplicados && pagina === 0;
 
   const mesActual = MESES[new Date().getMonth()];
 
@@ -213,16 +239,16 @@ export default function ComprasPage() {
         <section className="card" aria-label="facturas">
           {/* Una sola barra de filtros */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
-            <FiltrosHistorial filtros={filtros} onChange={setFiltros} onBuscar={fetchHistorial} />
+            <FiltrosHistorial filtros={filtros} onChange={setFiltros} onBuscar={buscarConFiltros} />
             <Segmented
               label="estado de la factura"
               value={statusFilter}
               onChange={cambiarEstado}
               options={[
-                { value: "todos", label: "todas", count: invoices.length },
-                { value: "revisar", label: "por revisar", count: contar("revisar") },
-                { value: "procesada", label: "procesadas", count: contar("procesada") },
-                { value: "procesando", label: "procesando", count: contar("procesando") },
+                { value: "todos", label: "todas" },
+                { value: "revisar", label: "por revisar", count: resumen?.porRevisar },
+                { value: "procesada", label: "procesadas" },
+                { value: "procesando", label: "procesando" },
               ]}
             />
             <span style={{ flex: 1 }} />
@@ -235,7 +261,7 @@ export default function ComprasPage() {
             >
               Borrar filtros
             </Button>
-            <Button id="btn-exportar-csv" size="sm" icon="download" disabled={filtered.length === 0} onClick={() => exportarCsv(filtered)}>
+            <Button id="btn-exportar-csv" size="sm" icon="download" disabled={invoices.length === 0} onClick={() => exportarCsv(invoices)}>
               exportar CSV
             </Button>
           </div>
@@ -256,7 +282,7 @@ export default function ComprasPage() {
               <div className="empty-state" role="alert">
                 <span style={{ display: "flex", color: "var(--color-warning-text)" }}><Icon name="wifi_off" size={24} /></span>
                 <p>No pudimos cargar tus compras. Revisá tu conexión y probá de nuevo.</p>
-                <Button variant="warning" size="sm" icon="refresh" onClick={() => fetchHistorial(ultimosFiltros.current)}>
+                <Button variant="warning" size="sm" icon="refresh" onClick={() => cargarPagina(ultimaConsulta.current, ultimaPagina.current)}>
                   reintentar
                 </Button>
               </div>
@@ -268,9 +294,9 @@ export default function ComprasPage() {
                   subir tu primera factura
                 </Button>
               </div>
-            ) : filtered.length === 0 ? (
+            ) : invoices.length === 0 ? (
               <div className="empty-state">
-                <p>No hay facturas con esos filtros.</p>
+                <p>{pagina > 0 ? "No hay más facturas." : "No hay facturas con esos filtros."}</p>
                 <Button size="sm" icon="filter_alt_off" onClick={borrarFiltros}>
                   Borrar filtros
                 </Button>
@@ -327,18 +353,21 @@ export default function ComprasPage() {
             )}
           </div>
 
-          {!isLoading && !fetchError && filtered.length > 0 && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderTop: "1px solid var(--color-border)" }}>
-              <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-                mostrando {shown.length} de {filtered.length === 1 ? "1 factura" : `${filtered.length} facturas`}
-                {hayFiltros && " con estos filtros"}
+          {!fetchError && (pagina > 0 || haySiguiente) && (
+            <nav aria-label="paginación de facturas" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 16px", borderTop: "1px solid var(--color-border)" }}>
+              <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }} aria-live="polite">
+                página {pagina + 1}
+                {hayFiltros && " · con estos filtros"}
               </span>
-              {shown.length < filtered.length && (
-                <Button id="btn-cargar-mas" size="sm" onClick={() => setVisible((v) => v + PAGE_SIZE)}>
-                  cargar más
+              <span style={{ display: "flex", gap: 8 }}>
+                <Button id="btn-pagina-anterior" size="sm" icon="chevron_left" disabled={isLoading || pagina === 0} onClick={() => cargarPagina(ultimaConsulta.current, pagina - 1)}>
+                  Anterior
                 </Button>
-              )}
-            </div>
+                <Button id="btn-pagina-siguiente" size="sm" iconEnd="chevron_right" disabled={isLoading || !haySiguiente} onClick={() => cargarPagina(ultimaConsulta.current, pagina + 1)}>
+                  Siguiente
+                </Button>
+              </span>
+            </nav>
           )}
         </section>
       </div>

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { calcularResumen, leerGastos, mapInvoices, recientes, type Invoice } from "./compras";
+import { calcularResumen, leerGastos, leerPagina, mapInvoices, recientes, type Invoice } from "./compras";
 
 const factura = (date: string, total: number, status: Invoice["status"] = "procesada"): Invoice => ({
   id: `${date}-${total}`,
@@ -75,6 +75,27 @@ describe("leerGastos", () => {
     assert.deepEqual(leerGastos(null), []);
     assert.deepEqual(leerGastos({}), []);
     assert.deepEqual(leerGastos("x"), []);
+  });
+});
+
+describe("leerPagina", () => {
+  const resumen = { totalMes: 1500, facturasMes: 2, variacion: null, porRevisar: 1 };
+
+  it("lee los gastos, el cursor y el resumen", () => {
+    assert.deepEqual(leerPagina({ gastos: [{ gastoID: "a" }], count: 1, siguiente: "abc", resumen }), {
+      gastos: [{ gastoID: "a" }],
+      siguiente: "abc",
+      resumen,
+    });
+  });
+
+  it("sin cursor es la última página, y sin resumen devuelve null", () => {
+    assert.deepEqual(leerPagina({ gastos: [], siguiente: null, resumen: null }), { gastos: [], siguiente: null, resumen: null });
+    assert.deepEqual(leerPagina([{ gastoID: "a" }]), { gastos: [{ gastoID: "a" }], siguiente: null, resumen: null });
+  });
+
+  it("descarta un resumen con campos que no son números", () => {
+    assert.equal(leerPagina({ gastos: [], resumen: { ...resumen, totalMes: "1500" } }).resumen, null);
   });
 });
 
