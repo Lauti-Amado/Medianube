@@ -30,6 +30,7 @@ interface AuthContextType {
     newPassword: string
   ) => Promise<void>;
   signOut: () => void;
+  getIdToken: () => Promise<string>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -211,6 +212,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }),
     []
   );
+  // ── Obtener ID Token de Cognito ─────────────────────────────────────────
+
+  const getIdToken = useCallback((): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const cognitoUser = userPool.getCurrentUser();
+
+      if (!cognitoUser) {
+        reject(new Error("No hay una sesión de usuario activa."));
+        return;
+      }
+
+      cognitoUser.getSession(
+        (err: Error | null, session: CognitoUserSession | null) => {
+          if (err || !session || !session.isValid()) {
+            syncAuthCookie(null);
+            reject(err ?? new Error("La sesión de Cognito no es válida."));
+            return;
+          }
+
+          syncAuthCookie(session);
+
+          const token = session.getIdToken().getJwtToken();
+          resolve(token);
+        }
+      );
+    }),
+    []
+  );
 
   // ── Sign Out ─────────────────────────────────────────────────────────────
 
@@ -236,6 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         forgotPassword,
         confirmForgotPassword,
         signOut,
+        getIdToken,
       }}
     >
       {children}
