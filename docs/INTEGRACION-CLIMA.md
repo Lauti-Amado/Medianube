@@ -139,6 +139,7 @@ Carga ubicación, productos con receta, facturas y 8 semanas de ventas, y corre 
 
 ## Pendientes de otros integrantes
 
-- **Persona 2:** guardar `ubicacion: { ciudad, lat, lon }` en `Medianube-Configuracion` desde el onboarding
-  y la configuración, usando `UpdateItem` y no `PutItem`, para no borrar otros atributos.
+- ~~**Persona 2:** guardar `ubicacion: { ciudad, lat, lon }` en `Medianube-Configuracion` desde el onboarding.~~
+  Resuelto con `PUT /configuracion` (Lambda `guardarConfiguracion`, `UpdateItem`). La pantalla de Configuración
+  todavía no permite cambiar la ubicación en el mapa: solo la guarda el onboarding.
 - **Unificar nombres:** la configuración guarda `margenes`, pero el motor de precios lee `margenObjetivo`.

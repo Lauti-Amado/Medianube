@@ -23,6 +23,7 @@ Para destrabar la integración de punta a punta de `/demanda` y `/clima`, los si
 ### 3. Rutas en Amazon API Gateway (HTTP API `1i2vqeifsi`)
 - **`GET /clima`** → Integración proxy con la Lambda `obtenerClima` (sin authorizer mientras `ModoAutenticacion=dev`).
 - **`GET /demanda`** → Integración proxy con la Lambda `leerDemanda` (sin authorizer mientras `ModoAutenticacion=dev`).
+- **`PUT /configuracion`** → Integración proxy con la Lambda `guardarConfiguracion`, con el authorizer JWT de Cognito (ver `backend/lambdas-consola/README.md`).
 
 ### 4. Permisos IAM
 La cuenta del proyecto es una cuenta AWS estándar con plan gratuito (no AWS Academy, por lo que no existe `LabRole`). Al rol de ejecución de las Lambdas se le otorgaron permisos sobre DynamoDB (`dynamodb:Query`, `dynamodb:GetItem`, `dynamodb:Scan`, `dynamodb:BatchWriteItem`) para `Medianube-Clima`, `Medianube-Predicciones` y `Medianube-Configuracion`.
