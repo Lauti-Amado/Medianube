@@ -12,6 +12,7 @@ import { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 import { useToast } from "../../src/src/components/ui/Toast";
 import { formatMoneda } from "../../lib/formato";
 import { obtenerTokenAuth } from "../../lib/token";
+import { ErrorApi, SesionVencida, mensajeDeError } from "../../lib/errores";
 import { COMPRAS_URL, leerPagina, mapInvoices, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
 import FiltrosHistorial, { FILTROS_VACIOS, type FiltrosGastos } from "./FiltrosHistorial";
 import DesgloseFactura from "./DesgloseFactura";
@@ -102,7 +103,7 @@ export default function ComprasPage() {
 
     try {
       const token = await obtenerTokenAuth();
-      if (!token) throw new Error("Sesión vencida");
+      if (!token) throw new SesionVencida();
 
       const response = await fetch(`${COMPRAS_URL}?${params}`, {
         method: "GET",
@@ -111,8 +112,7 @@ export default function ComprasPage() {
           Authorization: `Bearer ${token}`,
         },
       });
-      if (response.status === 401) throw new Error("Sesión vencida");
-      if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+      if (!response.ok) throw new ErrorApi(response.status);
 
       const data = leerPagina(await response.json());
       if (busquedaId !== ultimaBusqueda.current) return; // llegó una búsqueda más nueva
@@ -127,13 +127,13 @@ export default function ComprasPage() {
       if (data.resumen) setResumen(data.resumen);
     } catch (error) {
       if (busquedaId !== ultimaBusqueda.current) return;
-      console.error("Error al cargar las compras:", error);
+      toast({ tone: "error", message: mensajeDeError(error, "cargar tus compras") });
       setInvoices([]);
       setFetchError(true);
     } finally {
       if (busquedaId === ultimaBusqueda.current) setIsLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   /** Búsqueda nueva: vuelve a la primera página. */
   const buscar = useCallback(
