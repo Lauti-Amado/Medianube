@@ -31,6 +31,8 @@ type Aviso = (typeof AVISOS)[number]["key"];
 
 interface Config {
   nombre: string;
+  rubro: string;
+  ciudad: string;
   sucursales: number;
   margenes: Record<Categoria, string>;
   avisos: Record<Aviso, boolean>;
@@ -40,9 +42,19 @@ interface Config {
 // arranca con estos valores y con el nombre guardado en este navegador.
 const INICIAL: Config = {
   nombre: "",
+  rubro: "",
+  ciudad: "",
   sucursales: 1,
-  margenes: { panadería: "40", pastelería: "45", bebidas: "60" },
-  avisos: { precios: true, faltante: true, demanda: false },
+  margenes: {
+    panadería: "40",
+    pastelería: "45",
+    bebidas: "60",
+  },
+  avisos: {
+    precios: true,
+    faltante: true,
+    demanda: false,
+  },
 };
 
 function margenValido(valor: string): boolean {
@@ -80,7 +92,13 @@ function Fila({ label, htmlFor, primera, children }: { label: string; htmlFor?: 
 export default function ConfiguracionPage() {
   const router = useRouter();
   const toast = useToast();
-  const { user } = useAuth();
+  const {
+    user,  
+  getIdToken,  
+  isLoading: authLoading,
+  } = useAuth();
+  console.log("COGNITO SUB:", user?.sub);
+
   const [nombreGuardado, guardarNombre] = useNombreNegocio();
   const tipoNegocio = useTipoNegocio();
 
@@ -89,17 +107,118 @@ export default function ConfiguracionPage() {
   const [config, setConfig] = useState<Config>(INICIAL);
   const [guardando, setGuardando] = useState(false);
   const [salirA, setSalirA] = useState<string | null>(null); // destino pendiente de confirmar
+  const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState("");
+
+  // ── Cargar configuración desde AWS ──────────────────────────────────────
 
   useEffect(() => {
-    if (!nombreGuardado) return;
-    setGuardado((c) => ({ ...c, nombre: nombreGuardado }));
-    setConfig((c) => ({ ...c, nombre: nombreGuardado }));
-  }, [nombreGuardado]);
+    if (authLoading) return;
+
+    if (!user) {
+      setCargando(false);
+      return;
+    }
+
+    let cancelado = false;
+
+    async function cargarConfiguracion() {
+      setCargando(true);
+      setErrorCarga("");
+
+      try {
+        const token = await getIdToken();
+
+        const response = await fetch(CONFIG_URL, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error(`No se pudo cargar la configuración (HTTP ${response.status}).`);
+        }
+
+        const data = await response.json();
+
+        // Admite tanto una respuesta directa como { configuracion: {...} }.
+        const negocio = data.configuracion ?? data;
+
+        const margenesRecibidos = negocio.margenes ?? {};
+
+        const avisosRecibidos =
+          negocio.notificaciones ?? negocio.avisos ?? {};
+
+        const ubicacion = negocio.ubicacion ?? {};
+
+        const configuracionCargada: Config = {
+          nombre: negocio.nombreNegocio ?? nombreGuardado ?? "",
+          rubro:
+            negocio.rubro ??
+            negocio.tipoLocal ??
+            tipoNegocio ??
+            "",
+          ciudad:
+            negocio.ciudad ??
+            ubicacion.ciudad ??
+            "",
+          sucursales: Number(negocio.sucursales ?? 1),
+          margenes: {
+            panadería: String(margenesRecibidos.panadería ?? 40),
+            pastelería: String(margenesRecibidos.pastelería ?? 45),
+            bebidas: String(margenesRecibidos.bebidas ?? 60),
+          },
+          avisos: {
+            precios: avisosRecibidos.precios ?? true,
+            faltante: avisosRecibidos.faltante ?? true,
+            demanda: avisosRecibidos.demanda ?? false,
+          },
+        };
+
+        if (cancelado) return;
+
+        setConfig(configuracionCargada);
+        setGuardado(configuracionCargada);
+
+        if (configuracionCargada.nombre) {
+          guardarNombre(configuracionCargada.nombre);
+        }
+      } catch (error) {
+        if (cancelado) return;
+
+        console.error("Error al cargar configuración:", error);
+
+        setErrorCarga(
+          error instanceof Error
+            ? error.message
+            : "No se pudo cargar la configuración."
+        );
+      } finally {
+        if (!cancelado) setCargando(false);
+      }
+    }
+
+    void cargarConfiguracion();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [
+    authLoading,
+    user?.sub,
+    getIdToken,
+    nombreGuardado,
+    tipoNegocio,
+    guardarNombre,
+  ]);
 
   const hayCambios = JSON.stringify(config) !== JSON.stringify(guardado);
   const margenesInvalidos = CATEGORIAS.filter((c) => !margenValido(config.margenes[c]));
   const sinNombre = config.nombre.trim() === "";
-  const puedeGuardar = margenesInvalidos.length === 0 && !sinNombre;
+  const puedeGuardar = !cargando && margenesInvalidos.length === 0 && !sinNombre;
 
   // ── Salir con cambios sin guardar ──────────────────────────────────────────
   useEffect(() => {
@@ -129,30 +248,68 @@ export default function ConfiguracionPage() {
   }, [hayCambios]);
 
   // ── Guardar ────────────────────────────────────────────────────────────────
+  // ── Guardar configuración en AWS ────────────────────────────────────────
+
   async function guardar() {
-    if (!puedeGuardar) return;
+    if (!puedeGuardar || guardando) return;
+
     setGuardando(true);
-    const aGuardar: Config = { ...config, nombre: config.nombre.trim() };
+
+    const aGuardar: Config = {
+      ...config,
+      nombre: config.nombre.trim(),
+      rubro: config.rubro.trim(),
+      ciudad: config.ciudad.trim(),
+    };
+
     try {
+      const token = await getIdToken();
+
       const response = await fetch(CONFIG_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          usuarioID: "user_test_123", // Convención unificada
           nombreNegocio: aGuardar.nombre,
-          sucursales: String(aGuardar.sucursales),
-          margenes: aGuardar.margenes,
-          notificaciones: aGuardar.avisos,
+          rubro: aGuardar.rubro,
+          ciudad: aGuardar.ciudad,
+          margenes: {
+            panaderia: Number(aGuardar.margenes.panadería),
+            pasteleria: Number(aGuardar.margenes.pastelería),
+            bebidas: Number(aGuardar.margenes.bebidas),
+          },
         }),
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+
+        throw new Error(
+          errorData.message ||
+          errorData.error ||
+          `Error HTTP ${response.status}`
+        );
+      }
+
+      // Sincroniza el nombre con Dashboard y Sidebar.
       guardarNombre(aGuardar.nombre);
+
       setGuardado(aGuardar);
       setConfig(aGuardar);
+
       toast({ message: "Cambios guardados" });
-    } catch {
-      toast({ tone: "error", message: "No pudimos guardar los cambios. Probá de nuevo." });
+    } catch (error) {
+      console.error("Error al guardar configuración:", error);
+
+      toast({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "No pudimos guardar los cambios. Probá de nuevo.",
+      });
     } finally {
       setGuardando(false);
     }
@@ -163,6 +320,20 @@ export default function ConfiguracionPage() {
       <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 760, margin: "0 auto", paddingBottom: hayCambios ? 80 : 0 }}>
         <div style={{ marginBottom: -16 }}>
           <PageHeader title="Configuración" subtitle="Datos del negocio, márgenes, equipo y avisos." />
+          
+          {cargando && (
+              <p className="field-help">
+                Cargando configuración del negocio...
+              </p>
+          )}
+
+          {errorCarga && (
+            <p className="field-error" role="alert">
+              <Icon name="error" size={14} />
+              {errorCarga}
+            </p>
+          )}
+
         </div>
 
         {/* ── Datos del negocio ──────────────────────────────────────────── */}
@@ -187,9 +358,32 @@ export default function ConfiguracionPage() {
               </p>
             )}
           </Fila>
-          <Fila label="Tipo de negocio">
-            <p style={{ margin: 0 }}>{tipoNegocio ? tipoNegocio[0].toUpperCase() + tipoNegocio.slice(1) : "sin definir"}</p>
-            <p className="field-help" style={{ marginTop: 2 }}>se define al crear la cuenta</p>
+          <Fila label="Rubro" htmlFor="input-rubro">
+            <input
+              id="input-rubro"
+              type="text"
+              className="input"
+              value={config.rubro}
+              placeholder="ej.: Panadería"
+              onChange={(e) =>
+                setConfig((c) => ({ ...c, rubro: e.target.value }))
+              }
+              style={{ width: 320, maxWidth: "100%", padding: "7px 10px" }}
+            />
+          </Fila>
+
+          <Fila label="Ciudad" htmlFor="input-ciudad">
+            <input
+              id="input-ciudad"
+              type="text"
+              className="input"
+              value={config.ciudad}
+              placeholder="ej.: La Plata"
+              onChange={(e) =>
+                setConfig((c) => ({ ...c, ciudad: e.target.value }))
+              }
+              style={{ width: 320, maxWidth: "100%", padding: "7px 10px" }}
+            />
           </Fila>
           <Fila label="Sucursales">
             <Stepper

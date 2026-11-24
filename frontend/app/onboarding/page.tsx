@@ -13,15 +13,30 @@ import PasswordInput from "../../src/src/components/ui/PasswordInput";
 import PasswordRequirements, { cumpleRequisitos } from "../../src/src/components/ui/PasswordRequirements";
 import { useAuth } from "../../lib/auth-context";
 import { guardarNombreNegocio, guardarTipoNegocio } from "../../lib/negocio";
+import dynamic from "next/dynamic";
+import type { Coordinates } from "../../src/src/components/ui/LocationPicker";
+import { apiUrl } from "../../lib/api";
+
+const LocationPicker = dynamic(
+  () => import("../../src/src/components/ui/LocationPicker"),
+  { ssr: false }
+);
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type BusinessType = "panaderia" | "mixto";
+interface Margenes {
+  panaderia: number;
+  pasteleria: number;
+  bebidas: number;
+}
 
 interface FormData {
   businessName: string;
   businessType: BusinessType;
   branches: number;
+  city: string;
+  margenes: Margenes;
   email: string;
   password: string;
   confirmPassword: string;
@@ -165,11 +180,17 @@ function FieldError({ id, children }: { id: string; children?: string }) {
 function Step1({
   data,
   errors,
+  location,
+  authError,
   onUpdate,
   onNext,
+  onLocationChange
 }: {
   data: FormData;
   errors: FieldErrors;
+  location: Coordinates | null;
+  authError: string;
+  onLocationChange: (coordinates: Coordinates) => void;
   onUpdate: (patch: Partial<FormData>) => void;
   onNext: () => void;
 }) {
@@ -185,6 +206,12 @@ function Step1({
         }}
         style={{ ...formStyle, gap: "18px" }}
       >
+        {authError && (
+          <Alert tone="warning" icon="error">
+            {authError}
+          </Alert>
+        )}
+
         <div>
           <label htmlFor="ob-business-name" style={labelStyle}>
             nombre del negocio
@@ -250,6 +277,42 @@ function Step1({
             max={10}
             onChange={(branches) => onUpdate({ branches })}
           />
+        </div>
+
+        <div>
+          <label htmlFor="ob-city" style={labelStyle}>
+            ciudad donde está tu negocio
+          </label>
+
+          <input
+            id="ob-city"
+            type="text"
+            placeholder="ej.: La Plata, Buenos Aires"
+            value={data.city}
+            onChange={(e) => onUpdate({ city: e.target.value })}
+            className="input"
+            autoComplete="address-level2"
+          />
+
+          <p className="field-help">
+            Ingresá la ciudad y buscala en el mapa para ubicar tu negocio.
+          </p>
+        </div>
+
+        <div>
+              <span style={labelStyle}>Selecciona "BUSCAR CIUDAD EN EL MAPA"</span>
+
+              <LocationPicker
+                city={data.city}
+                value={location}
+                onChange={onLocationChange}
+              />
+
+              {!location && (
+                <p className="field-error">
+                  Seleccioná la ubicación de tu negocio en el mapa.
+                </p>
+              )}
         </div>
 
         <p className="field-help" style={{ margin: 0 }}>
@@ -468,7 +531,18 @@ function StepConfirmation({
 
 // ── Step 4: Summary ───────────────────────────────────────────────────────
 
-function StepSummary({ data, onFinish, loading }: { data: FormData; onFinish: () => void; loading: boolean }) {
+
+function StepSummary({
+  data,
+  onFinish,
+  loading,
+  authError,
+}: {
+  data: FormData;
+  onFinish: () => void;
+  loading: boolean;
+  authError: string;
+}) {
   const summaryRows = [
     { label: "negocio", value: data.businessName },
     { label: "tipo", value: BUSINESS_TYPE_LABELS[data.businessType] },
@@ -479,7 +553,10 @@ function StepSummary({ data, onFinish, loading }: { data: FormData; onFinish: ()
   return (
     <>
       <RoundIcon name="check" />
-      <StepHeading title="¡todo listo!" subtitle="tu cuenta está configurada. así quedó tu panadería:" />
+      <StepHeading
+        title="¡todo listo!"
+        subtitle="tu cuenta está configurada. así quedó tu panadería:"
+      />
 
       <dl
         style={{
@@ -498,33 +575,74 @@ function StepSummary({ data, onFinish, loading }: { data: FormData; onFinish: ()
               alignItems: "baseline",
               gap: "16px",
               padding: "10px 14px",
-              borderTop: i === 0 ? "none" : "1px solid var(--color-border-divider)",
+              borderTop:
+                i === 0
+                  ? "none"
+                  : "1px solid var(--color-border-divider)",
             }}
           >
-            <dt style={{ fontSize: "12px", color: "var(--color-text-secondary)", fontWeight: 500 }}>{row.label}</dt>
-            <dd style={{ fontSize: "13px", color: "var(--color-text-primary)", margin: 0, textAlign: "right", overflowWrap: "anywhere" }}>{row.value}</dd>
+            <dt
+              style={{
+                fontSize: "12px",
+                color: "var(--color-text-secondary)",
+                fontWeight: 500,
+              }}
+            >
+              {row.label}
+            </dt>
+            <dd
+              style={{
+                fontSize: "13px",
+                color: "var(--color-text-primary)",
+                margin: 0,
+                textAlign: "right",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {row.value}
+            </dd>
           </div>
         ))}
       </dl>
 
-      <Button variant="primary" block disabled={loading} iconEnd={loading ? undefined : "arrow_forward"} onClick={onFinish} style={submitStyle}>
+      {authError && (
+        <Alert tone="warning" icon="error">
+          {authError}
+        </Alert>
+      )}
+
+      <Button
+        variant="primary"
+        block
+        disabled={loading}
+        iconEnd={loading ? undefined : "arrow_forward"}
+        onClick={onFinish}
+        style={submitStyle}
+      >
         {loading ? "ingresando…" : "ir al panel"}
       </Button>
     </>
   );
 }
 
+
 // ── Main page ─────────────────────────────────────────────────────────────
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { signUp, confirmSignUp, resendSignUpCode, signIn } = useAuth();
+  const { signUp, confirmSignUp, resendSignUpCode, signIn, getIdToken } = useAuth();
 
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<FormData>({
     businessName: "",
     businessType: "panaderia",
     branches: 1,
+    city: "",
+    margenes: {
+      panaderia: 40,
+      pasteleria: 45,
+      bebidas: 60,
+    },
     email: "",
     password: "",
     confirmPassword: "",
@@ -536,13 +654,12 @@ export default function OnboardingPage() {
   const [esperaReenvio, setEsperaReenvio] = useState(0);
   // Cuenta ya creada en Cognito durante este flujo (pendiente de verificar)
   const [registrada, setRegistrada] = useState<{ email: string; password: string } | null>(null);
-
-  // Cuenta regresiva para volver a pedir el código
-  useEffect(() => {
+  const [selectedCoordinates, setSelectedCoordinates] = useState<Coordinates | null>(null);  useEffect(() => {
     if (esperaReenvio <= 0) return;
     const timer = setTimeout(() => setEsperaReenvio((s) => s - 1), 1000);
     return () => clearTimeout(timer);
   }, [esperaReenvio]);
+  const [location, setLocation] = useState<Coordinates | null>(null);
 
   function updateData(patch: Partial<FormData>) {
     setFormData((prev) => ({ ...prev, ...patch }));
@@ -556,10 +673,26 @@ export default function OnboardingPage() {
 
   function validateStep1(): boolean {
     const newErrors: FieldErrors = {};
+
     if (!formData.businessName.trim()) {
       newErrors.businessName = "ingresá el nombre del negocio";
     }
+
+    if (!formData.city.trim()) {
+      setAuthError("ingresá la ciudad donde está tu negocio.");
+      setErrors(newErrors);
+      return false;
+    }
+
+    if (!location) {
+      setAuthError("seleccioná la ubicación de tu negocio en el mapa.");
+      setErrors(newErrors);
+      return false;
+    }
+
+    setAuthError("");
     setErrors(newErrors);
+
     return Object.keys(newErrors).length === 0;
   }
 
@@ -690,19 +823,88 @@ export default function OnboardingPage() {
     setStep(2);
   }
 
-  async function handleFinish() {
+  
+async function handleFinish() {
     setIsSubmitting(true);
+    setAuthError("");
+
     try {
-      // Ingreso automático después del registro
-      await signIn(formData.email, registrada?.password ?? formData.password);
+      // 1. Iniciar sesión en Cognito.
+      await signIn(
+        formData.email,
+        registrada?.password ?? formData.password
+      );
+
+      // 2. Obtener el ID Token de Cognito.
+      const token = await getIdToken();
+
+      if (!token) {
+        throw new Error(
+          "No se pudo obtener el ID Token de Cognito."
+        );
+      }
+
+      // 3. Verificar que exista una ubicación seleccionada.
+      if (!location) {
+        throw new Error(
+          "No se encontró la ubicación del negocio. Volvé al primer paso y seleccioná una ubicación en el mapa."
+        );
+      }
+
+      // 4. Preparar los datos del negocio.
+      const payload = {
+        nombreNegocio: formData.businessName.trim(),
+        tipoLocal: formData.businessType,
+        ciudad: formData.city.trim(),
+        ubicacion: {
+          latitud: location.latitud,
+          longitud: location.longitud,
+        },
+        sucursales: formData.branches,
+        margenes: formData.margenes,
+      };
+
+      // 5. Enviar los datos a la Lambda mediante API Gateway.
+      const response = await fetch(apiUrl("/onboarding"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      // 6. Procesar la respuesta.
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          result.message ||
+          `No se pudo guardar la configuración (HTTP ${response.status}).`
+        );
+      }
+
+      // 7. Guardar los datos locales después de confirmar el guardado.
+      guardarNombreNegocio(formData.businessName.trim());
+      guardarTipoNegocio(formData.businessType);
+
+      // 8. Finalizar el onboarding.
       router.push("/dashboard");
-    } catch {
-      // Si falla, que ingrese a mano
-      router.push("/login");
+
+    } catch (error) {
+      console.error("Error al finalizar el onboarding:", error);
+
+      setAuthError(
+        error instanceof Error
+          ? error.message
+          : "Ocurrió un error inesperado al guardar la configuración."
+      );
+
     } finally {
       setIsSubmitting(false);
     }
-  }
+}
+
 
   return (
     <main
@@ -725,7 +927,7 @@ export default function OnboardingPage() {
         <StepProgress step={step} total={TOTAL_STEPS} />
 
         {step === 1 && (
-          <Step1 data={formData} errors={errors} onUpdate={updateData} onNext={handleNext} />
+          <Step1 data={formData} errors={errors} authError={authError} onUpdate={updateData} onNext={handleNext} location={location} onLocationChange={setLocation}/>
         )}
         {step === 2 && (
           <Step2
@@ -754,7 +956,7 @@ export default function OnboardingPage() {
           />
         )}
         {step === 4 && (
-          <StepSummary data={formData} onFinish={handleFinish} loading={isSubmitting} />
+          <StepSummary data={formData} onFinish={handleFinish} loading={isSubmitting} authError={authError} />
         )}
 
         {step < 3 && (

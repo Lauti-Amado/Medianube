@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Work_Sans } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import "leaflet/dist/leaflet.css";
 
 const workSans = Work_Sans({
   variable: "--font-work-sans",
