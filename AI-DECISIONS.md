@@ -593,3 +593,21 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Mensajes del servidor:** Configuración mostraba en el toast el texto crudo de la API (por ejemplo "Error HTTP 404"); ahora muestra el mensaje según la causa.
 - **Toasts de éxito:** guardar configuración, subir una factura y aplicar un precio ya los tenían; el del onboarding se agrega en la tarea de onboarding, que modifica el mismo bloque de código.
 - **Pruebas:** 3 tests de `mensajeDeError`, `tsc` y lint. En el navegador, con un token inválido contra la API real, Compras y el Dashboard muestran "Tu sesión venció. Volvé a iniciar sesión."
+
+
+## 24/11/2026 - Onboarding persistente con `PUT /configuracion`
+
+**Problema abordado:** el último paso del onboarding mandaba los datos del negocio a `POST /onboarding`, una ruta que no existe en API Gateway (responde 404), así que ningún usuario nuevo podía terminar el registro. `PUT /configuracion`, que usa el botón "guardar" de Configuración, tampoco existía.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5). *Prompt:* "Conectá el último paso de app/onboarding/page.tsx para que guarde en la tabla Medianube-Configuracion el nombre de la panadería, el tipo de comercio, la ciudad/coordenadas y el margen inicial. Fijate si ya existe un endpoint PUT /configuracion y reutilizalo. Si no existe, avisame antes de crear uno." Se avisó que no existía y se aprobó crearlo.
+
+**Código / Arquitectura generada:**
+- **`backend/lambdas-consola/guardarConfiguracion/index.mjs`:** `PUT /configuracion` con `UpdateItem` que solo escribe los campos recibidos (lista blanca y validación de tipos y rangos), toma el usuario del `sub` del token y nunca del body, y conserva `creadoEn` con `if_not_exists`.
+- **Onboarding:** usa `PUT /configuracion`; si guarda bien muestra un toast y va al dashboard, y si falla muestra un toast de error y no avanza.
+- **Configuración:** lee los márgenes con las claves sin tilde con que se guardan.
+
+**Validación y Corrección Humana:**
+- **Formato de la ubicación:** el onboarding mandaba `{ latitud, longitud }`, pero `obtenerClima` lee `{ lat, lon, ciudad }`; con el formato anterior el clima habría ignorado la ubicación y usado la de respaldo. La Lambda rechaza el formato viejo con 400.
+- **Márgenes con y sin tilde:** Configuración guardaba `panaderia` pero leía `panadería`, así que después de guardar mostraba los valores por defecto. Se lee primero la clave sin tilde y después la vieja.
+- **Pruebas:** 8 tests de la Lambda con una tabla simulada (no borra campos existentes, usuario del token, 401 y 10 casos de 400), `tsc` y tests del front. El flujo completo del onboarding no se probó en el navegador porque requiere crear y verificar una cuenta en Cognito.
+- **Pendiente:** crear la función, el permiso y la ruta en la consola (pasos en `backend/lambdas-consola/README.md`), y probar un registro completo con la cuenta real. Sigue abierto unificar `margenes` con el `margenObjetivo` que lee el motor de precios.

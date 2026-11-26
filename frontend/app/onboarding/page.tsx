@@ -9,6 +9,7 @@ import Alert from "../../src/src/components/ui/Alert";
 import Button from "../../src/src/components/ui/Button";
 import StepProgress from "../../src/src/components/ui/StepProgress";
 import Stepper from "../../src/src/components/ui/Stepper";
+import { useToast } from "../../src/src/components/ui/Toast";
 import PasswordInput from "../../src/src/components/ui/PasswordInput";
 import PasswordRequirements, { cumpleRequisitos } from "../../src/src/components/ui/PasswordRequirements";
 import { useAuth } from "../../lib/auth-context";
@@ -630,6 +631,7 @@ function StepSummary({
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const toast = useToast();
   const { signUp, confirmSignUp, resendSignUpCode, signIn, getIdToken } = useAuth();
 
   const [step, setStep] = useState(1);
@@ -823,88 +825,68 @@ export default function OnboardingPage() {
     setStep(2);
   }
 
-  
-async function handleFinish() {
+
+  async function handleFinish() {
     setIsSubmitting(true);
     setAuthError("");
 
     try {
-      // 1. Iniciar sesión en Cognito.
-      await signIn(
-        formData.email,
-        registrada?.password ?? formData.password
-      );
+      // 1. Iniciar sesión en Cognito: la cuenta ya quedó verificada en el paso anterior.
+      await signIn(formData.email, registrada?.password ?? formData.password);
 
-      // 2. Obtener el ID Token de Cognito.
       const token = await getIdToken();
+      if (!token) throw new Error("No pudimos iniciar tu sesión. Probá de nuevo.");
 
-      if (!token) {
-        throw new Error(
-          "No se pudo obtener el ID Token de Cognito."
-        );
-      }
-
-      // 3. Verificar que exista una ubicación seleccionada.
       if (!location) {
-        throw new Error(
-          "No se encontró la ubicación del negocio. Volvé al primer paso y seleccioná una ubicación en el mapa."
-        );
+        throw new Error("Falta la ubicación del negocio. Volvé al primer paso y marcala en el mapa.");
       }
 
-      // 4. Preparar los datos del negocio.
-      const payload = {
-        nombreNegocio: formData.businessName.trim(),
-        tipoLocal: formData.businessType,
-        ciudad: formData.city.trim(),
-        ubicacion: {
-          latitud: location.latitud,
-          longitud: location.longitud,
-        },
-        sucursales: formData.branches,
-        margenes: formData.margenes,
-      };
-
-      // 5. Enviar los datos a la Lambda mediante API Gateway.
-      const response = await fetch(apiUrl("/onboarding"), {
-        method: "POST",
+      // 2. Guardar la configuración en Medianube-Configuracion (PUT /configuracion, Lambda guardarConfiguracion).
+      //    La ubicación va como { lat, lon, ciudad }, el formato que lee el clima.
+      const ciudad = formData.city.trim();
+      const response = await fetch(apiUrl("/configuracion"), {
+        method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          nombreNegocio: formData.businessName.trim(),
+          tipoLocal: formData.businessType,
+          ciudad,
+          sucursales: formData.branches,
+          margenes: formData.margenes,
+          ubicacion: { lat: location.latitud, lon: location.longitud, ciudad },
+        }),
       });
-
-      // 6. Procesar la respuesta.
-      const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         throw new Error(
-          result.message ||
-          `No se pudo guardar la configuración (HTTP ${response.status}).`
+          response.status === 400
+            ? "Revisá los datos del negocio: alguno no es válido."
+            : "No pudimos guardar los datos de tu negocio. Probá de nuevo en unos minutos."
         );
       }
 
-      // 7. Guardar los datos locales después de confirmar el guardado.
+      // 3. Recién con la configuración guardada se pasa al panel.
       guardarNombreNegocio(formData.businessName.trim());
       guardarTipoNegocio(formData.businessType);
-
-      // 8. Finalizar el onboarding.
+      toast({ message: "¡Listo! Guardamos los datos de tu negocio." });
       router.push("/dashboard");
-
     } catch (error) {
-      console.error("Error al finalizar el onboarding:", error);
-
-      setAuthError(
-        error instanceof Error
-          ? error.message
-          : "Ocurrió un error inesperado al guardar la configuración."
-      );
-
+      // TypeError: fetch no llegó al servidor
+      const mensaje =
+        error instanceof TypeError
+          ? "No pudimos guardar los datos de tu negocio. Revisá tu conexión y probá de nuevo."
+          : error instanceof Error
+            ? error.message
+            : "No pudimos guardar los datos de tu negocio. Probá de nuevo.";
+      toast({ tone: "error", message: mensaje });
+      setAuthError(mensaje);
     } finally {
       setIsSubmitting(false);
     }
-}
-
+  }
 
   return (
     <main
