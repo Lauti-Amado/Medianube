@@ -166,9 +166,10 @@ export default function ConfiguracionPage() {
             ubicacion.ciudad ??
             "",
           sucursales: Number(negocio.sucursales ?? 1),
+          // Se guardan sin tilde (panaderia, pasteleria), como los mandan el onboarding y el PUT de esta pantalla
           margenes: {
-            panadería: String(margenesRecibidos.panadería ?? 40),
-            pastelería: String(margenesRecibidos.pastelería ?? 45),
+            panadería: String(margenesRecibidos.panaderia ?? margenesRecibidos.panadería ?? 40),
+            pastelería: String(margenesRecibidos.pasteleria ?? margenesRecibidos.pastelería ?? 45),
             bebidas: String(margenesRecibidos.bebidas ?? 60),
           },
           avisos: {

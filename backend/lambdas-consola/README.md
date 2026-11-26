@@ -26,3 +26,24 @@ Antes de subir el `.zip` hay que preparar la tabla y el rol, en este orden:
 
 Recién ahí subir el `.zip` con `index.mjs`. Si se sube antes de que el índice esté activo, `/compras` responde 500.
 Tests: `npm test` en `backend/` (`tests/lambdas-consola/listarGastos.test.ts`).
+
+## `guardarConfiguracion` (PUT /configuracion)
+
+Guarda la configuración del negocio del usuario logueado (`sub` del token) en `Medianube-Configuracion` con
+`UpdateItem`: escribe solo los campos que llegan en el body y no borra los demás. La usan el último paso del
+onboarding y el botón "guardar" de Configuración. Campos aceptados: `nombreNegocio`, `tipoLocal`, `rubro`,
+`ciudad`, `sucursales`, `margenes` (`panaderia`, `pasteleria`, `bebidas`) y `ubicacion` (`{ lat, lon, ciudad }`,
+el formato que lee `obtenerClima`). Responde `{ configuracion }` con el ítem completo, o `400` con un `message`.
+
+Pasos en la consola:
+
+1. **Función:** Lambda → Crear función `guardarConfiguracion`, `nodejs22.x`, handler `index.handler`, timeout 10 s.
+   Subir el `.zip` con `index.mjs`.
+2. **Permiso:** al rol de la función, `dynamodb:UpdateItem` sobre
+   `arn:aws:dynamodb:us-east-2:<cuenta>:table/Medianube-Configuracion` (además de `AWSLambdaBasicExecutionRole`).
+3. **Variables de entorno (opcionales):** `TABLA_CONFIGURACION` (`Medianube-Configuracion`), `CORS_ORIGIN` (`*`).
+4. **Ruta:** API Gateway → API `1i2vqeifsi` → Rutas → crear `PUT /configuracion`, integración con
+   `guardarConfiguracion` y el mismo authorizer JWT de Cognito que `GET /configuracion`. Sin `sub` responde 401.
+5. **CORS:** en la configuración de CORS de la API, agregar `PUT` a los métodos permitidos.
+
+Tests: `npm test` en `backend/` (`tests/lambdas-consola/guardarConfiguracion.test.ts`).
