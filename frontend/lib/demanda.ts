@@ -5,6 +5,47 @@ import { apiUrl } from "./api";
 
 // Usuario de prueba fijo hasta unificar la identidad con Cognito (ver PENDIENTES-INTEGRACION, P1-1)
 export const DEMANDA_URL = apiUrl("/demanda?usuarioID=user_test_123");
+export const VENTAS_URL = apiUrl("/ventas");
+
+/** Mismo usuario que GET /demanda, hasta unificar Cognito. */
+export const USUARIO_DEMANDA = "user_test_123";
+
+/** Catálogo de respaldo (mismos IDs que el seed de Medianube-Ventas) si todavía no hay predicción. */
+export const CATALOGO_VENTAS: { productoID: string; nombre: string }[] = [
+  { productoID: "medialuna-manteca", nombre: "Medialuna de manteca" },
+  { productoID: "medialuna-jyq", nombre: "Medialuna de jamón y queso" },
+  { productoID: "pan-frances", nombre: "Pan francés" },
+  { productoID: "alfajor-maicena", nombre: "Alfajor de maicena" },
+  { productoID: "torta-ricota", nombre: "Torta de ricota" },
+  { productoID: "cafe-con-leche", nombre: "Café con leche" },
+  { productoID: "te-con-leche", nombre: "Té con leche" },
+];
+
+export interface VentaNueva {
+  fecha: string;
+  productoID: string;
+  cantidad: number;
+  origen?: string;
+}
+
+/** POST /ventas: guarda una fila en Medianube-Ventas. */
+export async function guardarVenta(venta: VentaNueva): Promise<void> {
+  const response = await fetch(VENTAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      usuarioID: USUARIO_DEMANDA,
+      fecha: venta.fecha,
+      productoID: venta.productoID,
+      cantidad: venta.cantidad,
+      origen: venta.origen ?? "manual",
+    }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(typeof body?.error === "string" ? body.error : "No se pudo guardar la venta.");
+  }
+}
 
 export interface ProductoApi {
   productoID: string;
