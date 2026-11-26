@@ -11,7 +11,9 @@ import Icon from "../../src/src/components/ui/Icon";
 import Segmented from "../../src/src/components/ui/Segmented";
 import Skeleton, { SkeletonRows } from "../../src/src/components/ui/Skeleton";
 import { apiUrl } from "../../lib/api";
+import { useToast } from "../../src/src/components/ui/Toast";
 import { DEMANDA_URL, agruparPorDia, isoLocal, resumenSemana, type DemandaApiResponse, type ProductoApi } from "../../lib/demanda";
+import FormularioVenta from "./FormularioVenta";
 
 // ── API ───────────────────────────────────────────────────────────────────────
 
@@ -103,6 +105,8 @@ const ALTO_BARRAS = 150;
 // ── Página ────────────────────────────────────────────────────────────────────
 
 export default function DemandaPage() {
+  const toast = useToast();
+  const [modalVenta, setModalVenta] = useState(false);
   const [productos, setProductos] = useState<ProductoApi[]>([]);
   const [precision, setPrecision] = useState<number | null>(null);
   const [origen, setOrigen] = useState<string | null>(null);
@@ -185,6 +189,14 @@ export default function DemandaPage() {
 
   const columnas: React.CSSProperties = { display: "grid", gridTemplateColumns: `repeat(${dias.length || 7}, minmax(0, 1fr))` };
 
+  const catalogoVenta = useMemo(() => {
+    const vistos = new Map<string, string>();
+    for (const p of productos) {
+      if (p.productoID && !vistos.has(p.productoID)) vistos.set(p.productoID, p.nombre);
+    }
+    return [...vistos.entries()].map(([productoID, nombre]) => ({ productoID, nombre }));
+  }, [productos]);
+
   return (
     <AppLayout activeTab="demanda">
       <div style={{ maxWidth: 1080, margin: "0 auto" }}>
@@ -193,9 +205,14 @@ export default function DemandaPage() {
             title="Predicción de demanda"
             subtitle="Cuánto producir en los próximos días, según tu historial de ventas y el clima."
             action={
-              <Button id="btn-recalcular-demanda" variant="primary" icon="autorenew" disabled={loading} onClick={() => void cargar()}>
-                {loading ? "actualizando…" : "actualizar"}
-              </Button>
+              <>
+                <Button id="btn-registrar-venta" icon="add" onClick={() => setModalVenta(true)}>
+                  registrar venta
+                </Button>
+                <Button id="btn-recalcular-demanda" variant="primary" icon="autorenew" disabled={loading} onClick={() => void cargar()}>
+                  {loading ? "actualizando…" : "actualizar"}
+                </Button>
+              </>
             }
           />
 
@@ -596,6 +613,27 @@ export default function DemandaPage() {
           </section>
         )}
       </div>
+
+      <FormularioVenta
+        open={modalVenta}
+        productos={catalogoVenta}
+        onClose={() => setModalVenta(false)}
+        onGuardada={({ nombre, cantidad, fecha, prediccionOk }) => {
+          toast({
+            tone: prediccionOk ? undefined : "error",
+            message: prediccionOk ? (
+              <>
+                Venta guardada: {cantidad} de {nombre.toLowerCase()} ({fecha}). Predicción actualizada.
+              </>
+            ) : (
+              <>
+                Venta guardada: {cantidad} de {nombre.toLowerCase()} ({fecha}). No se pudo recalcular la predicción.
+              </>
+            ),
+          });
+          void cargar();
+        }}
+      />
     </AppLayout>
   );
 }
