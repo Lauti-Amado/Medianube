@@ -12,9 +12,11 @@ import Button from "../../src/src/components/ui/Button";
 import Icon from "../../src/src/components/ui/Icon";
 import Alert from "../../src/src/components/ui/Alert";
 import Skeleton, { SkeletonRows } from "../../src/src/components/ui/Skeleton";
+import { useToast } from "../../src/src/components/ui/Toast";
 import DemandChart, { DemandLegend, type DemandDay } from "../../src/src/components/dashboard/DemandChart";
 import { useNombreNegocio } from "../../lib/negocio";
 import { formatMoneda } from "../../lib/formato";
+import { ErrorApi, mensajeDeError } from "../../lib/errores";
 import { COMPRAS_URL, calcularResumen, headersCompras, leerGastos, mapInvoices, recientes, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
 import { DEMANDA_URL, agruparPorDia, isoLocal, resumenSemana, type DemandaApiResponse, type DiaDemanda } from "../../lib/demanda";
 import { MARGEN_OBJETIVO_PCT, esAjusteRecomendado, margen, margenPromedio, obtenerUltimaSugerencia, type SugerenciaPrecio } from "../../lib/precios";
@@ -110,6 +112,7 @@ const aFecha = (iso: string) => new Date(`${iso}T12:00:00`);
 
 export default function DashboardPage() {
   const [nombreNegocio] = useNombreNegocio();
+  const toast = useToast();
 
   // La fecha se resuelve en el cliente: evita diferencias con el render del servidor
   const [hoy, setHoy] = useState<Date | null>(null);
@@ -124,29 +127,29 @@ export default function DashboardPage() {
     setCompras((c) => ({ ...c, loading: true, error: false }));
     try {
       const response = await fetch(COMPRAS_URL, { headers: await headersCompras() });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new ErrorApi(response.status);
       const invoices = mapInvoices(leerGastos(await response.json()));
       setCompras({ invoices, resumen: calcularResumen(invoices, new Date()), loading: false, error: false });
       setActualizado(new Date());
     } catch (error) {
-      console.error("Error al cargar las compras:", error);
+      toast({ tone: "error", message: mensajeDeError(error, "cargar tus compras") });
       setCompras({ invoices: [], resumen: null, loading: false, error: true });
     }
-  }, []);
+  }, [toast]);
 
   const cargarDemanda = useCallback(async () => {
     setDemanda((d) => ({ ...d, loading: true, error: false }));
     try {
       const response = await fetch(DEMANDA_URL);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new ErrorApi(response.status);
       const data = (await response.json()) as DemandaApiResponse;
       setDemanda({ dias: agruparPorDia(data.produccion ?? []), loading: false, error: false });
       setActualizado(new Date());
     } catch (error) {
-      console.error("Error al cargar la predicción:", error);
+      toast({ tone: "error", message: mensajeDeError(error, "cargar la predicción de demanda") });
       setDemanda({ dias: [], loading: false, error: true });
     }
-  }, []);
+  }, [toast]);
 
   const cargarPrecios = useCallback(async () => {
     setPrecios((p) => ({ ...p, loading: true, error: false }));
@@ -155,10 +158,10 @@ export default function DashboardPage() {
       setPrecios({ sugerencias, loading: false, error: false });
       setActualizado(new Date());
     } catch (error) {
-      console.error("Error al cargar los precios sugeridos:", error);
+      toast({ tone: "error", message: mensajeDeError(error, "cargar los precios sugeridos") });
       setPrecios({ sugerencias: [], loading: false, error: true });
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     setHoy(new Date());

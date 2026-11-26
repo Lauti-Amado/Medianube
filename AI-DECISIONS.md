@@ -578,6 +578,23 @@ Recomendó Gemini, manteniendo intacta la arquitectura (trigger de S3, Lambda y 
 - **Pruebas:** 13 tests de la Lambda con un índice simulado (orden, límites, página justa, filtros, cursor ajeno, 401/400) y 3 de `leerPagina` en el front. Se probó en el navegador contra un mock local que ejecuta la Lambda real: 23 facturas en páginas de 10, 10 y 3, Anterior/Siguiente y KPIs fijos al cambiar de página.
 - **Pendiente:** crear el índice y el permiso en la consola antes de subir la Lambda (pasos en `backend/lambdas-consola/README.md`), y probarla con la cuenta real.
 
+## 24/11/2026 - Toasts de error en las llamadas a la API
+
+**Problema abordado:** cuando fallaba una llamada a la API, el frontend solo hacía `console.error`: el usuario veía la pantalla vacía o un cartel genérico, sin saber si era la sesión, la conexión o el servidor.
+
+**Prompt / Herramienta utilizada:** Claude Code (Claude Opus 5.5). *Prompt:* "Si el proyecto ya tiene una librería de toasts, usala. Si no, instalá sonner. Buscá los console.error del frontend que estén en llamadas a la API y reemplazalos por un toast de error con un mensaje claro en español."
+
+**Código / Arquitectura generada:**
+- **Sin librería nueva:** el proyecto ya tenía `useToast` (`src/src/components/ui/Toast.tsx`) con tonos de éxito y error, montado para toda la app en `Providers`. Instalar sonner habría dejado dos sistemas de toasts con estilos distintos.
+- **`lib/errores.ts`:** `ErrorApi` (guarda el status HTTP), `SesionVencida` y `mensajeDeError(error, accion)`, que arma el mensaje según la causa: sesión vencida (sin token, 401 o 403), sin conexión (`TypeError` de `fetch`) o un error del servidor.
+- **Pantallas:** Compras, Dashboard (compras, demanda y precios) y Configuración (cargar y guardar) muestran el toast en lugar del `console.error`. Los carteles con "reintentar" que ya había se mantienen.
+
+**Validación y Corrección Humana:**
+- **Mensajes del servidor:** Configuración mostraba en el toast el texto crudo de la API (por ejemplo "Error HTTP 404"); ahora muestra el mensaje según la causa.
+- **Toasts de éxito:** guardar configuración, subir una factura y aplicar un precio ya los tenían; el del onboarding se agrega en la tarea de onboarding, que modifica el mismo bloque de código.
+- **Pruebas:** 3 tests de `mensajeDeError`, `tsc` y lint. En el navegador, con un token inválido contra la API real, Compras y el Dashboard muestran "Tu sesión venció. Volvé a iniciar sesión."
+
+
 ## 24/11/2026 - Onboarding persistente con `PUT /configuracion`
 
 **Problema abordado:** el último paso del onboarding mandaba los datos del negocio a `POST /onboarding`, una ruta que no existe en API Gateway (responde 404), así que ningún usuario nuevo podía terminar el registro. `PUT /configuracion`, que usa el botón "guardar" de Configuración, tampoco existía.

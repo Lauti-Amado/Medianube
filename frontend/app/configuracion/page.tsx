@@ -14,6 +14,7 @@ import { useToast } from "../../src/src/components/ui/Toast";
 import { useAuth } from "../../lib/auth-context";
 import { useNombreNegocio, useTipoNegocio } from "../../lib/negocio";
 import { apiUrl } from "../../lib/api";
+import { ErrorApi, mensajeDeError } from "../../lib/errores";
 
 const CONFIG_URL = apiUrl("/configuracion");
 
@@ -138,9 +139,7 @@ export default function ConfiguracionPage() {
           cache: "no-store",
         });
 
-        if (!response.ok) {
-          throw new Error(`No se pudo cargar la configuración (HTTP ${response.status}).`);
-        }
+        if (!response.ok) throw new ErrorApi(response.status);
 
         const data = await response.json();
 
@@ -190,13 +189,9 @@ export default function ConfiguracionPage() {
       } catch (error) {
         if (cancelado) return;
 
-        console.error("Error al cargar configuración:", error);
-
-        setErrorCarga(
-          error instanceof Error
-            ? error.message
-            : "No se pudo cargar la configuración."
-        );
+        const mensaje = mensajeDeError(error, "cargar tu configuración");
+        toast({ tone: "error", message: mensaje });
+        setErrorCarga(mensaje);
       } finally {
         if (!cancelado) setCargando(false);
       }
@@ -214,6 +209,7 @@ export default function ConfiguracionPage() {
     nombreGuardado,
     tipoNegocio,
     guardarNombre,
+    toast,
   ]);
 
   const hayCambios = JSON.stringify(config) !== JSON.stringify(guardado);
@@ -287,11 +283,7 @@ export default function ConfiguracionPage() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
 
-        throw new Error(
-          errorData.message ||
-          errorData.error ||
-          `Error HTTP ${response.status}`
-        );
+        throw new ErrorApi(response.status, errorData.message || errorData.error || undefined);
       }
 
       // Sincroniza el nombre con Dashboard y Sidebar.
@@ -302,15 +294,7 @@ export default function ConfiguracionPage() {
 
       toast({ message: "Cambios guardados" });
     } catch (error) {
-      console.error("Error al guardar configuración:", error);
-
-      toast({
-        tone: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "No pudimos guardar los cambios. Probá de nuevo.",
-      });
+      toast({ tone: "error", message: mensajeDeError(error, "guardar los cambios") });
     } finally {
       setGuardando(false);
     }
