@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Button from "../../src/src/components/ui/Button";
-import { CATALOGO_VENTAS, guardarVenta, isoLocal } from "../../lib/demanda";
+import { CATALOGO_VENTAS, guardarVenta, isoLocal, recalcularDemanda } from "../../lib/demanda";
 
 interface ProductoOpcion {
   productoID: string;
@@ -13,7 +13,7 @@ interface Props {
   open: boolean;
   productos: ProductoOpcion[];
   onClose: () => void;
-  onGuardada: (detalle: { nombre: string; cantidad: number; fecha: string }) => void;
+  onGuardada: (detalle: { nombre: string; cantidad: number; fecha: string; prediccionOk: boolean }) => void;
 }
 
 const campo: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 6 };
@@ -31,6 +31,7 @@ export default function FormularioVenta({ open, productos, onClose, onGuardada }
   const [cantidad, setCantidad] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const [fase, setFase] = useState<"venta" | "prediccion">("venta");
 
   useEffect(() => {
     const dialog = ref.current;
@@ -46,6 +47,7 @@ export default function FormularioVenta({ open, productos, onClose, onGuardada }
     setProductoID(lista[0]?.productoID ?? "");
     setCantidad("");
     setError(null);
+    setFase("venta");
   }, [open, productos]);
 
   async function enviar(e: React.FormEvent) {
@@ -65,16 +67,25 @@ export default function FormularioVenta({ open, productos, onClose, onGuardada }
     }
 
     setGuardando(true);
+    setFase("venta");
     setError(null);
     try {
       await guardarVenta({ fecha, productoID, cantidad: unidades, origen: "manual" });
       const nombre = opciones.find((p) => p.productoID === productoID)?.nombre ?? productoID;
-      onGuardada({ nombre, cantidad: unidades, fecha });
+      setFase("prediccion");
+      let prediccionOk = true;
+      try {
+        await recalcularDemanda();
+      } catch {
+        prediccionOk = false;
+      }
+      onGuardada({ nombre, cantidad: unidades, fecha, prediccionOk });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar la venta.");
     } finally {
       setGuardando(false);
+      setFase("venta");
     }
   }
 
@@ -92,7 +103,7 @@ export default function FormularioVenta({ open, productos, onClose, onGuardada }
       }}
     >
       <h2 id="venta-titulo">Registrar venta</h2>
-      <p className="dialog-text">Se guarda en el historial de ventas y queda disponible para la predicción.</p>
+      <p className="dialog-text">Se guarda en el historial y se vuelve a calcular la predicción de abajo.</p>
 
       <form onSubmit={enviar} style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>
         <label style={campo}>
@@ -155,7 +166,7 @@ export default function FormularioVenta({ open, productos, onClose, onGuardada }
             cancelar
           </Button>
           <Button id="btn-guardar-venta" type="submit" variant="primary" disabled={guardando}>
-            {guardando ? "guardando…" : "guardar venta"}
+            {guardando ? (fase === "prediccion" ? "actualizando predicción…" : "guardando…") : "guardar venta"}
           </Button>
         </div>
       </form>

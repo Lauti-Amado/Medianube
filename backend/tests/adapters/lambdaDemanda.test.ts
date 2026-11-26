@@ -39,6 +39,18 @@ describe("handler de predecirDemanda", () => {
     assert.deepEqual(llamadas, ["usuario:user_test_123"]);
   });
 
+  it("un POST HTTP con usuarioID en el body predice para ese usuario y responde 200", async () => {
+    const { servicio, llamadas } = crearServicioFalso();
+    const r = await crearHandlerDemanda({ servicio, log: logSilencioso })({
+      rawPath: "/demanda/predecir",
+      requestContext: { http: { method: "POST" } },
+      body: JSON.stringify({ usuarioID: "user_test_123" }),
+    });
+    assert.deepEqual(llamadas, ["usuario:user_test_123"]);
+    assert.equal((r as { statusCode: number }).statusCode, 200);
+    assert.match((r as { body: string }).body, /user_test_123/);
+  });
+
   it("rechaza eventos desconocidos", async () => {
     const { servicio, llamadas } = crearServicioFalso();
     const handler = crearHandlerDemanda({ servicio, log: logSilencioso });

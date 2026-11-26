@@ -6,6 +6,7 @@ import { apiUrl } from "./api";
 // Usuario de prueba fijo hasta unificar la identidad con Cognito (ver PENDIENTES-INTEGRACION, P1-1)
 export const DEMANDA_URL = apiUrl("/demanda?usuarioID=user_test_123");
 export const VENTAS_URL = apiUrl("/ventas");
+export const PREDECIR_DEMANDA_URL = apiUrl("/demanda/predecir");
 
 /** Mismo usuario que GET /demanda, hasta unificar Cognito. */
 export const USUARIO_DEMANDA = "user_test_123";
@@ -26,6 +27,19 @@ export interface VentaNueva {
   productoID: string;
   cantidad: number;
   origen?: string;
+}
+
+/** POST /demanda/predecir: corre predecirDemanda para el usuario de prueba y actualiza Medianube-Predicciones. */
+export async function recalcularDemanda(): Promise<void> {
+  const response = await fetch(PREDECIR_DEMANDA_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ usuarioID: USUARIO_DEMANDA }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(typeof body?.error === "string" ? body.error : "No se pudo actualizar la predicción.");
+  }
 }
 
 /** POST /ventas: guarda una fila en Medianube-Ventas. */

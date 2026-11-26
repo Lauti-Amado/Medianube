@@ -618,8 +618,20 @@ export default function DemandaPage() {
         open={modalVenta}
         productos={catalogoVenta}
         onClose={() => setModalVenta(false)}
-        onGuardada={({ nombre, cantidad, fecha }) => {
-          toast({ message: <>Venta guardada: {cantidad} de {nombre.toLowerCase()} ({fecha})</> });
+        onGuardada={({ nombre, cantidad, fecha, prediccionOk }) => {
+          toast({
+            tone: prediccionOk ? undefined : "error",
+            message: prediccionOk ? (
+              <>
+                Venta guardada: {cantidad} de {nombre.toLowerCase()} ({fecha}). Predicción actualizada.
+              </>
+            ) : (
+              <>
+                Venta guardada: {cantidad} de {nombre.toLowerCase()} ({fecha}). No se pudo recalcular la predicción.
+              </>
+            ),
+          });
+          void cargar();
         }}
       />
     </AppLayout>
