@@ -4,6 +4,7 @@ import { afterEach, describe, it } from "node:test";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
   calcularResumen,
+  calcularSobreprecios,
   codificarCursor,
   decodificarCursor,
   handler,
@@ -151,7 +152,13 @@ describe("listarGastos: resumen", () => {
       ],
       new Date("2026-11-16T15:00:00Z")
     );
-    assert.deepEqual(resumen, { totalMes: 1500, facturasMes: 2, variacion: 100, porRevisar: 1 });
+    assert.deepEqual(resumen, {
+      totalMes: 1500,
+      facturasMes: 2,
+      variacion: 100,
+      porRevisar: 1,
+      sobreprecios: { total: 0, insumos: [] },
+    });
   });
 
   it("toma el mes en la hora de Argentina", () => {
@@ -192,4 +199,105 @@ describe("listarGastos: validaciones", () => {
     const { body } = await pedir({ proveedor: "molino" });
     assert.ok(body.gastos.every((g: Gasto) => g.usuarioID === "u1"));
   });
+});
+
+describe("listarGastos: sobreprecios", () => {
+  const ahora = new Date("2026-11-26T15:00:00Z");
+  const factura = (fecha: string, items: Array<Record<string, unknown>>) => ({ fecha, monto: 1, items });
+
+  it("suma lo pagado de más en las compras del mes contra el promedio de las anteriores", () => {
+    const resultado = calcularSobreprecios(
+      [
+        factura("2026-10-05", [{ descripcion: "Manteca x 5 kg", cantidad: 2, precio_unitario: 6000 }]),
+        factura("2026-11-20", [{ descripcion: "manteca X 5 KG", cantidad: 3, precio_unitario: 6600 }]),
+      ],
+      "2026-11"
+    );
+    assert.deepEqual(resultado, { total: 1800, insumos: [{ nombre: "manteca X 5 KG", variacionPct: 10 }] });
+  });
+
+  it("ignora subas de hasta 5% y los insumos que se compran por primera vez", () => {
+    const resultado = calcularSobreprecios(
+      [
+        factura("2026-10-05", [{ descripcion: "Harina 000", cantidad: 10, precio_unitario: 1000 }]),
+        factura("2026-11-20", [
+          { descripcion: "Harina 000", cantidad: 10, precio_unitario: 1040 },
+          { descripcion: "Cacao", cantidad: 1, precio_unitario: 9000 },
+        ]),
+      ],
+      "2026-11"
+    );
+    assert.deepEqual(resultado, { total: 0, insumos: [] });
+  });
+
+  it("usa las cargas sin ítems (categoría, cantidad y monto) y ordena los insumos por mayor suba", () => {
+    const resultado = calcularSobreprecios(
+      [
+        { fecha: "2026-10-01", cetegoria: "huevos", cantidad: 30, unidad: "u", monto: 3000 },
+        { fecha: "2026-11-10", cetegoria: "huevos", cantidad: 30, unidad: "u", monto: 3600 },
+        factura("2026-10-02", [{ descripcion: "Azucar", cantidad: 5, precio_unitario: 1000 }]),
+        factura("2026-11-11", [{ descripcion: "Azúcar", cantidad: 5, precio_unitario: 1100 }]),
+      ],
+      "2026-11"
+    );
+    assert.equal(resultado.total, 600 + 500);
+    assert.deepEqual(
+      resultado.insumos.map((i) => [i.nombre, i.variacionPct]),
+      [
+        ["huevos", 20],
+        ["Azúcar", 10],
+      ]
+    );
+  });
+
+  it("el resumen lee los ítems de cada factura", async () => {
+    const consultas: Array<{ ProjectionExpression?: string; ExpressionAttributeNames?: Record<string, string> }> = [];
+    DynamoDBDocumentClient.prototype.send = (async (comando: { input: (typeof consultas)[number] }) => {
+      consultas.push(comando.input);
+      return { Items: [] };
+    }) as unknown as typeof sendOriginal;
+    await pedir({ limite: "5" });
+    const resumen = consultas.find((q) => q.ProjectionExpression?.includes("#fecha, monto"));
+    assert.ok(resumen, "no se pidió el resumen");
+    assert.equal(resumen.ExpressionAttributeNames?.["#items"], "items");
+    assert.ok(resumen.ProjectionExpression?.includes("#items"));
+  });
+
+  it("calcularResumen incluye los sobreprecios del mes", () => {
+    const resumen = calcularResumen(
+      [
+        factura("2026-10-05", [{ descripcion: "Manteca", cantidad: 1, precio_unitario: 1000 }]),
+        factura("2026-11-20", [{ descripcion: "Manteca", cantidad: 1, precio_unitario: 1200 }]),
+      ],
+      ahora
+    );
+    assert.deepEqual(resumen.sobreprecios, { total: 200, insumos: [{ nombre: "Manteca", variacionPct: 20 }] });
+  });
+});
+
+describe("listarGastos: consultas válidas para DynamoDB", () => {
+  /** DynamoDB rechaza los alias de ExpressionAttributeNames que no aparecen en ninguna expresión. */
+  function aliasSinUsar(q: Record<string, unknown>): string[] {
+    const nombres = Object.keys((q.ExpressionAttributeNames as Record<string, string> | undefined) ?? {});
+    const expresiones = [q.KeyConditionExpression, q.ProjectionExpression, q.FilterExpression].filter(Boolean).join(" ");
+    return nombres.filter((n) => !new RegExp(`${n}(?![A-Za-z0-9_])`).test(expresiones));
+  }
+
+  for (const [caso, qs] of [
+    ["sin filtros", {}],
+    ["paginado", { limite: "5" }],
+    ["con fechas", { limite: "5", desde: "2026-11-01", hasta: "2026-11-30" }],
+    ["solo desde", { desde: "2026-11-01" }],
+  ] as const) {
+    it(`no declara alias sin usar (${caso})`, async () => {
+      const consultas: Array<Record<string, unknown>> = [];
+      DynamoDBDocumentClient.prototype.send = (async (comando: { input: Record<string, unknown> }) => {
+        consultas.push(comando.input);
+        return { Items: [] };
+      }) as unknown as typeof sendOriginal;
+      await pedir(qs);
+      assert.ok(consultas.length > 0);
+      for (const q of consultas) assert.deepEqual(aliasSinUsar(q), [], JSON.stringify(q));
+    });
+  }
 });

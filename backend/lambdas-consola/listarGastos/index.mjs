@@ -128,7 +128,8 @@ function consultaBase(usuarioID, desde, hasta) {
     TableName: TABLA_GASTOS,
     IndexName: INDICE_USUARIO_FECHA,
     KeyConditionExpression: condicion,
-    ExpressionAttributeNames: { "#fecha": "fecha" },
+    // DynamoDB rechaza alias declarados que no se usan: `#fecha` solo va si hay rango de fechas
+    ...((desde || hasta) && { ExpressionAttributeNames: { "#fecha": "fecha" } }),
     ExpressionAttributeValues: valores,
     ScanIndexForward: false, // más nuevo primero
   };
@@ -191,6 +192,87 @@ export function mesesDeReferencia(ahora, zonaHoraria = ZONA_HORARIA) {
   };
 }
 
+// ── Sobreprecios ───────────────────────────────────────────────────────────
+
+const UMBRAL_SOBREPRECIO_PCT = 5;
+
+const normalizar = (texto) =>
+  String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+/**
+ * Cada compra de un insumo: los ítems que extrajo Gemini de la factura o, en las cargas sin ítems,
+ * la categoría con su cantidad y monto. La clave junta el mismo insumo (sin mayúsculas ni tildes) y unidad.
+ */
+function comprasDeInsumos(gastos) {
+  const compras = [];
+  for (const gasto of gastos) {
+    const fecha = String(gasto.fecha ?? "");
+    if (!fecha) continue;
+    const items = Array.isArray(gasto.items) ? gasto.items : [];
+    if (items.length > 0) {
+      for (const item of items) {
+        const cantidad = Number(item?.cantidad);
+        const precio = Number(item?.precio_unitario ?? item?.precioUnitario);
+        const nombre = String(item?.descripcion ?? "").trim();
+        if (nombre && cantidad > 0 && precio > 0) {
+          compras.push({ clave: `${normalizar(nombre)}|${normalizar(item?.unidad)}`, nombre, fecha, cantidad, precio });
+        }
+      }
+      continue;
+    }
+    const nombre = String(gasto.cetegoria ?? gasto.categoria ?? "").trim();
+    const cantidad = Number(gasto.cantidad);
+    const monto = Number(gasto.monto);
+    if (nombre && cantidad > 0 && monto > 0) {
+      compras.push({ clave: `${normalizar(nombre)}|${normalizar(gasto.unidad)}`, nombre, fecha, cantidad, precio: monto / cantidad });
+    }
+  }
+  return compras;
+}
+
+/**
+ * Lo pagado de más en las compras del mes: cada compra contra el promedio de las compras anteriores del
+ * mismo insumo. Solo cuentan las subas mayores al umbral (5%); un insumo comprado por primera vez no tiene
+ * con qué compararse. Devuelve el total en pesos y los insumos con suba, de mayor a menor (hasta 3).
+ */
+export function calcularSobreprecios(gastos, mesActual, umbralPct = UMBRAL_SOBREPRECIO_PCT) {
+  const porInsumo = new Map();
+  for (const compra of comprasDeInsumos(gastos)) {
+    if (!porInsumo.has(compra.clave)) porInsumo.set(compra.clave, []);
+    porInsumo.get(compra.clave).push(compra);
+  }
+
+  let total = 0;
+  const subas = new Map();
+  for (const [clave, compras] of porInsumo) {
+    for (const compra of compras) {
+      if (!compra.fecha.startsWith(mesActual)) continue;
+      const anteriores = compras.filter((c) => c.fecha < compra.fecha);
+      if (anteriores.length === 0) continue;
+      const promedio = anteriores.reduce((acc, c) => acc + c.precio, 0) / anteriores.length;
+      const variacion = (compra.precio / promedio - 1) * 100;
+      if (variacion <= umbralPct) continue;
+      total += (compra.precio - promedio) * compra.cantidad;
+      if (!subas.has(clave) || subas.get(clave).variacionPct < variacion) {
+        subas.set(clave, { nombre: compra.nombre, variacionPct: variacion });
+      }
+    }
+  }
+
+  return {
+    total: Math.round(total),
+    insumos: [...subas.values()]
+      .sort((a, b) => b.variacionPct - a.variacionPct)
+      .slice(0, 3)
+      .map((s) => ({ nombre: s.nombre, variacionPct: Math.round(s.variacionPct * 10) / 10 })),
+  };
+}
+
 /** Mismos KPIs que calculaba el frontend (`calcularResumen`), pero sobre todo el historial. */
 export function calcularResumen(gastos, ahora) {
   const { actual, anterior } = mesesDeReferencia(ahora);
@@ -216,17 +298,21 @@ export function calcularResumen(gastos, ahora) {
     facturasMes,
     variacion: totalAnterior > 0 ? (totalMes / totalAnterior - 1) * 100 : null,
     porRevisar,
+    sobreprecios: calcularSobreprecios(gastos, actual),
   };
 }
 
 async function leerResumen(usuarioID, ahora) {
   const gastos = [];
+  const base = consultaBase(usuarioID, null, null);
   let inicio;
   do {
     const pagina = await ddb.send(
       new QueryCommand({
-        ...consultaBase(usuarioID, null, null),
-        ProjectionExpression: "#fecha, monto, estado",
+        ...base,
+        // `items` y la categoría con cantidad y unidad alimentan el KPI de sobreprecios
+        ProjectionExpression: "#fecha, monto, estado, #items, categoria, cetegoria, cantidad, unidad",
+        ExpressionAttributeNames: { "#fecha": "fecha", "#items": "items" },
         ExclusiveStartKey: inicio,
       })
     );

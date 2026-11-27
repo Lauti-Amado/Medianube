@@ -86,16 +86,31 @@ describe("leerPagina", () => {
       gastos: [{ gastoID: "a" }],
       siguiente: "abc",
       resumen,
+      sobreprecios: null,
     });
   });
 
   it("sin cursor es la última página, y sin resumen devuelve null", () => {
-    assert.deepEqual(leerPagina({ gastos: [], siguiente: null, resumen: null }), { gastos: [], siguiente: null, resumen: null });
-    assert.deepEqual(leerPagina([{ gastoID: "a" }]), { gastos: [{ gastoID: "a" }], siguiente: null, resumen: null });
+    assert.deepEqual(leerPagina({ gastos: [], siguiente: null, resumen: null }), { gastos: [], siguiente: null, resumen: null, sobreprecios: null });
+    assert.deepEqual(leerPagina([{ gastoID: "a" }]), { gastos: [{ gastoID: "a" }], siguiente: null, resumen: null, sobreprecios: null });
   });
 
   it("descarta un resumen con campos que no son números", () => {
     assert.equal(leerPagina({ gastos: [], resumen: { ...resumen, totalMes: "1500" } }).resumen, null);
+  });
+
+  it("lee los sobreprecios del resumen", () => {
+    const sobreprecios = { total: 1800, insumos: [{ nombre: "Manteca x 5 kg", variacionPct: 10 }] };
+    assert.deepEqual(leerPagina({ gastos: [], resumen: { ...resumen, sobreprecios } }).sobreprecios, sobreprecios);
+  });
+
+  it("sin sobreprecios válidos devuelve null y descarta los insumos mal formados", () => {
+    assert.equal(leerPagina({ gastos: [], resumen: { ...resumen, sobreprecios: { total: "1800", insumos: [] } } }).sobreprecios, null);
+    assert.deepEqual(
+      leerPagina({ gastos: [], resumen: { ...resumen, sobreprecios: { total: 0, insumos: [{ nombre: 3 }, { nombre: "Cacao", variacionPct: 7 }] } } })
+        .sobreprecios,
+      { total: 0, insumos: [{ nombre: "Cacao", variacionPct: 7 }] }
+    );
   });
 });
 
