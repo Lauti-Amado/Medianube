@@ -10,7 +10,7 @@ import Button from "../../src/src/components/ui/Button";
 import Icon from "../../src/src/components/ui/Icon";
 import Segmented from "../../src/src/components/ui/Segmented";
 import Skeleton, { SkeletonRows } from "../../src/src/components/ui/Skeleton";
-import { apiUrl } from "../../lib/api";
+import { cdnUrl, sinCache } from "../../lib/api";
 import { useToast } from "../../src/src/components/ui/Toast";
 import { DEMANDA_URL, agruparPorDia, isoLocal, resumenSemana, type DemandaApiResponse, type ProductoApi } from "../../lib/demanda";
 import FormularioVenta from "./FormularioVenta";
@@ -18,7 +18,8 @@ import FormularioVenta from "./FormularioVenta";
 // ── API ───────────────────────────────────────────────────────────────────────
 
 // Usuario de prueba fijo hasta unificar la identidad con Cognito (ver PENDIENTES-INTEGRACION, P1-1)
-const CLIMA_URL = apiUrl("/clima?usuarioID=user_test_123");
+// Lectura cacheada en CloudFront (30 min)
+const CLIMA_URL = cdnUrl("/clima?usuarioID=user_test_123");
 
 
 interface DiaClima {
@@ -120,14 +121,15 @@ export default function DemandaPage() {
 
   const [diaElegido, setDiaElegido] = useState<string | null>(null);
 
-  const cargar = useCallback(async () => {
+  // `fresco`: saltea la caché de CloudFront (botón "actualizar", reintento y después de cargar una venta)
+  const cargar = useCallback(async (fresco = false) => {
     setLoading(true);
     setClimaLoading(true);
     setError(false);
 
     const prediccion = (async () => {
       try {
-        const response = await fetch(DEMANDA_URL);
+        const response = await fetch(fresco ? sinCache(DEMANDA_URL) : DEMANDA_URL);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = (await response.json()) as DemandaApiResponse;
         setProductos((data.produccion ?? []).filter((p) => p.fecha));
@@ -143,7 +145,7 @@ export default function DemandaPage() {
 
     const pronostico = (async () => {
       try {
-        const response = await fetch(CLIMA_URL);
+        const response = await fetch(fresco ? sinCache(CLIMA_URL) : CLIMA_URL);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = (await response.json()) as ClimaApiResponse;
         setClima(data.disponible === false ? [] : (data.dias ?? []));
@@ -209,7 +211,7 @@ export default function DemandaPage() {
                 <Button id="btn-registrar-venta" icon="add" onClick={() => setModalVenta(true)}>
                   registrar venta
                 </Button>
-                <Button id="btn-recalcular-demanda" variant="primary" icon="autorenew" disabled={loading} onClick={() => void cargar()}>
+                <Button id="btn-recalcular-demanda" variant="primary" icon="autorenew" disabled={loading} onClick={() => void cargar(true)}>
                   {loading ? "actualizando…" : "actualizar"}
                 </Button>
               </>
@@ -224,7 +226,7 @@ export default function DemandaPage() {
                 tone="warning"
                 icon="error"
                 action={
-                  <Button variant="warning" size="sm" icon="refresh" onClick={() => void cargar()}>
+                  <Button variant="warning" size="sm" icon="refresh" onClick={() => void cargar(true)}>
                     reintentar
                   </Button>
                 }
@@ -631,7 +633,7 @@ export default function DemandaPage() {
               </>
             ),
           });
-          void cargar();
+          void cargar(true);
         }}
       />
     </AppLayout>

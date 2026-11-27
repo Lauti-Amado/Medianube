@@ -1,10 +1,11 @@
 // Lectura de la predicción que devuelve GET /demanda, compartida por Demanda y el Dashboard.
 // Que las dos pantallas usen estas mismas funciones es lo que garantiza que muestren los mismos números.
 
-import { apiUrl } from "./api";
+import { apiUrl, cdnUrl } from "./api";
 
 // Usuario de prueba fijo hasta unificar la identidad con Cognito (ver PENDIENTES-INTEGRACION, P1-1)
-export const DEMANDA_URL = apiUrl("/demanda?usuarioID=user_test_123");
+// Lectura cacheada en CloudFront (5 min); para la versión fresca, usar `sinCache(DEMANDA_URL)`.
+export const DEMANDA_URL = cdnUrl("/demanda?usuarioID=user_test_123");
 export const VENTAS_URL = apiUrl("/ventas");
 export const PREDECIR_DEMANDA_URL = apiUrl("/demanda/predecir");
 
