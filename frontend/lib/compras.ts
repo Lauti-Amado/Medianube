@@ -118,13 +118,32 @@ export interface PaginaGastos {
   siguiente: string | null;
   /** KPIs de todo el historial, calculados por el backend. Solo viene en la primera página. */
   resumen: Resumen | null;
+  /** Sobreprecios del mes (`resumen.sobreprecios`), o `null` si la API no los informa. */
+  sobreprecios: Sobreprecios | null;
+}
+
+/** Lo pagado de más este mes respecto del precio habitual de cada insumo (lo calcula `listarGastos`). */
+export interface Sobreprecios {
+  total: number;
+  /** Insumos con suba, de mayor a menor. */
+  insumos: { nombre: string; variacionPct: number }[];
 }
 
 const esNumero = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
+function leerSobreprecios(valor: unknown): Sobreprecios | null {
+  const s = (valor ?? null) as { total?: unknown; insumos?: unknown } | null;
+  if (!s || !esNumero(s.total)) return null;
+  const insumos = (Array.isArray(s.insumos) ? s.insumos : [])
+    .map((i) => (i ?? {}) as { nombre?: unknown; variacionPct?: unknown })
+    .filter((i): i is { nombre: string; variacionPct: number } => typeof i.nombre === "string" && esNumero(i.variacionPct))
+    .map((i) => ({ nombre: i.nombre, variacionPct: i.variacionPct }));
+  return { total: s.total, insumos };
+}
+
 /** Lee la respuesta de GET /compras?limite=N. Un `resumen` incompleto se descarta en lugar de mostrar NaN. */
 export function leerPagina(data: unknown): PaginaGastos {
-  const d = (data ?? {}) as { siguiente?: unknown; resumen?: Partial<Record<keyof Resumen, unknown>> | null };
+  const d = (data ?? {}) as { siguiente?: unknown; resumen?: (Partial<Record<keyof Resumen, unknown>> & { sobreprecios?: unknown }) | null };
   const r = d.resumen;
   const resumen =
     r && esNumero(r.totalMes) && esNumero(r.facturasMes) && esNumero(r.porRevisar) && (r.variacion === null || esNumero(r.variacion))
@@ -134,6 +153,7 @@ export function leerPagina(data: unknown): PaginaGastos {
     gastos: leerGastos(data),
     siguiente: typeof d.siguiente === "string" && d.siguiente ? d.siguiente : null,
     resumen,
+    sobreprecios: leerSobreprecios(r?.sobreprecios),
   };
 }
 

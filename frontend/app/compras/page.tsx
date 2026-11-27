@@ -13,11 +13,19 @@ import { useToast } from "../../src/src/components/ui/Toast";
 import { formatMoneda } from "../../lib/formato";
 import { obtenerTokenAuth } from "../../lib/token";
 import { ErrorApi, SesionVencida, mensajeDeError } from "../../lib/errores";
-import { COMPRAS_URL, leerPagina, mapInvoices, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
+import { COMPRAS_URL, leerPagina, mapInvoices, type Invoice, type InvoiceStatus, type Resumen, type Sobreprecios } from "../../lib/compras";
 import FiltrosHistorial, { FILTROS_VACIOS, type FiltrosGastos } from "./FiltrosHistorial";
 import DesgloseFactura from "./DesgloseFactura";
 
 type StatusFilter = InvoiceStatus | "todos";
+
+/** "manteca x 5 kg, +10,0%" / "a, +8% y b, +6%": los insumos que más subieron, para el pie del KPI. */
+function describirSubas(insumos: Sobreprecios["insumos"]): string {
+  const partes = insumos
+    .slice(0, 2)
+    .map((i) => `${i.nombre.charAt(0).toLowerCase()}${i.nombre.slice(1)}, +${i.variacionPct.toFixed(1).replace(".", ",")}%`);
+  return `${partes.join(" y ")} sobre tu precio habitual`;
+}
 
 /** Lo que se le pide al backend: los filtros de búsqueda y el estado elegido. */
 interface Consulta {
@@ -70,6 +78,7 @@ export default function ComprasPage() {
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [resumen, setResumen] = useState<Resumen | null>(null);
+  const [sobreprecios, setSobreprecios] = useState<Sobreprecios | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [hayFiltrosAplicados, setHayFiltrosAplicados] = useState(false);
@@ -124,7 +133,10 @@ export default function ComprasPage() {
       setHayFiltrosAplicados(hayFiltrosEnConsulta);
       setExpandedId(null);
       // Los KPIs los calcula el backend sobre todo el historial; vienen solo con la primera página
-      if (data.resumen) setResumen(data.resumen);
+      if (data.resumen) {
+        setResumen(data.resumen);
+        setSobreprecios(data.sobreprecios);
+      }
     } catch (error) {
       if (busquedaId !== ultimaBusqueda.current) return;
       toast({ tone: "error", message: mensajeDeError(error, "cargar tus compras") });
@@ -226,12 +238,17 @@ export default function ComprasPage() {
               )
             }
           />
-          {/* MOCK TEMPORAL: la API todavía no informa los sobreprecios detectados */}
+          {/* Lo calcula listarGastos: cada compra del mes contra el precio promedio anterior del mismo insumo */}
           <KpiCard
+            id="kpi-sobreprecios"
             label="Sobreprecios detectados"
-            ia
-            value="$38.200"
-            footer="manteca y grasa bovina, +8,6% sobre tu precio habitual"
+            value={sobreprecios ? formatMoneda(sobreprecios.total) : "—"}
+            loading={!resumen && isLoading}
+            isAlert={!!sobreprecios && sobreprecios.total > 0}
+            footer={
+              sobreprecios &&
+              (sobreprecios.insumos.length > 0 ? describirSubas(sobreprecios.insumos) : "sin sobreprecios este mes")
+            }
           />
         </div>
 
