@@ -9,6 +9,7 @@ import {
   esAjusteRecomendado,
   margen,
   margenPromedio as calcularMargenPromedio,
+  MARGEN_OBJETIVO_PCT,
   type ResultadoPrecios,
   type SugerenciaPrecio,
 } from "../../lib/precios";
@@ -440,7 +441,7 @@ export default function PreciosPage() {
             loading={loading}
             isAlert={aRevisar.length > 0}
             value={<>{aRevisar.length} <small>{aRevisar.length === 1 ? "producto" : "productos"}</small></>}
-            footer={aRevisar.length > 0 ? "la IA sugiere cambiar su precio" : "ningún precio para cambiar"}
+            footer={aRevisar.length > 0 ? `${resultado?.degradado ? "las reglas sugieren" : "la IA sugiere"} cambiar su precio` : "ningún precio para cambiar"}
             onClick={aRevisar.length > 0 ? () => setFiltro("revisar") : undefined}
           />
           <KpiCard
@@ -483,11 +484,23 @@ export default function PreciosPage() {
           </div>
         )}
 
+        {/* ── Calculado sin IA (respaldo por reglas) ───────────────────────── */}
+        {hayResultados && resultado?.degradado && (
+          <div style={{ marginBottom: 16 }}>
+            <Alert id="precios-sin-ia" tone="warning">
+              <strong>La IA no respondió:</strong> estos precios se calcularon con reglas fijas (margen objetivo{" "}
+              {MARGEN_OBJETIVO_PCT}%). Revisalos antes de aplicarlos.
+            </Alert>
+          </div>
+        )}
+
         {/* ── Todo al día ──────────────────────────────────────────────────── */}
         {hayResultados && aRevisar.length === 0 && (
           <div style={{ marginBottom: 16 }}>
             <Alert id="precios-al-dia" tone="success">
-              Todos tus precios están al día: la IA no sugiere ningún cambio.
+              {resultado?.degradado
+                ? `Todos tus precios ya alcanzan el margen objetivo del ${MARGEN_OBJETIVO_PCT}%.`
+                : "Todos tus precios están al día: la IA no sugiere ningún cambio."}
             </Alert>
           </div>
         )}
@@ -582,7 +595,7 @@ export default function PreciosPage() {
                         <div style={{ ...groupHeader, color: "var(--color-success-text)" }}>
                           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <Icon name="check_circle" size={14} />
-                            Estables ({visiblesEstables.length}): la IA no sugiere cambios
+                            Estables ({visiblesEstables.length}): {resultado?.degradado ? "ya alcanzan el margen objetivo" : "la IA no sugiere cambios"}
                           </span>
                         </div>
                         {visiblesEstables.map((item, i) => fila(item, i === 0))}

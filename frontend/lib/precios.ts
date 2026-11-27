@@ -261,7 +261,12 @@ function numeroONull(valor: unknown): number | null {
     : null;
 }
 
-function normalizarSugerencia(entrada: unknown): SugerenciaPrecio {
+/** "reglas" si la API lo informa; cualquier otro valor se trata como cálculo de la IA. */
+function leerOrigen(valor: unknown, porDefecto: "llm" | "reglas" = "llm"): "llm" | "reglas" {
+  return valor === "reglas" ? "reglas" : valor === "llm" ? "llm" : porDefecto;
+}
+
+function normalizarSugerencia(entrada: unknown, origenRespuesta: "llm" | "reglas" = "llm"): SugerenciaPrecio {
   const raw = aCrudo(entrada);
   const precioActual = obtenerNumero(raw.precioActual);
   const precioSugerido = obtenerNumero(
@@ -317,8 +322,8 @@ function normalizarSugerencia(entrada: unknown): SugerenciaPrecio {
       Math.abs(variacionPrecio) < 0.01 ? "estable" : "ajustar",
     justificacion: razonamiento,
     insumosAfectados: [],
-    ajustadoPorReglas: false,
-    origen: "llm",
+    ajustadoPorReglas: leerOrigen(raw.origen, origenRespuesta) === "reglas",
+    origen: leerOrigen(raw.origen, origenRespuesta),
   };
 }
 
@@ -416,7 +421,9 @@ export function normalizarResultadoPrecios(
     ? obj.productosSinCosto
     : [];
 
-  const sugerencias = sugerenciasRaw.map(normalizarSugerencia);
+  // Si la IA falló, la Lambda calcula por reglas y lo informa (tarea 6b)
+  const origen = leerOrigen(obj.origen);
+  const sugerencias = sugerenciasRaw.map((s) => normalizarSugerencia(s, origen));
   const productosSinCosto =
     productosSinCostoRaw.map(normalizarProductoSinCosto);
 
@@ -457,7 +464,7 @@ export function normalizarResultadoPrecios(
 
     // Compatibilidad temporal con la pantalla anterior.
     usuarioID: "",
-    origen: "llm",
+    origen,
     versionPrompt: "",
     generadaEn: fechaGeneracion,
     insumos: Array.isArray(obj.insumos)
@@ -466,8 +473,8 @@ export function normalizarResultadoPrecios(
     productosSinReceta: productosSinCosto.map(
       (producto) => producto.productoID
     ),
-    degradado: false,
-    motivoDegradacion: null,
+    degradado: obj.degradado === true || origen === "reglas",
+    motivoDegradacion: typeof obj.motivoDegradacion === "string" ? obj.motivoDegradacion : null,
     guardado: Boolean(sugerenciaPrecioID),
   };
 }

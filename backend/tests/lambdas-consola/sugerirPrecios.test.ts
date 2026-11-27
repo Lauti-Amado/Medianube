@@ -95,3 +95,41 @@ describe("métodos y CORS", () => {
     assert.equal(respuesta.headers["Access-Control-Allow-Methods"], "OPTIONS,GET,POST");
   });
 });
+
+describe("POST /precios/sugerir sin clave de Gemini", () => {
+  it("calcula por reglas con el motivo sin_api_key", async () => {
+    const tablas: Record<string, unknown[]> = {
+      "Receta-nueva": [{ productoID: "pan", ingredientes: [{ nombre: "harina", cantidad: 1, unidad: "kg" }] }],
+      Producto: [{ productoID: "pan", nombre: "Pan", precioActual: 1000 }],
+      Gastos: [{ gastoID: "g1", categoria: "harina", cantidad: 1, unidad: "kg", monto: 500, fecha: "2026-11-01" }],
+    };
+    simularDynamo((c) => (c.constructor.name === "ScanCommand" ? { Items: tablas[String(c.input.TableName)] ?? [] } : {}));
+
+    const respuesta = await handler({ ...evento("POST"), body: "{}" });
+    const body = JSON.parse(respuesta.body);
+    assert.equal(respuesta.statusCode, 200);
+    assert.equal(body.origen, "reglas");
+    assert.equal(body.motivoDegradacion, "sin_api_key");
+    assert.equal(body.sugerencias[0].precioSugerido, 1250);
+  });
+});
+
+describe("GET /precios/sugerir con una sugerencia calculada por reglas", () => {
+  it("devuelve el origen y el motivo guardados, para mostrar el aviso al volver a entrar", async () => {
+    simularDynamo(() => ({
+      Items: [{ ...fila("r", "2026-11-26T10:00:00.000Z"), origen: "reglas", degradado: true, motivoDegradacion: "timeout" }],
+    }));
+    const body = JSON.parse((await handler(evento("GET"))).body);
+    assert.equal(body.origen, "reglas");
+    assert.equal(body.degradado, true);
+    assert.equal(body.motivoDegradacion, "timeout");
+  });
+
+  it("las sugerencias viejas, sin origen guardado, se informan como llm", async () => {
+    simularDynamo(() => ({ Items: [fila("v", "2026-11-20T10:00:00.000Z")] }));
+    const body = JSON.parse((await handler(evento("GET"))).body);
+    assert.equal(body.origen, "llm");
+    assert.equal(body.degradado, false);
+    assert.equal(body.motivoDegradacion, null);
+  });
+});
