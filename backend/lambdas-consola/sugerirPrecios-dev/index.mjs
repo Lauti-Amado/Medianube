@@ -638,10 +638,19 @@ ${JSON.stringify(products)}
 // 13. LLAMAR A GEMINI
 // ============================================================
 
+/**
+ * Error de la IA: lleva el motivo para que suggestPrices use el respaldo por reglas
+ * (sin_api_key, timeout, error_llm o esquema_invalido) en lugar de responder 500.
+ */
+function falloIA(mensaje, motivo) {
+  return Object.assign(new Error(mensaje), { motivo });
+}
+
 async function callGemini(prompt) {
   if (!GEMINI_API_KEY) {
-    throw new Error(
-      "No está configurada la variable GEMINI_API_KEY."
+    throw falloIA(
+      "No está configurada la variable GEMINI_API_KEY.",
+      "sin_api_key"
     );
   }
 
@@ -689,9 +698,10 @@ async function callGemini(prompt) {
     if (!result.ok) {
       console.error("Error de Gemini:", data);
 
-      throw new Error(
+      throw falloIA(
         data.error?.message ??
-        "Gemini no pudo procesar la solicitud."
+        "Gemini no pudo procesar la solicitud.",
+        "error_llm"
       );
     }
 
@@ -700,8 +710,9 @@ async function callGemini(prompt) {
       .join("");
 
     if (!text) {
-      throw new Error(
-        "Gemini devolvió una respuesta vacía."
+      throw falloIA(
+        "Gemini devolvió una respuesta vacía.",
+        "error_llm"
       );
     }
 
@@ -711,19 +722,24 @@ async function callGemini(prompt) {
     } catch {
       console.error("Respuesta inválida de Gemini:", text);
 
-      throw new Error(
-        "Gemini devolvió un JSON inválido."
+      throw falloIA(
+        "Gemini devolvió un JSON inválido.",
+        "esquema_invalido"
       );
     }
 
   } catch (error) {
     if (error.name === "AbortError") {
-      throw new Error(
-        "Se agotó el tiempo de espera de Gemini."
+      throw falloIA(
+        "Se agotó el tiempo de espera de Gemini.",
+        "timeout"
       );
     }
 
-    throw error;
+    // Un error de red (o cualquier otro al hablar con Gemini) también es una falla de la IA.
+    throw error.motivo
+      ? error
+      : falloIA(error.message ?? "No se pudo consultar a Gemini.", "error_llm");
 
   } finally {
     clearTimeout(timeout);
@@ -742,8 +758,9 @@ function validateSuggestions(
     geminiResult?.sugerencias;
 
   if (!Array.isArray(rawSuggestions)) {
-    throw new Error(
-      "Gemini no devolvió una lista de sugerencias válida."
+    throw falloIA(
+      "Gemini no devolvió una lista de sugerencias válida.",
+      "esquema_invalido"
     );
   }
 
@@ -853,10 +870,45 @@ function validateSuggestions(
 }
 
 // ============================================================
+// 14 b. RESPALDO POR REGLAS (si la IA falla)
+// ============================================================
+
+/**
+ * Precios sin IA: lleva cada producto al margen objetivo (precio = costo / (1 - margen)).
+ * Si el precio actual ya llega a ese margen, lo deja igual. El resultado pasa por
+ * validateSuggestions, que aplica el margen mínimo, el redondeo y el tope de suba.
+ */
+export function preciosPorReglas(products) {
+  return {
+    sugerencias: products.map((product) => {
+      const precioObjetivo =
+        product.costoActual / (1 - MARGEN_OBJETIVO);
+
+      const alcanzaObjetivo =
+        product.precioActual >= precioObjetivo;
+
+      return {
+        productoID: product.productoID,
+
+        precioSugerido: alcanzaObjetivo
+          ? product.precioActual
+          : precioObjetivo,
+
+        razonamiento: alcanzaObjetivo
+          ? `Calculado sin IA: el precio actual ya alcanza el margen objetivo del ${MARGEN_OBJETIVO * 100}%.`
+          : `Calculado sin IA: precio para llegar al margen objetivo del ${MARGEN_OBJETIVO * 100}% con el costo actual.`,
+
+        confianza: "media"
+      };
+    })
+  };
+}
+
+// ============================================================
 // 15. GUARDAR SUGERENCIAS EN DYNAMODB
 // ============================================================
 
-async function saveSuggestions(suggestions) {
+async function saveSuggestions(suggestions, procedencia) {
   const fechaGeneracion = new Date().toISOString();
 
   const sugerenciaPrecioID =
@@ -869,7 +921,10 @@ async function saveSuggestions(suggestions) {
 
     sugerencias: suggestions,
 
-    estado: "pendiente"
+    estado: "pendiente",
+
+    // origen, degradado y motivoDegradacion: el GET los devuelve para mostrar el aviso
+    ...procedencia
   };
 
   await ddb.send(
@@ -940,30 +995,71 @@ async function suggestPrices() {
     );
   }
 
-  // Consultar Gemini.
-  const prompt = buildPrompt(calculableProducts);
+  // Consultar Gemini. Si la IA falla (sin clave, timeout, error o respuesta
+  // inválida), se calcula por reglas con las mismas validaciones.
+  let suggestions;
+  let procedencia = {
+    origen: "llm",
+    degradado: false,
+    motivoDegradacion: null
+  };
 
-  const geminiResult = await callGemini(prompt);
+  try {
+    const prompt = buildPrompt(calculableProducts);
 
-  // Validar las sugerencias.
-  const suggestions = validateSuggestions(
-    geminiResult,
-    calculableProducts
-  );
+    const geminiResult = await callGemini(prompt);
 
-  if (suggestions.length === 0) {
-    throw new Error(
-      "No se obtuvieron sugerencias válidas."
+    suggestions = validateSuggestions(
+      geminiResult,
+      calculableProducts
+    );
+
+    if (suggestions.length === 0) {
+      throw falloIA(
+        "Gemini no devolvió sugerencias válidas para ningún producto.",
+        "esquema_invalido"
+      );
+    }
+
+  } catch (error) {
+    if (!error.motivo) {
+      throw error;
+    }
+
+    console.warn(JSON.stringify({
+      mensaje: "La IA falló: se calculan los precios por reglas",
+      motivo: error.motivo,
+      detalle: error.message
+    }));
+
+    procedencia = {
+      origen: "reglas",
+      degradado: true,
+      motivoDegradacion: error.motivo
+    };
+
+    suggestions = validateSuggestions(
+      preciosPorReglas(calculableProducts),
+      calculableProducts
     );
   }
 
+  suggestions = suggestions.map((suggestion) => ({
+    ...suggestion,
+    origen: procedencia.origen
+  }));
+
   // Guardar el resultado.
-  const saved = await saveSuggestions(suggestions);
+  const saved = await saveSuggestions(suggestions, procedencia);
 
   return {
     success: true,
 
-    mensaje: "Sugerencias generadas correctamente.",
+    mensaje: procedencia.degradado
+      ? "La IA no respondió: los precios se calcularon con reglas."
+      : "Sugerencias generadas correctamente.",
+
+    ...procedencia,
 
     sugerenciaPrecioID: saved.sugerenciaPrecioID,
 
@@ -1233,6 +1329,10 @@ async function obtenerUltimaSugerencia() {
       sugerenciaPrecioID: ultima.sugerenciaPrecioID,
       fechaGeneracion: ultima.fechaGeneracion,
       estado: ultima.estado ?? "pendiente",
+      // Las filas anteriores al respaldo por reglas no guardaban el origen: eran todas de la IA.
+      origen: ultima.origen ?? "llm",
+      degradado: Boolean(ultima.degradado),
+      motivoDegradacion: ultima.motivoDegradacion ?? null,
       cantidadSugerencias: sugerencias.length,
       sugerencias,
       productosSinCosto: []
