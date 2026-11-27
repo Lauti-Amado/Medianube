@@ -301,7 +301,7 @@ function Step1({
         </div>
 
         <div>
-              <span style={labelStyle}>Selecciona "BUSCAR CIUDAD EN EL MAPA"</span>
+              <span style={labelStyle}>Selecciona &quot;BUSCAR CIUDAD EN EL MAPA&quot;</span>
 
               <LocationPicker
                 city={data.city}
