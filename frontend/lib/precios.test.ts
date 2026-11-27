@@ -73,3 +73,27 @@ describe("esAjusteRecomendado", () => {
     assert.equal(esAjusteRecomendado(sugerencia({ precioActual: 30, costoActual: 40, variacionPrecio: 1 })), true);
   });
 });
+
+describe("origen de la sugerencia", () => {
+  it("lee el respaldo por reglas que informa la API", () => {
+    const r = normalizarResultadoPrecios({
+      success: true,
+      origen: "reglas",
+      degradado: true,
+      motivoDegradacion: "timeout",
+      sugerencias: [{ productoID: "pan" }],
+    });
+    assert.equal(r.origen, "reglas");
+    assert.equal(r.degradado, true);
+    assert.equal(r.motivoDegradacion, "timeout");
+    assert.equal(r.sugerencias[0]!.origen, "reglas");
+  });
+
+  it("sin datos de origen asume que la calculó la IA", () => {
+    const r = normalizarResultadoPrecios({ success: true, sugerencias: [{ productoID: "pan" }] });
+    assert.equal(r.origen, "llm");
+    assert.equal(r.degradado, false);
+    assert.equal(r.motivoDegradacion, null);
+    assert.equal(r.sugerencias[0]!.origen, "llm");
+  });
+});
