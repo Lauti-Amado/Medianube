@@ -128,7 +128,8 @@ function consultaBase(usuarioID, desde, hasta) {
     TableName: TABLA_GASTOS,
     IndexName: INDICE_USUARIO_FECHA,
     KeyConditionExpression: condicion,
-    ExpressionAttributeNames: { "#fecha": "fecha" },
+    // DynamoDB rechaza alias declarados que no se usan: `#fecha` solo va si hay rango de fechas
+    ...((desde || hasta) && { ExpressionAttributeNames: { "#fecha": "fecha" } }),
     ExpressionAttributeValues: valores,
     ScanIndexForward: false, // más nuevo primero
   };
@@ -311,7 +312,7 @@ async function leerResumen(usuarioID, ahora) {
         ...base,
         // `items` y la categoría con cantidad y unidad alimentan el KPI de sobreprecios
         ProjectionExpression: "#fecha, monto, estado, #items, categoria, cetegoria, cantidad, unidad",
-        ExpressionAttributeNames: { ...base.ExpressionAttributeNames, "#items": "items" },
+        ExpressionAttributeNames: { "#fecha": "fecha", "#items": "items" },
         ExclusiveStartKey: inicio,
       })
     );

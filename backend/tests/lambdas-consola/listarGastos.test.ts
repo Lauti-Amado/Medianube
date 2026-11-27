@@ -274,3 +274,30 @@ describe("listarGastos: sobreprecios", () => {
     assert.deepEqual(resumen.sobreprecios, { total: 200, insumos: [{ nombre: "Manteca", variacionPct: 20 }] });
   });
 });
+
+describe("listarGastos: consultas válidas para DynamoDB", () => {
+  /** DynamoDB rechaza los alias de ExpressionAttributeNames que no aparecen en ninguna expresión. */
+  function aliasSinUsar(q: Record<string, unknown>): string[] {
+    const nombres = Object.keys((q.ExpressionAttributeNames as Record<string, string> | undefined) ?? {});
+    const expresiones = [q.KeyConditionExpression, q.ProjectionExpression, q.FilterExpression].filter(Boolean).join(" ");
+    return nombres.filter((n) => !new RegExp(`${n}(?![A-Za-z0-9_])`).test(expresiones));
+  }
+
+  for (const [caso, qs] of [
+    ["sin filtros", {}],
+    ["paginado", { limite: "5" }],
+    ["con fechas", { limite: "5", desde: "2026-11-01", hasta: "2026-11-30" }],
+    ["solo desde", { desde: "2026-11-01" }],
+  ] as const) {
+    it(`no declara alias sin usar (${caso})`, async () => {
+      const consultas: Array<Record<string, unknown>> = [];
+      DynamoDBDocumentClient.prototype.send = (async (comando: { input: Record<string, unknown> }) => {
+        consultas.push(comando.input);
+        return { Items: [] };
+      }) as unknown as typeof sendOriginal;
+      await pedir(qs);
+      assert.ok(consultas.length > 0);
+      for (const q of consultas) assert.deepEqual(aliasSinUsar(q), [], JSON.stringify(q));
+    });
+  }
+});
