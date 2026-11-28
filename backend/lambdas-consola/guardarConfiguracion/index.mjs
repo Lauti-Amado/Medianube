@@ -1,10 +1,10 @@
-// guardarConfiguracion: PUT /configuracion. Guarda la configuración del negocio del usuario logueado.
+// guardarConfiguracion: GET y PUT /configuracion. Lee y guarda la configuración del negocio del usuario logueado.
 //
 // La usan el último paso del onboarding y la pantalla de Configuración. Hace un UpdateItem sobre
 // Medianube-Configuracion: solo escribe los campos que vienen en el body y no borra los demás
 // (por ejemplo, la ubicación que lee el clima o datos que agreguen otras pantallas).
 //
-// Body (JSON, todos opcionales pero al menos uno):
+// Body PUT (JSON, todos opcionales pero al menos uno):
 //   nombreNegocio  texto, 1 a 100 caracteres
 //   tipoLocal      texto, hasta 50 (lo manda el onboarding)
 //   rubro          texto, hasta 50 (lo manda Configuración)
@@ -12,12 +12,13 @@
 //   sucursales     entero de 1 a 100
 //   margenes       { panaderia, pasteleria, bebidas }: % entre 0 y 99
 //   ubicacion      { lat, lon, ciudad? }: el formato que lee obtenerClima (parsearUbicacion)
+//   notificaciones { precios, faltante, demanda }: booleanos
 //
-// Respuesta: 200 { configuracion } con el ítem completo después de guardar; 400 si el body es inválido;
+// Respuesta: 200 { configuracion } con el ítem completo; 400 si el body es inválido;
 // 401 sin usuario del token.
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -25,6 +26,7 @@ const TABLA_CONFIGURACION = process.env.TABLA_CONFIGURACION || "Medianube-Config
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 
 const CATEGORIAS_MARGEN = ["panaderia", "pasteleria", "bebidas"];
+const CATEGORIAS_AVISO = ["precios", "faltante", "demanda"];
 
 // ── Respuestas ────────────────────────────────────────────────────────────
 
@@ -85,7 +87,7 @@ export function leerCambios(body) {
 
   if (body.margenes !== undefined) {
     const m = body.margenes;
-    if (!m || typeof m !== "object") throw new ErrorDeEntrada("'margenes' tiene que ser un objeto.");
+    if (!m || typeof m !== "object" || Array.isArray(m)) throw new ErrorDeEntrada("'margenes' tiene que ser un objeto.");
     cambios.margenes = Object.fromEntries(
       CATEGORIAS_MARGEN.map((c) => [c, numero(m[c], `margenes.${c}`, { min: 0, max: 99 })])
     );
@@ -93,12 +95,25 @@ export function leerCambios(body) {
 
   if (body.ubicacion !== undefined) {
     const u = body.ubicacion;
-    if (!u || typeof u !== "object") throw new ErrorDeEntrada("'ubicacion' tiene que ser un objeto.");
+    if (!u || typeof u !== "object" || Array.isArray(u)) throw new ErrorDeEntrada("'ubicacion' tiene que ser un objeto.");
     cambios.ubicacion = {
       lat: numero(u.lat, "ubicacion.lat", { min: -90, max: 90 }),
       lon: numero(u.lon, "ubicacion.lon", { min: -180, max: 180 }),
       ...(u.ciudad != null && { ciudad: texto(u.ciudad, "ubicacion.ciudad", { max: 100 }) }),
     };
+  }
+
+  if (body.notificaciones !== undefined) {
+    const n = body.notificaciones;
+    if (!n || typeof n !== "object" || Array.isArray(n)) {
+      throw new ErrorDeEntrada("'notificaciones' tiene que ser un objeto.");
+    }
+    cambios.notificaciones = Object.fromEntries(
+      CATEGORIAS_AVISO.map((k) => {
+        if (typeof n[k] !== "boolean") throw new ErrorDeEntrada(`'notificaciones.${k}' tiene que ser booleano.`);
+        return [k, n[k]];
+      })
+    );
   }
 
   if (Object.keys(cambios).length === 0) throw new ErrorDeEntrada("No hay ningún campo para guardar.");
@@ -128,10 +143,23 @@ export function armarActualizacion(usuarioID, cambios, ahora) {
 // ── Handler ───────────────────────────────────────────────────────────────
 
 export async function handler(event) {
-  if (event?.requestContext?.http?.method === "OPTIONS") return respuesta(204, {});
+  const metodo = event?.requestContext?.http?.method;
+  if (metodo === "OPTIONS") return respuesta(204, {});
 
   const usuarioID = usuarioDelEvento(event);
   if (!usuarioID) return respuesta(401, { message: "Unauthorized" });
+
+  if (metodo === "GET") {
+    try {
+      const { Item } = await ddb.send(
+        new GetCommand({ TableName: TABLA_CONFIGURACION, Key: { usuarioID } })
+      );
+      return respuesta(200, { configuracion: Item ?? {} });
+    } catch (error) {
+      console.error("Error al leer la configuración:", error);
+      return respuesta(500, { message: "No se pudo leer la configuración." });
+    }
+  }
 
   let cambios;
   try {
