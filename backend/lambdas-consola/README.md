@@ -27,23 +27,25 @@ Antes de subir el `.zip` hay que preparar la tabla y el rol, en este orden:
 Recién ahí subir el `.zip` con `index.mjs`. Si se sube antes de que el índice esté activo, `/compras` responde 500.
 Tests: `npm test` en `backend/` (`tests/lambdas-consola/listarGastos.test.ts`).
 
-## `guardarConfiguracion` (PUT /configuracion)
+## `guardarConfiguracion` (`GET` y `PUT /configuracion`)
 
-Guarda la configuración del negocio del usuario logueado (`sub` del token) en `Medianube-Configuracion` con
-`UpdateItem`: escribe solo los campos que llegan en el body y no borra los demás. La usan el último paso del
-onboarding y el botón "guardar" de Configuración. Campos aceptados: `nombreNegocio`, `tipoLocal`, `rubro`,
-`ciudad`, `sucursales`, `margenes` (`panaderia`, `pasteleria`, `bebidas`) y `ubicacion` (`{ lat, lon, ciudad }`,
-el formato que lee `obtenerClima`). Responde `{ configuracion }` con el ítem completo, o `400` con un `message`.
+Lee y guarda la configuración del negocio del usuario logueado (`sub` del token de Cognito) en `Medianube-Configuracion`:
+- **`GET /configuracion`:** devuelve `{ configuracion: Item ?? {} }` (si el usuario es nuevo y todavía no tiene registro, responde `200` con objeto vacío en lugar de `404`).
+- **`PUT /configuracion`:** hace un `UpdateItem` (*upsert*, crea el ítem si no existe) escribiendo solo los campos que llegan en el body sin borrar otros atributos como `ubicacion`. Campos aceptados: `nombreNegocio`, `tipoLocal`, `rubro`, `ciudad`, `sucursales`, `margenes` (`panaderia`, `pasteleria`, `bebidas`, 0 a 99), `ubicacion` (`{ lat, lon, ciudad }`) y `notificaciones` (`precios`, `faltante`, `demanda`). Responde `200 { configuracion }`, `400` con `message` si el payload es inválido o `401` sin `sub`.
+
+> **Nota de despliegue en AWS:** en API Gateway (`1i2vqeifsi`), tanto `GET /configuracion` como `PUT /configuracion` están integradas con la Lambda `gestionarConfiguracion` (con el authorizer `cognito-jwt`), que ejecuta este mismo `index.mjs`. `POST /configuracion` corresponde a `guardarConfiguracionOnboarding`.
 
 Pasos en la consola:
 
-1. **Función:** Lambda → Crear función `guardarConfiguracion`, `nodejs22.x`, handler `index.handler`, timeout 10 s.
-   Subir el `.zip` con `index.mjs`.
-2. **Permiso:** al rol de la función, `dynamodb:UpdateItem` sobre
-   `arn:aws:dynamodb:us-east-2:<cuenta>:table/Medianube-Configuracion` (además de `AWSLambdaBasicExecutionRole`).
+1. **Función:** en Lambda (`gestionarConfiguracion`), runtime `nodejs22.x`+, handler `index.handler`, timeout 10 s. Subir el `.zip` con `index.mjs`.
+2. **Permisos:** el rol de ejecución necesita `dynamodb:GetItem` y `dynamodb:UpdateItem` sobre `arn:aws:dynamodb:us-east-2:<cuenta>:table/Medianube-Configuracion` (además de `AWSLambdaBasicExecutionRole`).
 3. **Variables de entorno (opcionales):** `TABLA_CONFIGURACION` (`Medianube-Configuracion`), `CORS_ORIGIN` (`*`).
-4. **Ruta:** API Gateway → API `1i2vqeifsi` → Rutas → crear `PUT /configuracion`, integración con
-   `guardarConfiguracion` y el mismo authorizer JWT de Cognito que `GET /configuracion`. Sin `sub` responde 401.
-5. **CORS:** en la configuración de CORS de la API, agregar `PUT` a los métodos permitidos.
+4. **Rutas y CORS:** `GET /configuracion` y `PUT /configuracion` con el authorizer JWT de Cognito (`cognito-jwt`), y `GET,PUT,OPTIONS` habilitados en CORS.
 
 Tests: `npm test` en `backend/` (`tests/lambdas-consola/guardarConfiguracion.test.ts`).
+
+## `sugerirPrecios-dev` (`GET` y `POST /precios/sugerir`)
+
+Motor oficial de sugerencias de precios con Google Gemini y respaldo determinístico por reglas cuando la IA no responde o falta la API key. El contrato completo, tablas y variables de entorno están documentados en [`docs/MOTOR-PRECIOS-DECISION.md`](../../docs/MOTOR-PRECIOS-DECISION.md).
+
+Tests: `npm test` en `backend/` (`tests/lambdas-consola/sugerirPrecios.test.ts` y `sugerirPreciosReglas.test.ts`).
