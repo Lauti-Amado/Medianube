@@ -20,7 +20,7 @@ import { ErrorApi, mensajeDeError } from "../../lib/errores";
 import { COMPRAS_URL, calcularResumen, headersCompras, leerGastos, mapInvoices, recientes, type Invoice, type InvoiceStatus, type Resumen } from "../../lib/compras";
 import { DEMANDA_URL, agruparPorDia, isoLocal, resumenSemana, type DemandaApiResponse, type DiaDemanda } from "../../lib/demanda";
 import { MARGEN_OBJETIVO_PCT, esAjusteRecomendado, margen, margenPromedio, obtenerUltimaSugerencia, type SugerenciaPrecio } from "../../lib/precios";
-
+import { apiUrl } from "../../lib/api";
 // ── Shared styles ─────────────────────────────────────────────────────────
 
 const row: React.CSSProperties = {
@@ -113,6 +113,7 @@ const aFecha = (iso: string) => new Date(`${iso}T12:00:00`);
 export default function DashboardPage() {
   const [nombreNegocio] = useNombreNegocio();
   const toast = useToast();
+  const [exportandoReporte, setExportandoReporte] = useState(false);
 
   // La fecha se resuelve en el cliente: evita diferencias con el render del servidor
   const [hoy, setHoy] = useState<Date | null>(null);
@@ -122,6 +123,117 @@ export default function DashboardPage() {
   const [compras, setCompras] = useState<EstadoCompras>({ invoices: [], resumen: null, loading: true, error: false });
   const [demanda, setDemanda] = useState<EstadoDemanda>({ dias: [], loading: true, error: false });
   const [precios, setPrecios] = useState<EstadoPrecios>({ sugerencias: [], loading: true, error: false });
+
+
+const exportarReporte = async () => {
+  if (exportandoReporte) return;
+
+  setExportandoReporte(true);
+
+  try {
+    const headers = await headersCompras();
+
+    // 1. Solicitar la generación del reporte
+    const solicitud = await fetch(apiUrl("/reportes"), {
+      method: "POST",
+      headers,
+    });
+
+    const solicitudData = await solicitud.json();
+
+    if (!solicitud.ok) {
+      throw new Error(
+        solicitudData.mensaje || "No se pudo solicitar el reporte."
+      );
+    }
+
+    const reporteID = solicitudData.reporteID;
+
+    if (!reporteID) {
+      throw new Error("El servidor no devolvió el ID del reporte.");
+    }
+
+    toast({
+      tone: "success",
+      message: "Reporte solicitado. Estamos generando el PDF.",
+    });
+
+    // 2. Consultar el estado cada 3 segundos
+    let completado = false;
+
+    for (let intento = 0; intento < 60; intento++) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+
+      const estadoResponse = await fetch(
+        apiUrl(`/reportes/${encodeURIComponent(reporteID)}`),
+        { headers }
+      );
+
+      const estadoData = await estadoResponse.json();
+
+      if (!estadoResponse.ok) {
+        throw new Error(
+          estadoData.mensaje || "No se pudo consultar el reporte."
+        );
+      }
+
+      if (estadoData.estado === "COMPLETADO") {
+        completado = true;
+        break;
+      }
+
+      if (estadoData.estado === "ERROR") {
+        throw new Error("Ocurrió un error al generar el PDF.");
+      }
+    }
+
+    if (!completado) {
+      throw new Error(
+        "El reporte todavía está procesándose. Podés volver a intentarlo más tarde."
+      );
+    }
+
+    // 3. Solicitar URL de descarga
+    const descargaResponse = await fetch(
+      apiUrl(`/reportes/${encodeURIComponent(reporteID)}/descarga`),
+      { headers }
+    );
+
+    const descargaData = await descargaResponse.json();
+
+    if (!descargaResponse.ok) {
+      throw new Error(
+        descargaData.mensaje || "No se pudo obtener el PDF."
+      );
+    }
+
+    if (!descargaData.url) {
+      throw new Error("El servidor no devolvió la URL de descarga.");
+    }
+
+    // 4. Abrir el PDF
+    window.location.assign(descargaData.url);
+
+    toast({
+      tone: "success",
+      message: "¡El reporte está listo!",
+    });
+
+  } catch (error) {
+    console.error("Error al exportar reporte:", error);
+
+    toast({
+      tone: "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : mensajeDeError(error, "generar el reporte"),
+    });
+  } finally {
+    setExportandoReporte(false);
+  }
+};
+
 
   const cargarCompras = useCallback(async () => {
     setCompras((c) => ({ ...c, loading: true, error: false }));
@@ -206,6 +318,22 @@ export default function DashboardPage() {
           title={hoy ? (nombreNegocio ? `${getGreeting(hoy)}, ${nombreNegocio}` : getGreeting(hoy)) : " "}
           subtitle={subtitle}
         />
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginBottom: "16px",
+          }}
+        >
+          <Button
+            variant="accent"
+            size="sm"
+            disabled={exportandoReporte}
+            onClick={() => void exportarReporte()}
+          >
+            {exportandoReporte ? "Generando reporte..." : "Exportar reporte"}
+          </Button>
+        </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {/* ── 2. KPIs: margen, producción de mañana y facturas por revisar ── */}
