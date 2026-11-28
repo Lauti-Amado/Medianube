@@ -20,10 +20,12 @@ Para destrabar la integración de punta a punta de `/demanda` y `/clima`, los si
 | `obtenerClima` | `nodejs22.x` | Bundle de `dist/obtenerClima/index.mjs` | `TABLA_CLIMA=Medianube-Clima`, `TABLA_CONFIGURACION=Medianube-Configuracion`, `PERMITIR_USUARIO_QUERY=true`, `ZONA_HORARIA=America/Argentina/Buenos_Aires` |
 | `leerDemanda` | `nodejs22.x` | Bundle de `dist/leerDemanda/index.mjs` | `TABLA_PREDICCIONES=Medianube-Predicciones`, `PERMITIR_USUARIO_QUERY=true`, `ZONA_HORARIA=America/Argentina/Buenos_Aires` |
 
-### 3. Rutas en Amazon API Gateway (HTTP API `1i2vqeifsi`)
-- **`GET /clima`** → Integración proxy con la Lambda `obtenerClima` (sin authorizer mientras `ModoAutenticacion=dev`).
-- **`GET /demanda`** → Integración proxy con la Lambda `leerDemanda` (sin authorizer mientras `ModoAutenticacion=dev`).
-- **`PUT /configuracion`** → Integración proxy con la Lambda `guardarConfiguracion`, con el authorizer JWT de Cognito (ver `backend/lambdas-consola/README.md`).
+### 3. Rutas en Amazon API Gateway (HTTP API `1i2vqeifsi`) y recursos adicionales
+- **`GET /clima`** → Integración proxy con la Lambda `obtenerClima` (cacheada en CloudFront `d2nm15i6i0na2r.cloudfront.net`, ver [`docs/EDGE-CACHING.md`](EDGE-CACHING.md)).
+- **`GET /demanda`** → Integración proxy con la Lambda `leerDemanda` (cacheada en CloudFront, ver [`docs/EDGE-CACHING.md`](EDGE-CACHING.md)).
+- **`GET /configuracion` y `PUT /configuracion`** → Integración proxy con la Lambda `gestionarConfiguracion` (código sincronizado con `backend/lambdas-consola/guardarConfiguracion/index.mjs`), protegidas con el authorizer `cognito-jwt`.
+- **`POST /configuracion`** → Integración proxy con `guardarConfiguracionOnboarding` (onboarding).
+- **Load Leveling (SQS):** cola `medianube-facturas-queue` (Visibility Timeout 90 s) interpuesta entre el bucket S3 de facturas y la Lambda `procesarFactura`.
 
 ### 4. Permisos IAM
 La cuenta del proyecto es una cuenta AWS estándar con plan gratuito (no AWS Academy, por lo que no existe `LabRole`). Al rol de ejecución de las Lambdas se le otorgaron permisos sobre DynamoDB (`dynamodb:Query`, `dynamodb:GetItem`, `dynamodb:Scan`, `dynamodb:BatchWriteItem`) para `Medianube-Clima`, `Medianube-Predicciones` y `Medianube-Configuracion`.

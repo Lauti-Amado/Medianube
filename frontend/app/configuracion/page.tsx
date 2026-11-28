@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppLayout from "../../src/src/components/layout/AppLayout";
 import PageHeader from "../../src/src/components/ui/PageHeader";
 import Card from "../../src/src/components/ui/Card";
@@ -60,7 +60,7 @@ const INICIAL: Config = {
 
 function margenValido(valor: string): boolean {
   const n = Number(valor);
-  return valor.trim() !== "" && Number.isFinite(n) && n >= 0 && n <= 100;
+  return valor.trim() !== "" && Number.isFinite(n) && n >= 0 && n <= 99;
 }
 
 // ── Piezas ─────────────────────────────────────────────────────────────────────
@@ -98,10 +98,16 @@ export default function ConfiguracionPage() {
   getIdToken,  
   isLoading: authLoading,
   } = useAuth();
-  console.log("COGNITO SUB:", user?.sub);
 
+  const userSub = user?.sub;
   const [nombreGuardado, guardarNombre] = useNombreNegocio();
   const tipoNegocio = useTipoNegocio();
+  const nombreGuardadoRef = useRef(nombreGuardado);
+  const tipoNegocioRef = useRef(tipoNegocio);
+  useEffect(() => {
+    nombreGuardadoRef.current = nombreGuardado;
+    tipoNegocioRef.current = tipoNegocio;
+  }, [nombreGuardado, tipoNegocio]);
 
   // `guardado` es lo último que se guardó; `config`, lo que se ve en pantalla
   const [guardado, setGuardado] = useState<Config>(INICIAL);
@@ -116,7 +122,7 @@ export default function ConfiguracionPage() {
   useEffect(() => {
     if (authLoading) return;
 
-    if (!user) {
+    if (!userSub) {
       setCargando(false);
       return;
     }
@@ -154,11 +160,11 @@ export default function ConfiguracionPage() {
         const ubicacion = negocio.ubicacion ?? {};
 
         const configuracionCargada: Config = {
-          nombre: negocio.nombreNegocio ?? nombreGuardado ?? "",
+          nombre: negocio.nombreNegocio ?? nombreGuardadoRef.current ?? "",
           rubro:
             negocio.rubro ??
             negocio.tipoLocal ??
-            tipoNegocio ??
+            tipoNegocioRef.current ??
             "",
           ciudad:
             negocio.ciudad ??
@@ -202,15 +208,7 @@ export default function ConfiguracionPage() {
     return () => {
       cancelado = true;
     };
-  }, [
-    authLoading,
-    user?.sub,
-    getIdToken,
-    nombreGuardado,
-    tipoNegocio,
-    guardarNombre,
-    toast,
-  ]);
+  }, [authLoading, userSub, getIdToken, guardarNombre, toast]);
 
   const hayCambios = JSON.stringify(config) !== JSON.stringify(guardado);
   const margenesInvalidos = CATEGORIAS.filter((c) => !margenValido(config.margenes[c]));
@@ -272,11 +270,13 @@ export default function ConfiguracionPage() {
           nombreNegocio: aGuardar.nombre,
           rubro: aGuardar.rubro,
           ciudad: aGuardar.ciudad,
+          sucursales: aGuardar.sucursales,
           margenes: {
             panaderia: Number(aGuardar.margenes.panadería),
             pasteleria: Number(aGuardar.margenes.pastelería),
             bebidas: Number(aGuardar.margenes.bebidas),
           },
+          notificaciones: aGuardar.avisos,
         }),
       });
 
@@ -403,7 +403,7 @@ export default function ConfiguracionPage() {
                       type="number"
                       inputMode="decimal"
                       min={0}
-                      max={100}
+                      max={99}
                       className="input num"
                       value={config.margenes[cat]}
                       aria-invalid={invalido || undefined}
@@ -421,7 +421,7 @@ export default function ConfiguracionPage() {
                   {invalido && (
                     <p id={`${id}-error`} className="field-error">
                       <Icon name="error" size={14} />
-                      poné un porcentaje entre 0 y 100.
+                      poné un porcentaje entre 0 y 99.
                     </p>
                   )}
                 </Fila>
